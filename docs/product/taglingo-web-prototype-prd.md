@@ -199,6 +199,7 @@ The prototype is hosted from GitHub on Cloudflare Pages. Thin Pages Functions en
 
 ## Further Notes
 
+- Wayfinder implementation handoff: [TagLingo Wayfinder Handoff](./taglingo-wayfinder-handoff.md)
 - Gated-access research: [report](https://github.com/kzokv/taglingo/blob/b5b436ab6f10a947ce76ac38e191a6f22eb6c723/docs/research/gated-access-model.md)
 - On-device recognition research: [report](https://github.com/kzokv/taglingo/blob/6c55d6ca6cb10ae57338b5f342f0d4735e128e1c/docs/research/on-device-price-recognition.md)
 - FX provider and cache research: [report](https://github.com/kzokv/taglingo/blob/34541f5a63477147b1d6463428eb4a9f0d2e49f8/docs/research/fx-provider-contract.md)
