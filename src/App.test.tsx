@@ -7,10 +7,24 @@ import {
   within
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import type { GuestReferenceRate } from "./fx/referenceRate";
 import type { JpyOcrRecognizer } from "./recognition/jpyOcrRecognizer";
+
+const DEFAULT_RATE: GuestReferenceRate = {
+  source: "JPY",
+  target: "USD",
+  direction: "source-to-target",
+  value: "0.0067123",
+  provider: "Frankfurter",
+  method: "daily-blend",
+  providerPublishedDate: "2026-07-30",
+  fetchedAt: "2026-07-30T10:00:00.000Z",
+  state: "fresh",
+  attribution: "Frankfurter · ECB, BOJ"
+};
 
 function createMediaStream() {
   const track = {
@@ -46,8 +60,53 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+beforeEach(() => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(DEFAULT_RATE));
+});
+
 describe("Guest camera journey", () => {
-  it("explains privacy before opening the rear camera without network traffic", async () => {
+  it("converts the Focused Price with one dated Reference Rate without refreshing for recognition observations", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadGuestRate = vi.fn().mockResolvedValue(DEFAULT_RATE);
+
+    render(<App loadGuestRate={loadGuestRate} />);
+    await waitFor(() =>
+      expect(loadGuestRate).toHaveBeenCalledWith("JPY", "USD", expect.anything())
+    );
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(
+      await screen.findByText(/focused price · jpy 4,142/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+    expect(screen.getByText("1 JPY = 0.0067123 USD")).toBeInTheDocument();
+    expect(screen.getByText(/effective 2026-07-30/i)).toBeInTheDocument();
+    expect(screen.getByText("Frankfurter · ECB, BOJ")).toBeInTheDocument();
+    expect(
+      screen.getByText("Reference estimate; your payment rate may differ.")
+    ).toBeInTheDocument();
+    expect(loadGuestRate).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the selected Reference Rate when the application resumes", async () => {
+    useMediaDevices(vi.fn());
+    const loadGuestRate = vi.fn().mockResolvedValue(DEFAULT_RATE);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+
+    render(<App loadGuestRate={loadGuestRate} />);
+    await waitFor(() => expect(loadGuestRate).toHaveBeenCalledOnce());
+    fireEvent(document, new Event("visibilitychange"));
+    expect(loadGuestRate).toHaveBeenCalledOnce();
+
+    visibility.mockReturnValue("visible");
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(loadGuestRate).toHaveBeenCalledTimes(2));
+  });
+
+  it("explains privacy before opening the rear camera without camera-driven network traffic", async () => {
     const user = userEvent.setup();
     const { stream, track } = createMediaStream();
     const getUserMedia = vi.fn().mockResolvedValue(stream);
@@ -73,7 +132,14 @@ describe("Guest camera journey", () => {
       audio: false,
       video: { facingMode: { ideal: "environment" } }
     });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/fx?source=JPY&target=USD",
+      expect.objectContaining({
+        credentials: "same-origin",
+        signal: expect.any(AbortSignal)
+      })
+    );
 
     await user.click(screen.getByRole("button", { name: /close camera/i }));
     expect(track.stop).toHaveBeenCalled();
@@ -260,7 +326,7 @@ describe("Guest camera journey", () => {
     ).toHaveClass("focused-detection");
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
   it("searches one Target Currency and restores Guest preferences after reload", async () => {

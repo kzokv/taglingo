@@ -26,4 +26,16 @@ describe("Guest Preference Store", () => {
       targetCurrency: "USD"
     });
   });
+
+  it("does not restore an invalid same-currency conversion pair", () => {
+    window.localStorage.setItem(
+      "taglingo.guest-preferences.v1",
+      JSON.stringify({ sourceCurrency: "JPY", targetCurrency: "JPY" })
+    );
+
+    expect(createGuestPreferenceStore(window.localStorage).load()).toEqual({
+      sourceCurrency: "JPY",
+      targetCurrency: "USD"
+    });
+  });
 });

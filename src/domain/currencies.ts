@@ -52,8 +52,8 @@ export const SOURCE_CURRENCIES = [
   { code: "CHF", name: "Swiss Franc", aliases: ["franc", "瑞士法郎"] }
 ] as const satisfies readonly Currency[];
 
-// Wayfinder verified this Frankfurter v2 catalog on 2026-07-30. Issue #19
-// replaces this build-time catalog with the FX Gateway's authoritative view.
+// Wayfinder verified these searchable prototype targets with Frankfurter v2
+// on 2026-07-30. The FX Gateway remains authoritative for pair availability.
 const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [
   { code: "BRL", name: "Brazilian Real", aliases: ["real", "real brasileiro"] },
   { code: "CZK", name: "Czech Koruna", aliases: ["koruna", "česká koruna"] },
