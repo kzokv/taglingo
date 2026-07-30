@@ -23,6 +23,14 @@ function createStream(track: MediaStreamTrack) {
   } as unknown as MediaStream;
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 describe("Camera Session", () => {
   it("starts with a rear-camera preference and no audio", async () => {
     const track = createTrack();
@@ -123,6 +131,39 @@ describe("Camera Session", () => {
 
     expect(track.stop).toHaveBeenCalledOnce();
     expect(session.getSnapshot().status).toBe("interrupted");
+    session.dispose();
+  });
+
+  it("keeps a newer camera active when an invalidated request resolves later", async () => {
+    const firstRequest = createDeferred<MediaStream>();
+    const secondRequest = createDeferred<MediaStream>();
+    const staleTrack = createTrack();
+    const activeTrack = createTrack();
+    const activeStream = createStream(activeTrack);
+    const getUserMedia = vi
+      .fn()
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+    const session = createCameraSession({
+      mediaDevices: { getUserMedia } as unknown as MediaDevices,
+      document: window.document
+    });
+
+    const staleStart = session.start();
+    session.stop();
+    const activeStart = session.start();
+    secondRequest.resolve(activeStream);
+    await activeStart;
+
+    firstRequest.resolve(createStream(staleTrack));
+    await staleStart;
+
+    expect(staleTrack.stop).toHaveBeenCalledOnce();
+    expect(activeTrack.stop).not.toHaveBeenCalled();
+    expect(session.getSnapshot()).toEqual({
+      status: "active",
+      stream: activeStream
+    });
     session.dispose();
   });
 });

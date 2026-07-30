@@ -348,9 +348,17 @@ function Feature({
   );
 }
 
+function getBrowserStorage(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export default function App() {
   const preferenceStoreRef = useRef(
-    createGuestPreferenceStore(window.localStorage)
+    createGuestPreferenceStore(getBrowserStorage())
   );
   const [preferences, setPreferences] = useState(() =>
     preferenceStoreRef.current.load()

@@ -32,11 +32,11 @@ function isGuestPreferences(value: unknown): value is GuestPreferences {
   );
 }
 
-export function createGuestPreferenceStore(storage: Storage) {
+export function createGuestPreferenceStore(storage?: Storage) {
   return {
     load(): GuestPreferences {
       try {
-        const rawPreferences = storage.getItem(STORAGE_KEY);
+        const rawPreferences = storage?.getItem(STORAGE_KEY);
         if (!rawPreferences) {
           return DEFAULT_PREFERENCES;
         }
@@ -56,7 +56,7 @@ export function createGuestPreferenceStore(storage: Storage) {
       }
 
       try {
-        storage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+        storage?.setItem(STORAGE_KEY, JSON.stringify(preferences));
       } catch {
         // A Guest can continue with in-memory preferences if storage is blocked.
       }

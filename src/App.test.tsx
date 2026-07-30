@@ -152,4 +152,23 @@ describe("Guest camera journey", () => {
       ).toHaveValue("TWD");
     });
   });
+
+  it("remains usable when browser storage access is blocked", () => {
+    useMediaDevices(vi.fn());
+    const localStorageGetter = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("Blocked", "SecurityError");
+      });
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { name: /point at a price/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("JPY");
+    localStorageGetter.mockRestore();
+  });
 });

@@ -91,10 +91,12 @@ export function createCameraSession({
       try {
         const stream = await mediaDevices.getUserMedia(REAR_CAMERA_CONSTRAINTS);
 
-        if (
-          currentRequest !== requestVersion ||
-          document.visibilityState === "hidden"
-        ) {
+        if (currentRequest !== requestVersion) {
+          stream.getTracks().forEach((track) => track.stop());
+          return snapshot;
+        }
+
+        if (document.visibilityState === "hidden") {
           stream.getTracks().forEach((track) => track.stop());
           publish({ status: "idle", stream: null });
           return snapshot;
