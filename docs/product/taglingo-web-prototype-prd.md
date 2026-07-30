@@ -1,7 +1,10 @@
 # TagLingo Web Prototype PRD
 
-**Status:** Approved for backlog review  
+**Status:** Approved for backlog review
+
 **Wayfinder map:** [Chart the path to a decision-complete TagLingo web prototype](https://github.com/kzokv/taglingo/issues/1)
+
+**GitHub PRD:** [PRD: TagLingo web prototype](https://github.com/kzokv/taglingo/issues/15)
 
 ## Problem Statement
 
