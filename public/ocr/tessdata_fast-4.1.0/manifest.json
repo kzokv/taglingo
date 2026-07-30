@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/tesseract-ocr/tessdata_fast/tree/4.1.0",
+  "version": "4.1.0",
+  "compression": "gzip -n",
+  "files": {
+    "eng.traineddata.gz": "sha256:afa9b778b3bfe580362a0b61308d08389c77dd3052c29a35270c827d7e75165c",
+    "jpn.traineddata.gz": "sha256:daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45"
+  }
+}

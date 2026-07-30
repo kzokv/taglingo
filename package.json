@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "assets:icons": "node scripts/generate-icons.mjs",
+    "assets:ocr": "node scripts/prepare-ocr-assets.mjs",
+    "prebuild": "npm run assets:ocr",
+    "predev": "npm run assets:ocr",
     "build": "tsc -b && vite build",
     "dev": "vite",
     "test": "vitest run",
@@ -13,7 +16,9 @@
   },
   "dependencies": {
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tesseract.js": "7.0.0",
+    "tesseract.js-core": "7.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.0.0",

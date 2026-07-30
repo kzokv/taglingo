@@ -1,3 +1,5 @@
+import type { Rectangle } from "../domain/geometry";
+
 export interface Size {
   width: number;
   height: number;
@@ -37,5 +39,21 @@ export function calculateCoverGeometry(
     renderedHeight,
     offsetX: (preview.width - renderedWidth) / 2,
     offsetY: (preview.height - renderedHeight) / 2
+  };
+}
+
+export function mapSampleBoxToPreview(
+  tokenBox: Rectangle,
+  sampleRegion: Rectangle,
+  camera: Size,
+  preview: Size
+): Rectangle {
+  const geometry = calculateCoverGeometry(camera, preview);
+
+  return {
+    x: geometry.offsetX + (sampleRegion.x + tokenBox.x) * geometry.scale,
+    y: geometry.offsetY + (sampleRegion.y + tokenBox.y) * geometry.scale,
+    width: tokenBox.width * geometry.scale,
+    height: tokenBox.height * geometry.scale
   };
 }
