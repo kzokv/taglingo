@@ -1,8 +1,16 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import type { JpyOcrRecognizer } from "./recognition/jpyOcrRecognizer";
 
 function createMediaStream() {
   const track = {
@@ -144,7 +152,7 @@ describe("Guest camera journey", () => {
     expect(screen.getByText(/^camera ready$/i)).toBeInTheDocument();
   });
 
-  it("opens a deterministic no-camera demonstration", async () => {
+  it("turns the recorded Japanese observation into an accessible stable Focused Price", async () => {
     const user = userEvent.setup();
     const getUserMedia = vi.fn();
     useMediaDevices(getUserMedia);
@@ -153,8 +161,106 @@ describe("Guest camera journey", () => {
     await user.click(screen.getByRole("button", { name: /try without camera/i }));
 
     expect(screen.getByText("4,142円")).toBeInTheDocument();
-    expect(screen.getByText(/demo mode · no camera requested/i)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAccessibleName(
+      /preparing japanese recognition/i
+    );
+    expect(
+      await screen.findByText(/focused price · jpy 4,142/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/detected price jpy 4,142/i)
+    ).toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("stabilizes browser-local camera observations without uploading them", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    const recognize = vi
+      .fn()
+      .mockImplementation(
+        async (_image: unknown, pass: "focused" | "discovery" = "focused") => [
+          {
+            text: "4,142円",
+            confidence: 96,
+            box:
+              pass === "discovery"
+                ? { x: 880, y: 446, width: 160, height: 80 }
+                : { x: 592, y: 111, width: 160, height: 80 }
+          }
+        ]
+      );
+    const recognizer: JpyOcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize,
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    let reportProgress: (progress: number, status: string) => void =
+      () => undefined;
+
+    render(
+      <App
+        createRecognizer={(onProgress) => {
+          reportProgress = onProgress;
+          return recognizer;
+        }}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+
+    expect(
+      await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 1500 })
+    ).toBeInTheDocument();
+    const highlightedPrice = screen.getByLabelText(/detected price jpy 4,142/i);
+    expect(highlightedPrice).toHaveClass("focused-detection");
+    expect(Number.parseFloat(highlightedPrice.style.left)).toBeCloseTo(
+      132.481,
+      3
+    );
+    expect(Number.parseFloat(highlightedPrice.style.top)).toBeCloseTo(
+      348.541,
+      3
+    );
+    expect(recognizer.prepare).toHaveBeenCalledOnce();
+    expect(recognize).toHaveBeenCalled();
+    await waitFor(
+      () => expect(recognize).toHaveBeenCalledTimes(4),
+      { timeout: 1800 }
+    );
+    expect(recognize).toHaveBeenCalledWith(
+      expect.any(HTMLCanvasElement),
+      "discovery"
+    );
+    recognize.mockResolvedValue([]);
+    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
+    expect(
+      screen.getByLabelText(/detected price jpy 4,142/i)
+    ).toHaveClass("focused-detection");
+    act(() => reportProgress(0.5, "recognizing text"));
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("searches one Target Currency and restores Guest preferences after reload", async () => {

@@ -24,6 +24,13 @@ import {
   createGuestPreferenceStore,
   type GuestPreferences
 } from "./domain/guestPreferences";
+import {
+  createBrowserJpyRecognizer,
+  useCameraRecognition,
+  type CreateJpyRecognizer,
+  type RecognitionView
+} from "./recognition/useCameraRecognition";
+import { useDemoRecognition } from "./recognition/useDemoRecognition";
 
 import "./styles.css";
 
@@ -156,9 +163,11 @@ function CurrencySettings({
 
 function VideoPreview({
   stream,
+  onReady,
   onPlaybackError
 }: {
   stream: MediaStream;
+  onReady: (video: HTMLVideoElement | null) => void;
   onPlaybackError: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -179,9 +188,10 @@ function VideoPreview({
 
     return () => {
       isAttached = false;
+      onReady(null);
       video.srcObject = null;
     };
-  }, [onPlaybackError, stream]);
+  }, [onPlaybackError, onReady, stream]);
 
   return (
     <video
@@ -190,27 +200,66 @@ function VideoPreview({
       autoPlay
       muted
       playsInline
+      onLoadedMetadata={() => onReady(videoRef.current)}
       aria-label="Rear camera preview"
     />
   );
 }
 
-function FocusReticle({ demo }: { demo: boolean }) {
+function FocusReticle({
+  demo,
+  recognition
+}: {
+  demo: boolean;
+  recognition: RecognitionView;
+}) {
+  const displayedPrices =
+    recognition.focusedPrice &&
+    !recognition.detectedPrices.includes(recognition.focusedPrice)
+      ? [...recognition.detectedPrices, recognition.focusedPrice]
+      : recognition.detectedPrices;
+
   return (
-    <div className="focus-stage" aria-hidden="true">
+    <div className="focus-stage">
       {demo ? (
-        <>
-          <div className="demo-tag">
-            <span className="demo-kicker">税込価格</span>
-            <strong>4,142円</strong>
-            <small>travel notebook</small>
-          </div>
-          <div className="demo-detection">
-            <span>JPY candidate</span>
-          </div>
-        </>
+        <div className="demo-tag">
+          <span className="demo-kicker">税込価格</span>
+          <strong>4,142円</strong>
+          <small>travel notebook</small>
+        </div>
       ) : null}
-      <div className="reticle">
+      {displayedPrices.map((price) => (
+        <div
+          key={`${price.minorUnits}-${price.box.x}-${price.box.y}`}
+          className={`detected-price ${
+            recognition.focusedPrice === price ? "focused-detection" : ""
+          }`}
+          style={
+            demo
+              ? {
+                  left: `${price.box.x / 10}%`,
+                  top: `${price.box.y / 10}%`,
+                  width: `${price.box.width / 10}%`,
+                  height: `${price.box.height / 10}%`
+                }
+              : {
+                  left: price.box.x,
+                  top: price.box.y,
+                  width: price.box.width,
+                  height: price.box.height
+                }
+          }
+          role="img"
+          aria-label={`Detected Price JPY ${price.minorUnits.toLocaleString(
+            "en-US"
+          )}`}
+        >
+          <span aria-hidden="true">
+            {recognition.focusedPrice === price ? "Focused" : "Detected"}
+          </span>
+        </div>
+      ))}
+      <div className="reticle" aria-hidden="true">
         <i />
         <i />
         <i />
@@ -220,22 +269,81 @@ function FocusReticle({ demo }: { demo: boolean }) {
   );
 }
 
+function PreparationStatus({
+  detail,
+  progress
+}: {
+  detail: string;
+  progress: number;
+}) {
+  return (
+    <div className="scan-status" role="status">
+      <span className="status-dot" />
+      <div>
+        <strong>Preparing Japanese recognition…</strong>
+        <progress
+          aria-label="Preparing Japanese recognition"
+          max={1}
+          value={progress}
+        />
+        <p>{detail}</p>
+      </div>
+    </div>
+  );
+}
+
 function StatusPanel({
   status,
   demo,
+  recognition,
   onRetry
 }: {
   status: CameraStatus;
   demo: boolean;
+  recognition: RecognitionView;
   onRetry: () => void;
 }) {
   if (demo) {
+    if (recognition.phase === "preparing") {
+      return (
+        <PreparationStatus
+          detail="Loading pinned on-device language assets from TagLingo."
+          progress={recognition.progress}
+        />
+      );
+    }
+
     return (
       <div className="scan-status" role="status">
         <span className="status-dot demo-dot" />
         <div>
-          <strong>Demo mode · no camera requested</strong>
-          <p>A deterministic price tag is ready for the next OCR slice.</p>
+          <strong>
+            {recognition.focusedPrice
+              ? "Recorded observation stabilized"
+              : "Checking the recorded observation…"}
+          </strong>
+          <p>No camera was requested and no physical-device claim is made.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (recognition.phase === "preparing") {
+    return (
+      <PreparationStatus
+        detail="The camera stays local while the pinned model is prepared."
+        progress={recognition.progress}
+      />
+    );
+  }
+
+  if (recognition.phase === "error") {
+    return (
+      <div className="scan-status" role="alert">
+        <span className="status-dot" />
+        <div>
+          <strong>Recognition could not start</strong>
+          <p>Reload the scanner or use the no-camera demonstration.</p>
         </div>
       </div>
     );
@@ -281,6 +389,7 @@ function CameraSurface({
   snapshot,
   preferences,
   onPreferencesChange,
+  createRecognizer,
   onClose,
   onRetry,
   onPlaybackError
@@ -289,10 +398,23 @@ function CameraSurface({
   snapshot: CameraSnapshot;
   preferences: GuestPreferences;
   onPreferencesChange: (preferences: GuestPreferences) => void;
+  createRecognizer: CreateJpyRecognizer;
   onClose: () => void;
   onRetry: () => void;
   onPlaybackError: () => void;
 }) {
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+  const [preview, setPreview] = useState<HTMLElement | null>(null);
+  const demoRecognition = useDemoRecognition(demo);
+  const cameraRecognition = useCameraRecognition({
+    enabled: !demo && snapshot.status === "active",
+    sourceCurrency: preferences.sourceCurrency,
+    video,
+    preview,
+    createRecognizer
+  });
+  const recognition = demo ? demoRecognition : cameraRecognition;
+
   return (
     <main className="camera-shell">
       <header className="camera-header">
@@ -302,15 +424,16 @@ function CameraSurface({
         </button>
       </header>
 
-      <section className="preview" aria-label="Price camera">
+      <section ref={setPreview} className="preview" aria-label="Price camera">
         {snapshot.stream ? (
           <VideoPreview
             stream={snapshot.stream}
+            onReady={setVideo}
             onPlaybackError={onPlaybackError}
           />
         ) : null}
         <div className={`preview-fallback ${demo ? "demo-preview" : ""}`} />
-        <FocusReticle demo={demo} />
+        <FocusReticle demo={demo} recognition={recognition} />
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
         </div>
@@ -323,15 +446,32 @@ function CameraSurface({
           onChange={onPreferencesChange}
           compact
         />
-        <StatusPanel status={snapshot.status} demo={demo} onRetry={onRetry} />
+        <StatusPanel
+          status={snapshot.status}
+          demo={demo}
+          recognition={recognition}
+          onRetry={onRetry}
+        />
         <div className="recognition-note" aria-live="polite">
           <span aria-hidden="true">⌁</span>
           <p>
-            <strong>{demo ? "Example Detected Price: 4,142 JPY" : "No Detected Price yet"}</strong>
+            <strong>
+              {recognition.focusedPrice
+                ? `Focused Price · JPY ${recognition.focusedPrice.minorUnits.toLocaleString(
+                    "en-US"
+                  )}`
+                : demo
+                  ? "No Focused Price yet"
+                  : "No Detected Price yet"}
+            </strong>
             <br />
-            {demo
-              ? "Recognition is simulated here; no conversion or performance claim is made."
-              : "Hold steady, improve the lighting, or move closer to the price tag."}
+            {recognition.focusedPrice
+              ? "Two compatible observations matched the exact price-token rectangle."
+              : demo
+                ? "The recorded observation is being checked twice for stability."
+                : preferences.sourceCurrency !== "JPY"
+                  ? "Choose JPY as the Source Currency for this recognition tracer bullet."
+                  : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
         </div>
       </section>
@@ -362,7 +502,11 @@ function getBrowserStorage(): Storage | undefined {
   }
 }
 
-export default function App() {
+export default function App({
+  createRecognizer = createBrowserJpyRecognizer
+}: {
+  createRecognizer?: CreateJpyRecognizer;
+}) {
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
   );
@@ -422,6 +566,7 @@ export default function App() {
         snapshot={cameraSnapshot}
         preferences={preferences}
         onPreferencesChange={updatePreferences}
+        createRecognizer={createRecognizer}
         onClose={closeCamera}
         onRetry={startCamera}
         onPlaybackError={handlePlaybackError}

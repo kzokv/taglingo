@@ -3,3 +3,5 @@ node_modules/
 *.local
 *.tsbuildinfo
 .DS_Store
+public/ocr/tesseract-7.0.0/
+public/ocr/tesseract-core-7.0.0/

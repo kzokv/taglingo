@@ -565,20 +565,16 @@ h1 em {
   text-transform: uppercase;
 }
 
-.demo-detection {
+.detected-price {
   position: absolute;
   z-index: 4;
-  top: calc(34% - 8px);
-  left: 50%;
-  width: 172px;
-  height: 53px;
   border: 2px solid var(--mint);
   border-radius: 4px;
-  transform: translate(-50%, -50%) rotate(-2deg);
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
 }
 
-.demo-detection span {
+.detected-price span {
   position: absolute;
   top: -21px;
   right: -2px;
@@ -588,6 +584,17 @@ h1 em {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.48rem;
   text-transform: uppercase;
+}
+
+.focused-detection {
+  border-color: var(--coral);
+  box-shadow:
+    0 0 0 2px rgba(255, 129, 95, 0.2),
+    0 0 0 999px rgba(0, 0, 0, 0.08);
+}
+
+.focused-detection span {
+  background: var(--coral);
 }
 
 .result-sheet {
@@ -639,6 +646,14 @@ h1 em {
   color: #929c9b;
   font-size: 0.7rem;
   line-height: 1.4;
+}
+
+.scan-status progress {
+  display: block;
+  width: min(260px, 65vw);
+  height: 6px;
+  margin-top: 8px;
+  accent-color: var(--mint);
 }
 
 .status-dot {
