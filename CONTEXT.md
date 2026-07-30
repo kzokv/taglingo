@@ -19,3 +19,11 @@ _Avoid_: Input currency, scanned currency
 **Target Currency**:
 A currency into which the focused price is converted for the user.
 _Avoid_: Output currency, destination currency
+
+**Guest**:
+A visitor who can use TagLingo without an approved account.
+_Avoid_: Anonymous user, demo user
+
+**Approved Member**:
+A signed-in person whose request to use TagLingo's member capabilities has been approved.
+_Avoid_: Full user, registered user
