@@ -25,6 +25,12 @@ import {
   type GuestPreferences
 } from "./domain/guestPreferences";
 import {
+  loadGuestRateFromGateway,
+  useGuestRate,
+  type GuestRateView,
+  type LoadGuestRate
+} from "./fx/useGuestRate";
+import {
   createBrowserJpyRecognizer,
   useCameraRecognition,
   type CreateJpyRecognizer,
@@ -90,9 +96,13 @@ function CurrencySettings({
   compact?: boolean;
 }) {
   const [targetQuery, setTargetQuery] = useState("");
-  const matches = searchTargetCurrencies(targetQuery);
+  const matches = searchTargetCurrencies(targetQuery).filter(
+    ({ code }) => code !== preferences.sourceCurrency
+  );
   const selectedTarget = TARGET_CURRENCIES.find(
-    ({ code }) => code === preferences.targetCurrency
+    ({ code }) =>
+      code === preferences.targetCurrency &&
+      code !== preferences.sourceCurrency
   );
   const visibleTargets = matches.some(
     ({ code }) => code === preferences.targetCurrency
@@ -105,10 +115,18 @@ function CurrencySettings({
   const update =
     (key: keyof GuestPreferences) =>
     (event: ChangeEvent<HTMLSelectElement>) => {
-      onChange({
+      const selectedCurrency = event.target.value as CurrencyCode;
+      const nextPreferences = {
         ...preferences,
-        [key]: event.target.value as CurrencyCode
-      });
+        [key]: selectedCurrency
+      };
+      if (
+        key === "sourceCurrency" &&
+        selectedCurrency === preferences.targetCurrency
+      ) {
+        nextPreferences.targetCurrency = preferences.sourceCurrency;
+      }
+      onChange(nextPreferences);
     };
 
   return (
@@ -250,7 +268,7 @@ function FocusReticle({
                 }
           }
           role="img"
-          aria-label={`Detected Price JPY ${price.minorUnits.toLocaleString(
+          aria-label={`Detected Price ${price.currency} ${price.minorUnits.toLocaleString(
             "en-US"
           )}`}
         >
@@ -388,6 +406,7 @@ function CameraSurface({
   demo,
   snapshot,
   preferences,
+  guestRate,
   onPreferencesChange,
   createRecognizer,
   onClose,
@@ -397,6 +416,7 @@ function CameraSurface({
   demo: boolean;
   snapshot: CameraSnapshot;
   preferences: GuestPreferences;
+  guestRate: GuestRateView;
   onPreferencesChange: (preferences: GuestPreferences) => void;
   createRecognizer: CreateJpyRecognizer;
   onClose: () => void;
@@ -405,7 +425,9 @@ function CameraSurface({
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
-  const demoRecognition = useDemoRecognition(demo);
+  const demoRecognition = useDemoRecognition(
+    demo && preferences.sourceCurrency === "JPY"
+  );
   const cameraRecognition = useCameraRecognition({
     enabled: !demo && snapshot.status === "active",
     sourceCurrency: preferences.sourceCurrency,
@@ -457,7 +479,7 @@ function CameraSurface({
           <p>
             <strong>
               {recognition.focusedPrice
-                ? `Focused Price · JPY ${recognition.focusedPrice.minorUnits.toLocaleString(
+                ? `Focused Price · ${recognition.focusedPrice.currency} ${recognition.focusedPrice.minorUnits.toLocaleString(
                     "en-US"
                   )}`
                 : demo
@@ -474,8 +496,99 @@ function CameraSurface({
                   : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
         </div>
+        <ConversionResult
+          focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
+          focusedCurrency={recognition.focusedPrice?.currency ?? null}
+          sourceCurrency={preferences.sourceCurrency}
+          targetCurrency={preferences.targetCurrency}
+          guestRate={guestRate}
+        />
       </section>
     </main>
+  );
+}
+
+function currencyFractionDigits(currency: CurrencyCode): number {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency
+  }).resolvedOptions().maximumFractionDigits ?? 2;
+}
+
+function ConversionResult({
+  focusedMinorUnits,
+  focusedCurrency,
+  sourceCurrency,
+  targetCurrency,
+  guestRate
+}: {
+  focusedMinorUnits: number | null;
+  focusedCurrency: CurrencyCode | null;
+  sourceCurrency: CurrencyCode;
+  targetCurrency: CurrencyCode;
+  guestRate: GuestRateView;
+}) {
+  if (guestRate.phase === "loading") {
+    return (
+      <div className="conversion-card" role="status">
+        <strong>Loading Reference Rate…</strong>
+      </div>
+    );
+  }
+  if (guestRate.phase === "error") {
+    return (
+      <div className="conversion-card conversion-error" role="alert">
+        <strong>Conversion unavailable</strong>
+        <p>{guestRate.error}</p>
+      </div>
+    );
+  }
+  if (
+    focusedMinorUnits === null ||
+    focusedCurrency === null ||
+    focusedCurrency !== sourceCurrency
+  ) {
+    return (
+      <div className="conversion-card" role="status">
+        <strong>Reference Rate ready</strong>
+        <p>Point at a price to see the Guest conversion.</p>
+      </div>
+    );
+  }
+
+  const sourceAmount =
+    focusedMinorUnits / 10 ** currencyFractionDigits(sourceCurrency);
+  const converted = sourceAmount * Number(guestRate.rate.value);
+  const formatted = converted.toLocaleString("en-US", {
+    minimumFractionDigits: currencyFractionDigits(targetCurrency),
+    maximumFractionDigits: currencyFractionDigits(targetCurrency)
+  });
+
+  return (
+    <section className="conversion-card" aria-label="Guest conversion">
+      <div className="conversion-heading">
+        <span>Guest conversion</span>
+        <strong>
+          {targetCurrency} {formatted}
+        </strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Reference Rate</dt>
+          <dd>
+            1 {sourceCurrency} = {guestRate.rate.value} {targetCurrency}
+          </dd>
+        </div>
+        <div>
+          <dt>Effective date</dt>
+          <dd>Effective {guestRate.rate.providerPublishedDate}</dd>
+        </div>
+      </dl>
+      <p className="rate-attribution">{guestRate.rate.attribution}</p>
+      <p className="rate-disclaimer">
+        Reference estimate; your payment rate may differ.
+      </p>
+    </section>
   );
 }
 
@@ -503,9 +616,11 @@ function getBrowserStorage(): Storage | undefined {
 }
 
 export default function App({
-  createRecognizer = createBrowserJpyRecognizer
+  createRecognizer = createBrowserJpyRecognizer,
+  loadGuestRate = loadGuestRateFromGateway
 }: {
   createRecognizer?: CreateJpyRecognizer;
+  loadGuestRate?: LoadGuestRate;
 }) {
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
@@ -519,6 +634,11 @@ export default function App({
     stream: null
   });
   const [mode, setMode] = useState<ExperienceMode>("welcome");
+  const guestRate = useGuestRate(
+    preferences.sourceCurrency,
+    preferences.targetCurrency,
+    loadGuestRate
+  );
 
   useEffect(() => {
     const session = createCameraSession({
@@ -565,6 +685,7 @@ export default function App({
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
         preferences={preferences}
+        guestRate={guestRate}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
         onClose={closeCamera}

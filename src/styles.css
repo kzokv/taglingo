@@ -394,7 +394,7 @@ h1 em {
 .camera-shell {
   position: relative;
   min-height: 100svh;
-  overflow: hidden;
+  overflow-x: hidden;
   background: #071016;
 }
 
@@ -707,6 +707,80 @@ h1 em {
   font-size: 0.72rem;
 }
 
+.conversion-card {
+  margin-top: 15px;
+  padding: 15px;
+  border: 1px solid rgba(152, 224, 192, 0.24);
+  border-radius: 16px;
+  background: rgba(152, 224, 192, 0.055);
+}
+
+.conversion-card > strong,
+.conversion-heading span,
+.conversion-card dt {
+  color: #9ea9a8;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.conversion-card p {
+  margin: 5px 0 0;
+  color: #9ea9a8;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.conversion-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.conversion-heading strong {
+  color: var(--paper);
+  font-size: 1.35rem;
+  letter-spacing: -0.035em;
+}
+
+.conversion-card dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 13px 0 0;
+}
+
+.conversion-card dl div {
+  min-width: 0;
+}
+
+.conversion-card dt,
+.conversion-card dd {
+  margin: 0;
+}
+
+.conversion-card dd {
+  margin-top: 4px;
+  color: #d0d5d4;
+  font-size: 0.7rem;
+}
+
+.conversion-card .rate-attribution {
+  margin-top: 12px;
+  color: var(--mint);
+}
+
+.conversion-card .rate-disclaimer {
+  color: #c2c9c8;
+}
+
+.conversion-error {
+  border-color: rgba(255, 129, 95, 0.35);
+  background: rgba(255, 129, 95, 0.06);
+}
+
 @media (max-width: 680px) {
   .topbar,
   .hero,
@@ -753,6 +827,10 @@ h1 em {
 
   .compact .search-field {
     display: none;
+  }
+
+  .conversion-card dl {
+    grid-template-columns: 1fr;
   }
 }
 

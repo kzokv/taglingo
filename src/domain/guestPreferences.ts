@@ -28,7 +28,8 @@ function isGuestPreferences(value: unknown): value is GuestPreferences {
   const candidate = value as Partial<GuestPreferences>;
   return (
     isSourceCurrency(candidate.sourceCurrency) &&
-    isCurrencyCode(candidate.targetCurrency)
+    isCurrencyCode(candidate.targetCurrency) &&
+    candidate.sourceCurrency !== candidate.targetCurrency
   );
 }
 
