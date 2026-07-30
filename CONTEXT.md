@@ -27,3 +27,11 @@ _Avoid_: Anonymous user, demo user
 **Approved Member**:
 A signed-in person whose request to use TagLingo's member capabilities has been approved.
 _Avoid_: Full user, registered user
+
+**Reference Rate**:
+A published exchange relationship used to estimate the value of one currency in another.
+_Avoid_: Live rate, payment rate
+
+**Rate Snapshot**:
+A set of Reference Rates that share one effective date.
+_Avoid_: Cached rates, rate response
