@@ -85,7 +85,7 @@ const normalizeSearchText = (value: string) =>
   value
     .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
-    .toLocaleLowerCase()
+    .toLowerCase()
     .trim();
 
 export function searchTargetCurrencies(query: string): readonly Currency[] {

@@ -170,9 +170,15 @@ function VideoPreview({
     }
 
     video.srcObject = stream;
-    void video.play().catch(onPlaybackError);
+    let isAttached = true;
+    void video.play().catch(() => {
+      if (isAttached) {
+        onPlaybackError();
+      }
+    });
 
     return () => {
+      isAttached = false;
       video.srcObject = null;
     };
   }, [onPlaybackError, stream]);

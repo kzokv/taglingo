@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,16 @@ function createMediaStream() {
     getVideoTracks: () => [track]
   } as unknown as MediaStream;
   return { stream, track };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((next, fail) => {
+    resolve = next;
+    reject = fail;
+  });
+  return { promise, reject, resolve };
 }
 
 function useMediaDevices(getUserMedia: ReturnType<typeof vi.fn>) {
@@ -101,6 +111,37 @@ describe("Guest camera journey", () => {
     expect(
       screen.getByRole("button", { name: /try camera again/i })
     ).toBeInTheDocument();
+  });
+
+  it("ignores playback failures from a detached camera preview", async () => {
+    const user = userEvent.setup();
+    const firstPlayback = createDeferred<void>();
+    const firstCamera = createMediaStream();
+    const secondCamera = createMediaStream();
+    useMediaDevices(
+      vi
+        .fn()
+        .mockResolvedValueOnce(firstCamera.stream)
+        .mockResolvedValueOnce(secondCamera.stream)
+    );
+    vi.spyOn(HTMLMediaElement.prototype, "play")
+      .mockReturnValueOnce(firstPlayback.promise)
+      .mockResolvedValueOnce();
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/^camera ready$/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/^camera ready$/i);
+
+    await act(async () => {
+      firstPlayback.reject(new DOMException("Detached", "AbortError"));
+    });
+
+    expect(secondCamera.track.stop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/^camera ready$/i)).toBeInTheDocument();
   });
 
   it("opens a deterministic no-camera demonstration", async () => {

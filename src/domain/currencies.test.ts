@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   SOURCE_CURRENCIES,
@@ -32,5 +32,22 @@ describe("Currency Catalog", () => {
     expect(searchTargetCurrencies(query).map(({ code }) => code)).toContain(
       expectedCode
     );
+  });
+
+  it("finds ISO codes regardless of the runtime's default casing locale", () => {
+    const toLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    const localeSpy = vi.spyOn(
+      String.prototype,
+      "toLocaleLowerCase"
+    ).mockImplementation(
+      function (this: string, locales) {
+        return toLocaleLowerCase.call(this, locales ?? "tr");
+      }
+    );
+
+    expect(searchTargetCurrencies("inr").map(({ code }) => code)).toContain(
+      "INR"
+    );
+    localeSpy.mockRestore();
   });
 });
