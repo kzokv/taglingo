@@ -25,6 +25,10 @@ import {
   type GuestPreferences
 } from "./domain/guestPreferences";
 import {
+  createBrowserRateSnapshotStore,
+  createOfflineGuestRateLoader
+} from "./fx/browserRateSnapshot";
+import {
   loadGuestRateFromGateway,
   useGuestRate,
   type GuestRateView,
@@ -540,6 +544,9 @@ function ConversionResult({
       <div className="conversion-card conversion-error" role="alert">
         <strong>Conversion unavailable</strong>
         <p>{guestRate.error}</p>
+        <button className="text-button" type="button" onClick={guestRate.retry}>
+          Reconnect and retry
+        </button>
       </div>
     );
   }
@@ -585,6 +592,11 @@ function ConversionResult({
         </div>
       </dl>
       <p className="rate-attribution">{guestRate.rate.attribution}</p>
+      {guestRate.rate.state === "offline" ? (
+        <p className="offline-snapshot-state" role="status">
+          Offline · Rate Snapshot
+        </p>
+      ) : null}
       <p className="rate-disclaimer">
         Reference estimate; your payment rate may differ.
       </p>
@@ -617,7 +629,7 @@ function getBrowserStorage(): Storage | undefined {
 
 export default function App({
   createRecognizer = createBrowserJpyRecognizer,
-  loadGuestRate = loadGuestRateFromGateway
+  loadGuestRate
 }: {
   createRecognizer?: CreateJpyRecognizer;
   loadGuestRate?: LoadGuestRate;
@@ -625,6 +637,14 @@ export default function App({
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
   );
+  const rateSnapshotStoreRef = useRef(
+    createBrowserRateSnapshotStore(getBrowserStorage())
+  );
+  const browserRateLoaderRef = useRef<LoadGuestRate | null>(null);
+  browserRateLoaderRef.current ??= createOfflineGuestRateLoader({
+    loadOnline: loadGuestRateFromGateway,
+    store: rateSnapshotStoreRef.current
+  });
   const [preferences, setPreferences] = useState(() =>
     preferenceStoreRef.current.load()
   );
@@ -634,10 +654,18 @@ export default function App({
     stream: null
   });
   const [mode, setMode] = useState<ExperienceMode>("welcome");
+  useEffect(() => {
+    rateSnapshotStoreRef.current.retainActivePairs([
+      {
+        source: preferences.sourceCurrency,
+        target: preferences.targetCurrency
+      }
+    ]);
+  }, [preferences.sourceCurrency, preferences.targetCurrency]);
   const guestRate = useGuestRate(
     preferences.sourceCurrency,
     preferences.targetCurrency,
-    loadGuestRate
+    loadGuestRate ?? browserRateLoaderRef.current
   );
 
   useEffect(() => {
