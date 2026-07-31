@@ -1,4 +1,4 @@
-import { ClerkProvider } from "@clerk/react";
+import { ClerkProvider, UserButton, useAuth } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -10,6 +10,30 @@ import {
 } from "./auth/ClerkAdmission";
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
+
+function ClerkTagLingo() {
+  const { isLoaded, userId } = useAuth();
+  const memberUserId = isLoaded ? userId : null;
+  return (
+    <App
+      memberUserId={memberUserId}
+      admission={
+        <ClerkAdmission
+          isSignedIn={Boolean(memberUserId)}
+          accountControl={
+            memberUserId ? (
+              <div className="member-account-control">
+                <span>Account and sign out</span>
+                <UserButton />
+              </div>
+            ) : null
+          }
+        />
+      }
+    />
+  );
+}
+
 const application = publishableKey ? (
   <ClerkProvider
     publishableKey={publishableKey}
@@ -18,7 +42,7 @@ const application = publishableKey ? (
     signInFallbackRedirectUrl={CLERK_ACCESS_ROUTES.afterSignIn}
     signUpFallbackRedirectUrl={CLERK_ACCESS_ROUTES.afterSignIn}
   >
-    <App admission={<ClerkAdmission />} />
+    <ClerkTagLingo />
   </ClerkProvider>
 ) : (
   <App admission={<ClerkAdmissionUnavailable />} />

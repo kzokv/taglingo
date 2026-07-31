@@ -227,6 +227,33 @@ h1 em {
   gap: 10px;
 }
 
+.target-selectors {
+  display: grid;
+  gap: 10px;
+}
+
+.target-selector {
+  min-width: 0;
+}
+
+.target-remove,
+.target-add {
+  margin-top: 6px;
+}
+
+.member-account-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  color: var(--mint);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -784,6 +811,15 @@ h1 em {
   border: 1px solid rgba(152, 224, 192, 0.24);
   border-radius: 16px;
   background: rgba(152, 224, 192, 0.055);
+}
+
+.conversion-ledger {
+  display: grid;
+  gap: 10px;
+}
+
+.conversion-ledger .conversion-card + .conversion-card {
+  margin-top: 0;
 }
 
 .conversion-card > strong,

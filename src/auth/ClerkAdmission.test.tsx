@@ -84,4 +84,24 @@ describe("Clerk admission", () => {
       /guest scanner still works/i
     );
   });
+
+  it("gives a signed-in Clerk account a sign-out surface without promising membership", () => {
+    render(
+      <ClerkAdmission
+        isSignedIn
+        accountControl={<button type="button">Sign out account</button>}
+      />
+    );
+
+    expect(
+      screen.getByRole("heading", { name: /account signed in/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/checks your active membership/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /sign out account/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /request member access/i })
+    ).not.toBeInTheDocument();
+  });
 });

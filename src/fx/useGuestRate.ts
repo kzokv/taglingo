@@ -24,6 +24,9 @@ type GuestRateState =
     };
 
 export type GuestRateView = GuestRateState & { retry: () => void };
+export type GuestRateViews = Partial<
+  Record<CurrencyCode, GuestRateView>
+>;
 
 export const loadGuestRateFromGateway: LoadGuestRate = async (
   source,
@@ -113,4 +116,91 @@ export function useGuestRate(
   }, [loadGuestRate, retryCount, source, target]);
 
   return { ...view, retry };
+}
+
+export function useGuestRates(
+  source: CurrencyCode,
+  targets: CurrencyCode[],
+  loadGuestRate: LoadGuestRate
+): GuestRateViews {
+  const targetKey = targets.join(",");
+  const [views, setViews] = useState<
+    Partial<Record<CurrencyCode, GuestRateState>>
+  >({});
+  const [retryCount, setRetryCount] = useState(0);
+  const retry = useCallback(() => setRetryCount((count) => count + 1), []);
+
+  useEffect(() => {
+    const activeTargets = targetKey
+      .split(",")
+      .filter(Boolean) as CurrencyCode[];
+    let controllers: AbortController[] = [];
+    const load = () => {
+      controllers.forEach((controller) => controller.abort());
+      controllers = activeTargets.map(() => new AbortController());
+      setViews(
+        Object.fromEntries(
+          activeTargets.map((target) => [
+            target,
+            { phase: "loading", rate: null, error: null }
+          ])
+        )
+      );
+      activeTargets.forEach((target, index) => {
+        const controller = controllers[index];
+        void loadGuestRate(source, target, controller.signal)
+          .then((rate) => {
+            if (!controller.signal.aborted) {
+              setViews((current) => ({
+                ...current,
+                [target]: { phase: "ready", rate, error: null }
+              }));
+            }
+          })
+          .catch((error: unknown) => {
+            if (!controller.signal.aborted) {
+              const expired =
+                error instanceof GuestRateLoadError &&
+                error.reason === "expired";
+              setViews((current) => ({
+                ...current,
+                [target]: {
+                  phase: "error",
+                  rate: null,
+                  error: expired
+                    ? "The Rate Snapshot expired after seven days. Reconnect to refresh it."
+                    : "A validated Reference Rate is unavailable. Reconnect and try again.",
+                  reason: expired ? "expired" : "unavailable"
+                }
+              }));
+            }
+          });
+      });
+    };
+    const refreshOnResume = () => {
+      if (document.visibilityState === "visible") {
+        load();
+      }
+    };
+    load();
+    document.addEventListener("visibilitychange", refreshOnResume);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshOnResume);
+      controllers.forEach((controller) => controller.abort());
+    };
+  }, [loadGuestRate, retryCount, source, targetKey]);
+
+  return Object.fromEntries(
+    targets.map((target) => [
+      target,
+      {
+        ...(views[target] ?? {
+          phase: "loading",
+          rate: null,
+          error: null
+        }),
+        retry
+      }
+    ])
+  );
 }

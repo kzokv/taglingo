@@ -31,10 +31,18 @@ import {
 } from "./fx/browserRateSnapshot";
 import {
   loadGuestRateFromGateway,
-  useGuestRate,
+  useGuestRates,
+  type GuestRateViews,
   type GuestRateView,
   type LoadGuestRate
 } from "./fx/useGuestRate";
+import type { MemberPreferences } from "./member/memberPreferencesApi";
+import {
+  loadMemberPreferencesFromApi,
+  saveMemberPreferencesToApi,
+  type LoadMemberPreferences,
+  type SaveMemberPreferences
+} from "./member/memberPreferencesClient";
 import {
   createBrowserRecognizer,
   useCameraRecognition,
@@ -46,6 +54,11 @@ import { useDemoRecognition } from "./recognition/useDemoRecognition";
 import "./styles.css";
 
 type ExperienceMode = "welcome" | "camera" | "demo";
+
+interface ExperiencePreferences {
+  sourceCurrency: SourceCurrencyCode;
+  targetCurrencies: CurrencyCode[];
+}
 
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
@@ -94,48 +107,56 @@ function TagLingoMark() {
 function CurrencySettings({
   preferences,
   onChange,
+  isMember,
   compact = false
 }: {
-  preferences: GuestPreferences;
-  onChange: (preferences: GuestPreferences) => void;
+  preferences: ExperiencePreferences;
+  onChange: (preferences: ExperiencePreferences) => void;
+  isMember: boolean;
   compact?: boolean;
 }) {
   const [targetQuery, setTargetQuery] = useState("");
   const matches = searchTargetCurrencies(targetQuery).filter(
-    ({ code }) => code !== preferences.sourceCurrency
-  );
-  const selectedTarget = TARGET_CURRENCIES.find(
     ({ code }) =>
-      code === preferences.targetCurrency &&
-      code !== preferences.sourceCurrency
+      code !== preferences.sourceCurrency &&
+      (!preferences.targetCurrencies.includes(code) ||
+        preferences.targetCurrencies.some((target) => target === code))
   );
-  const visibleTargets = matches.some(
-    ({ code }) => code === preferences.targetCurrency
-  )
-    ? matches
-    : selectedTarget
-      ? [selectedTarget, ...matches]
-      : matches;
 
-  const update =
-    (key: keyof GuestPreferences) =>
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const selectedCurrency = event.target.value as CurrencyCode;
-      const nextPreferences: GuestPreferences =
-        key === "sourceCurrency"
-          ? {
-              ...preferences,
-              sourceCurrency: selectedCurrency as SourceCurrencyCode
-            }
-          : { ...preferences, targetCurrency: selectedCurrency };
-      if (
-        key === "sourceCurrency" &&
-        selectedCurrency === preferences.targetCurrency
-      ) {
-        nextPreferences.targetCurrency = preferences.sourceCurrency;
-      }
-      onChange(nextPreferences);
+  const updateSource = (event: ChangeEvent<HTMLSelectElement>) => {
+    const sourceCurrency = event.target.value as SourceCurrencyCode;
+    const targetCurrencies = preferences.targetCurrencies.map((target) =>
+      target === sourceCurrency ? preferences.sourceCurrency : target
+    );
+    onChange({ sourceCurrency, targetCurrencies });
+  };
+  const updateTarget =
+    (index: number) => (event: ChangeEvent<HTMLSelectElement>) => {
+      const targetCurrencies = [...preferences.targetCurrencies];
+      targetCurrencies[index] = event.target.value as CurrencyCode;
+      onChange({ ...preferences, targetCurrencies });
     };
+  const addTarget = () => {
+    const target = TARGET_CURRENCIES.find(
+      ({ code }) =>
+        code !== preferences.sourceCurrency &&
+        !preferences.targetCurrencies.includes(code)
+    );
+    if (target) {
+      onChange({
+        ...preferences,
+        targetCurrencies: [...preferences.targetCurrencies, target.code]
+      });
+    }
+  };
+  const removeTarget = (index: number) => {
+    onChange({
+      ...preferences,
+      targetCurrencies: preferences.targetCurrencies.filter(
+        (_target, targetIndex) => targetIndex !== index
+      )
+    });
+  };
 
   return (
     <div className={compact ? "currency-grid compact" : "currency-grid"}>
@@ -144,7 +165,7 @@ function CurrencySettings({
         <select
           name={compact ? "cameraSourceCurrency" : "sourceCurrency"}
           value={preferences.sourceCurrency}
-          onChange={update("sourceCurrency")}
+          onChange={updateSource}
         >
           {SOURCE_CURRENCIES.map((currency) => (
             <option key={currency.code} value={currency.code}>
@@ -166,22 +187,65 @@ function CurrencySettings({
             autoComplete="off"
           />
         </label>
-        <label className="field">
-          <span>
-            Target Currency <em>Guest · 1</em>
-          </span>
-          <select
-            name={compact ? "cameraTargetCurrency" : "targetCurrency"}
-            value={preferences.targetCurrency}
-            onChange={update("targetCurrency")}
-          >
-            {visibleTargets.map((currency) => (
-              <option key={currency.code} value={currency.code}>
-                {currency.code} — {currency.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="target-selectors">
+          {preferences.targetCurrencies.map((selectedCode, index) => {
+            const selected = TARGET_CURRENCIES.find(
+              ({ code }) => code === selectedCode
+            );
+            const visibleTargets = matches.some(
+              ({ code }) => code === selectedCode
+            )
+              ? matches
+              : selected
+                ? [selected, ...matches]
+                : matches;
+            return (
+              <div className="target-selector" key={`${index}-${selectedCode}`}>
+                <label className="field">
+                  <span>
+                    Target Currency{isMember ? ` ${index + 1}` : ""}{" "}
+                    <em>{isMember ? "Member · up to 3" : "Guest · 1"}</em>
+                  </span>
+                  <select
+                    name={`${compact ? "camera" : ""}TargetCurrency${index + 1}`}
+                    value={selectedCode}
+                    onChange={updateTarget(index)}
+                  >
+                    {visibleTargets
+                      .filter(
+                        ({ code }) =>
+                          code === selectedCode ||
+                          !preferences.targetCurrencies.includes(code)
+                      )
+                      .map((currency) => (
+                        <option key={currency.code} value={currency.code}>
+                          {currency.code} — {currency.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {isMember && preferences.targetCurrencies.length > 1 ? (
+                  <button
+                    className="text-button target-remove"
+                    type="button"
+                    onClick={() => removeTarget(index)}
+                  >
+                    Remove Target Currency {index + 1}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+          {isMember && preferences.targetCurrencies.length < 3 ? (
+            <button
+              className="text-button target-add"
+              type="button"
+              onClick={addTarget}
+            >
+              Add Target Currency
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -420,7 +484,8 @@ function CameraSurface({
   demo,
   snapshot,
   preferences,
-  guestRate,
+  isMember,
+  rates,
   onPreferencesChange,
   createRecognizer,
   onClose,
@@ -429,9 +494,10 @@ function CameraSurface({
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
-  preferences: GuestPreferences;
-  guestRate: GuestRateView;
-  onPreferencesChange: (preferences: GuestPreferences) => void;
+  preferences: ExperiencePreferences;
+  isMember: boolean;
+  rates: GuestRateViews;
+  onPreferencesChange: (preferences: ExperiencePreferences) => void;
   createRecognizer: CreateRecognizer;
   onClose: () => void;
   onRetry: () => void;
@@ -480,6 +546,7 @@ function CameraSurface({
         <CurrencySettings
           preferences={preferences}
           onChange={onPreferencesChange}
+          isMember={isMember}
           compact
         />
         <StatusPanel
@@ -509,12 +576,13 @@ function CameraSurface({
                 : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
         </div>
-        <ConversionResult
+        <ConversionLedger
           focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
           focusedCurrency={recognition.focusedPrice?.currency ?? null}
           sourceCurrency={preferences.sourceCurrency}
-          targetCurrency={preferences.targetCurrency}
-          guestRate={guestRate}
+          targetCurrencies={preferences.targetCurrencies}
+          isMember={isMember}
+          rates={rates}
         />
       </section>
     </main>
@@ -528,7 +596,7 @@ function currencyFractionDigits(currency: CurrencyCode): number {
   }).resolvedOptions().maximumFractionDigits ?? 2;
 }
 
-function ConversionResult({
+function ConversionRow({
   focusedMinorUnits,
   focusedCurrency,
   sourceCurrency,
@@ -581,9 +649,12 @@ function ConversionResult({
   });
 
   return (
-    <section className="conversion-card" aria-label="Guest conversion">
+    <section
+      className="conversion-card"
+      aria-label={`${targetCurrency} conversion`}
+    >
       <div className="conversion-heading">
-        <span>Guest conversion</span>
+        <span>Target Currency</span>
         <strong>
           {targetCurrency} {formatted}
         </strong>
@@ -609,6 +680,47 @@ function ConversionResult({
       <p className="rate-disclaimer">
         Reference estimate; your payment rate may differ.
       </p>
+    </section>
+  );
+}
+
+function ConversionLedger({
+  focusedMinorUnits,
+  focusedCurrency,
+  sourceCurrency,
+  targetCurrencies,
+  isMember,
+  rates
+}: {
+  focusedMinorUnits: number | null;
+  focusedCurrency: CurrencyCode | null;
+  sourceCurrency: CurrencyCode;
+  targetCurrencies: CurrencyCode[];
+  isMember: boolean;
+  rates: GuestRateViews;
+}) {
+  return (
+    <section
+      className="conversion-ledger"
+      aria-label={isMember ? "Member conversions" : "Guest conversion"}
+    >
+      {targetCurrencies.map((targetCurrency) => (
+        <ConversionRow
+          key={targetCurrency}
+          focusedMinorUnits={focusedMinorUnits}
+          focusedCurrency={focusedCurrency}
+          sourceCurrency={sourceCurrency}
+          targetCurrency={targetCurrency}
+          guestRate={
+            rates[targetCurrency] ?? {
+              phase: "loading",
+              rate: null,
+              error: null,
+              retry: () => undefined
+            }
+          }
+        />
+      ))}
     </section>
   );
 }
@@ -639,11 +751,17 @@ function getBrowserStorage(): Storage | undefined {
 export default function App({
   createRecognizer = createBrowserRecognizer,
   loadGuestRate,
-  admission
+  admission,
+  memberUserId = null,
+  loadMemberPreferences = loadMemberPreferencesFromApi,
+  saveMemberPreferences = saveMemberPreferencesToApi
 }: {
   createRecognizer?: CreateRecognizer;
   loadGuestRate?: LoadGuestRate;
   admission?: ReactNode;
+  memberUserId?: string | null;
+  loadMemberPreferences?: LoadMemberPreferences;
+  saveMemberPreferences?: SaveMemberPreferences;
 }) {
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
@@ -656,9 +774,63 @@ export default function App({
     loadOnline: loadGuestRateFromGateway,
     store: rateSnapshotStoreRef.current
   });
-  const [preferences, setPreferences] = useState(() =>
+  const [guestPreferences, setGuestPreferences] = useState(() =>
     preferenceStoreRef.current.load()
   );
+  const [memberPreferences, setMemberPreferences] =
+    useState<MemberPreferences | null>(null);
+  const [memberStatus, setMemberStatus] = useState<
+    "guest" | "loading" | "approved"
+  >(memberUserId ? "loading" : "guest");
+  const memberSaveRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    memberSaveRef.current?.abort();
+    if (!memberUserId) {
+      setMemberStatus("guest");
+      setMemberPreferences(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setMemberStatus("loading");
+    setMemberPreferences(null);
+    void loadMemberPreferences(memberUserId, controller.signal)
+      .then((saved) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setMemberPreferences(
+          saved ?? {
+            ownerId: memberUserId,
+            sourceCurrency: guestPreferences.sourceCurrency,
+            targetCurrencies: [guestPreferences.targetCurrency]
+          }
+        );
+        setMemberStatus("approved");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMemberStatus("guest");
+          setMemberPreferences(null);
+        }
+      });
+    return () => controller.abort();
+  }, [
+    guestPreferences.sourceCurrency,
+    guestPreferences.targetCurrency,
+    loadMemberPreferences,
+    memberUserId
+  ]);
+  const isMember =
+    memberStatus === "approved" && memberPreferences !== null;
+  const preferences: ExperiencePreferences = isMember
+    ? {
+        sourceCurrency: memberPreferences.sourceCurrency,
+        targetCurrencies: memberPreferences.targetCurrencies
+      }
+    : {
+        sourceCurrency: guestPreferences.sourceCurrency,
+        targetCurrencies: [guestPreferences.targetCurrency]
+      };
   const sessionRef = useRef<CameraSession | null>(null);
   const [cameraSnapshot, setCameraSnapshot] = useState<CameraSnapshot>({
     status: "idle",
@@ -666,17 +838,18 @@ export default function App({
   });
   const [mode, setMode] = useState<ExperienceMode>("welcome");
   useEffect(() => {
-    rateSnapshotStoreRef.current.retainActivePairs([
-      {
+    rateSnapshotStoreRef.current.retainActivePairs(
+      preferences.targetCurrencies.map((target) => ({
         source: preferences.sourceCurrency,
-        target: preferences.targetCurrency
-      }
-    ]);
-  }, [preferences.sourceCurrency, preferences.targetCurrency]);
-  const guestRate = useGuestRate(
+        target
+      }))
+    );
+  }, [preferences.sourceCurrency, preferences.targetCurrencies]);
+  const loadRate = loadGuestRate ?? browserRateLoaderRef.current;
+  const rates = useGuestRates(
     preferences.sourceCurrency,
-    preferences.targetCurrency,
-    loadGuestRate ?? browserRateLoaderRef.current
+    preferences.targetCurrencies,
+    loadRate
   );
 
   useEffect(() => {
@@ -695,9 +868,34 @@ export default function App({
     };
   }, []);
 
-  const updatePreferences = (nextPreferences: GuestPreferences) => {
-    setPreferences(nextPreferences);
-    preferenceStoreRef.current.save(nextPreferences);
+  const updatePreferences = (nextPreferences: ExperiencePreferences) => {
+    if (isMember && memberUserId) {
+      const synchronized: MemberPreferences = {
+        ownerId: memberUserId,
+        ...nextPreferences
+      };
+      setMemberPreferences(synchronized);
+      memberSaveRef.current?.abort();
+      const controller = new AbortController();
+      memberSaveRef.current = controller;
+      void saveMemberPreferences(synchronized, controller.signal)
+        .then((saved) => {
+          if (!controller.signal.aborted) {
+            setMemberPreferences(saved);
+          }
+        })
+        .catch(() => {
+          // The current selection remains usable while synchronization retries
+          // on the member's next change or browser load.
+        });
+      return;
+    }
+    const guest: GuestPreferences = {
+      sourceCurrency: nextPreferences.sourceCurrency,
+      targetCurrency: nextPreferences.targetCurrencies[0]
+    };
+    setGuestPreferences(guest);
+    preferenceStoreRef.current.save(guest);
   };
 
   const startCamera = async () => {
@@ -724,7 +922,8 @@ export default function App({
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
         preferences={preferences}
-        guestRate={guestRate}
+        isMember={isMember}
+        rates={rates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
         onClose={closeCamera}
@@ -744,7 +943,9 @@ export default function App({
     <main className="welcome-shell">
       <nav className="topbar" aria-label="Primary">
         <TagLingoMark />
-        <span className="guest-badge">Guest mode</span>
+        <span className="guest-badge">
+          {isMember ? "Approved Member mode" : "Guest mode"}
+        </span>
       </nav>
 
       <section className="hero">
@@ -779,6 +980,7 @@ export default function App({
         <CurrencySettings
           preferences={preferences}
           onChange={updatePreferences}
+          isMember={isMember}
         />
 
         {failure ? (

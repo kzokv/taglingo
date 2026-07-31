@@ -10,7 +10,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
+import type { MemberPreferences } from "./member/memberPreferencesApi";
 import type { OcrRecognizer } from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
@@ -547,5 +549,161 @@ describe("Guest camera journey", () => {
       screen.getByRole("combobox", { name: /source currency/i })
     ).toHaveValue("JPY");
     localStorageGetter.mockRestore();
+  });
+});
+
+describe("Approved Member journey", () => {
+  it("restores three synchronized Target Currencies and renders a dated ledger row for each", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi.fn().mockResolvedValue({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD", "TWD", "EUR"]
+    });
+    const loadGuestRate = vi.fn(
+      async (_source: CurrencyCode, target: CurrencyCode) => ({
+        ...DEFAULT_RATE,
+        target,
+        value:
+          target === "USD" ? "0.0067123" : target === "TWD" ? "0.22" : "0.0058"
+      })
+    );
+
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(loadMemberPreferences).toHaveBeenCalledWith(
+      "user_member",
+      expect.any(AbortSignal)
+    );
+    expect(
+      screen.getAllByRole("combobox", { name: /^target currency/i })
+    ).toHaveLength(3);
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(screen.getByText("TWD 911.24")).toBeInTheDocument();
+    expect(screen.getByText("EUR 24.02")).toBeInTheDocument();
+    expect(screen.getAllByText(/reference rate/i)).toHaveLength(3);
+    expect(screen.getAllByText(/effective 2026-07-30/i)).toHaveLength(3);
+  });
+
+  it("synchronizes member changes and returns to one browser-local target after sign-out", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi.fn().mockResolvedValue({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD"]
+    });
+    const saveMemberPreferences = vi.fn(
+      async (preferences: MemberPreferences) => preferences
+    );
+    const view = render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+
+    await user.click(
+      screen.getByRole("button", { name: /add target currency/i })
+    );
+    const targets = screen.getAllByRole("combobox", {
+      name: /^target currency/i
+    });
+    await user.selectOptions(targets[1], "TWD");
+
+    await waitFor(() =>
+      expect(saveMemberPreferences).toHaveBeenLastCalledWith(
+        {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        },
+        expect.any(AbortSignal)
+      )
+    );
+
+    view.rerender(
+      <App
+        memberUserId={null}
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("combobox", { name: /^target currency/i })
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("combobox", { name: /^target currency/i })
+    ).toHaveValue("USD");
+    expect(saveMemberPreferences).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a signed-in account at Guest limits when active membership is denied", async () => {
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi.fn();
+
+    render(
+      <App
+        memberUserId="user_inactive"
+        loadMemberPreferences={vi
+          .fn()
+          .mockRejectedValue(new Error("inactive membership"))}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("combobox", { name: /^target currency/i })
+    ).toHaveLength(1);
+    expect(saveMemberPreferences).not.toHaveBeenCalled();
+  });
+
+  it("preserves unaffected member conversions when one Target Currency rate fails", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadGuestRate = vi.fn(
+      async (_source: CurrencyCode, target: CurrencyCode) => {
+        if (target === "TWD") {
+          throw new Error("rate unavailable");
+        }
+        return { ...DEFAULT_RATE, target };
+      }
+    );
+
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        })}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /conversion unavailable/i
+    );
+    expect(screen.getByLabelText(/usd conversion/i)).toBeInTheDocument();
   });
 });
