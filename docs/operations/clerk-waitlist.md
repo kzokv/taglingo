@@ -46,7 +46,7 @@ In the intended Clerk instance:
 
 The application intentionally renders Clerk's prebuilt `<Waitlist />` and
 `<SignIn />` components. New Guests enter through Waitlist. Sign-in has
-sign-up transfer disabled and is for existing approved users.
+sign-up transfer disabled and is for people with an existing Clerk account.
 
 ## Configure abuse and enumeration protection
 
@@ -142,7 +142,8 @@ or screenshots containing personal data.
 4. **Direct invite:** Open **Invitations**, create an invitation for a third
    address, and confirm the email and Account Portal registration path work.
 5. **Existing sign-in:** Complete registration for the invited test user, open
-   **Sign in as an approved user**, and authenticate with the email code.
+   **Sign in with an existing Clerk account**, and authenticate with the email
+   code.
    Identity alone must still leave the app in Guest mode until a later
    server-side membership workflow creates an active TagLingo membership.
 6. **Repeat/automation:** Submit the same waitlist address again and confirm no
