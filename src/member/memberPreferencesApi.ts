@@ -18,8 +18,20 @@ export type AuthenticationResult =
   | { kind: "unauthenticated" }
   | { kind: "invalid-session" };
 
+export type ApplicationRole = "member" | "administrator";
+export type MemberCapability =
+  | "preferences:read"
+  | "preferences:write"
+  | "fx:member"
+  | "memberships:manage";
+
+export interface TagLingoMembership {
+  status: "active" | "suspended";
+  role: ApplicationRole;
+}
+
 export interface MembershipStore {
-  findStatus(userId: string): Promise<"active" | "suspended" | null>;
+  find(userId: string): Promise<TagLingoMembership | null>;
 }
 
 export interface MemberPreferenceStore {
@@ -31,6 +43,33 @@ export interface MemberPreferencesHandlerDependencies {
   authenticate(request: Request): Promise<AuthenticationResult>;
   memberships: MembershipStore;
   preferences: MemberPreferenceStore;
+}
+
+const roleCapabilities: Record<
+  ApplicationRole,
+  ReadonlySet<MemberCapability>
+> = {
+  member: new Set([
+    "preferences:read",
+    "preferences:write",
+    "fx:member"
+  ]),
+  administrator: new Set([
+    "preferences:read",
+    "preferences:write",
+    "fx:member",
+    "memberships:manage"
+  ])
+};
+
+export function authorizesCapability(
+  membership: TagLingoMembership | null,
+  capability: MemberCapability
+): boolean {
+  return (
+    membership?.status === "active" &&
+    roleCapabilities[membership.role].has(capability)
+  );
 }
 
 function errorResponse(
@@ -94,10 +133,10 @@ export function createMemberPreferencesHandler({
         "The Clerk session is invalid or expired."
       );
     }
-    const membershipStatus = await memberships.findStatus(
-      authentication.userId
-    );
-    if (membershipStatus !== "active") {
+    const membership = await memberships.find(authentication.userId);
+    const capability =
+      request.method === "PUT" ? "preferences:write" : "preferences:read";
+    if (!authorizesCapability(membership, capability)) {
       return errorResponse(
         403,
         "inactive_membership",

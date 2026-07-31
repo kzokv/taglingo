@@ -1,18 +1,16 @@
-import { createClerkClient } from "@clerk/backend";
-
 import type { D1Database } from "../../src/fx/cloudflareInfrastructure";
-import { createClerkSessionAuthenticator } from "../../src/member/clerkSession";
+import {
+  createCloudflareClerkAuthenticator,
+  type ClerkFunctionEnvironment
+} from "../../src/member/cloudflareClerk";
 import {
   createD1MemberPreferenceStore,
   createD1MembershipStore
 } from "../../src/member/cloudflareMemberInfrastructure";
 import { createMemberPreferencesHandler } from "../../src/member/memberPreferencesApi";
 
-interface Environment {
+interface Environment extends ClerkFunctionEnvironment {
   DB: D1Database;
-  CLERK_AUTHORIZED_PARTIES: string;
-  CLERK_PUBLISHABLE_KEY: string;
-  CLERK_SECRET_KEY: string;
 }
 
 interface PagesContext {
@@ -20,35 +18,9 @@ interface PagesContext {
   env: Environment;
 }
 
-function authorizedParties(value: string): string[] {
-  const parties = value
-    .split(",")
-    .map((party) => party.trim())
-    .filter(Boolean);
-  if (parties.length === 0) {
-    throw new Error("CLERK_AUTHORIZED_PARTIES must not be empty.");
-  }
-  return parties;
-}
-
 function handlerFor(env: Environment) {
-  const clerk = createClerkClient({
-    publishableKey: env.CLERK_PUBLISHABLE_KEY,
-    secretKey: env.CLERK_SECRET_KEY
-  });
   return createMemberPreferencesHandler({
-    authenticate: createClerkSessionAuthenticator(
-      {
-        authenticateRequest: (request, options) =>
-          clerk.authenticateRequest(request, options)
-      },
-      {
-        publishableKey: env.CLERK_PUBLISHABLE_KEY,
-        authorizedParties: authorizedParties(
-          env.CLERK_AUTHORIZED_PARTIES
-        )
-      }
-    ),
+    authenticate: createCloudflareClerkAuthenticator(env),
     memberships: createD1MembershipStore(env.DB),
     preferences: createD1MemberPreferenceStore(env.DB)
   });

@@ -22,15 +22,17 @@ function statement(overrides: Partial<D1PreparedStatement> = {}) {
 describe("Cloudflare member infrastructure", () => {
   it("reads membership status without consulting preference data", async () => {
     const select = statement({
-      first: vi.fn().mockResolvedValue({ status: "active" })
+      first: vi
+        .fn()
+        .mockResolvedValue({ status: "active", role: "member" })
     });
     const database: D1Database = {
       prepare: vi.fn().mockReturnValue(select)
     };
 
     await expect(
-      createD1MembershipStore(database).findStatus("user_member")
-    ).resolves.toBe("active");
+      createD1MembershipStore(database).find("user_member")
+    ).resolves.toEqual({ status: "active", role: "member" });
     expect(select.bind).toHaveBeenCalledWith("user_member");
     expect(vi.mocked(database.prepare).mock.calls[0][0]).toContain(
       "taglingo_memberships"

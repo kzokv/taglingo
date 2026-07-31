@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -36,6 +37,7 @@ import {
   type GuestRateView,
   type LoadGuestRate
 } from "./fx/useGuestRate";
+import { createMemberRateLoader } from "./fx/memberRateClient";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import {
   loadMemberPreferencesFromApi,
@@ -107,12 +109,12 @@ function TagLingoMark() {
 function CurrencySettings({
   preferences,
   onChange,
-  isMember,
+  isApprovedMember,
   compact = false
 }: {
   preferences: ExperiencePreferences;
   onChange: (preferences: ExperiencePreferences) => void;
-  isMember: boolean;
+  isApprovedMember: boolean;
   compact?: boolean;
 }) {
   const [targetQuery, setTargetQuery] = useState("");
@@ -203,8 +205,12 @@ function CurrencySettings({
               <div className="target-selector" key={`${index}-${selectedCode}`}>
                 <label className="field">
                   <span>
-                    Target Currency{isMember ? ` ${index + 1}` : ""}{" "}
-                    <em>{isMember ? "Member · up to 3" : "Guest · 1"}</em>
+                    Target Currency{isApprovedMember ? ` ${index + 1}` : ""}{" "}
+                    <em>
+                      {isApprovedMember
+                        ? "Approved Member · up to 3"
+                        : "Guest · 1"}
+                    </em>
                   </span>
                   <select
                     name={`${compact ? "camera" : ""}TargetCurrency${index + 1}`}
@@ -224,7 +230,8 @@ function CurrencySettings({
                       ))}
                   </select>
                 </label>
-                {isMember && preferences.targetCurrencies.length > 1 ? (
+                {isApprovedMember &&
+                preferences.targetCurrencies.length > 1 ? (
                   <button
                     className="text-button target-remove"
                     type="button"
@@ -236,7 +243,8 @@ function CurrencySettings({
               </div>
             );
           })}
-          {isMember && preferences.targetCurrencies.length < 3 ? (
+          {isApprovedMember &&
+          preferences.targetCurrencies.length < 3 ? (
             <button
               className="text-button target-add"
               type="button"
@@ -484,7 +492,7 @@ function CameraSurface({
   demo,
   snapshot,
   preferences,
-  isMember,
+  isApprovedMember,
   rates,
   onPreferencesChange,
   createRecognizer,
@@ -495,7 +503,7 @@ function CameraSurface({
   demo: boolean;
   snapshot: CameraSnapshot;
   preferences: ExperiencePreferences;
-  isMember: boolean;
+  isApprovedMember: boolean;
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   createRecognizer: CreateRecognizer;
@@ -546,7 +554,7 @@ function CameraSurface({
         <CurrencySettings
           preferences={preferences}
           onChange={onPreferencesChange}
-          isMember={isMember}
+          isApprovedMember={isApprovedMember}
           compact
         />
         <StatusPanel
@@ -581,7 +589,7 @@ function CameraSurface({
           focusedCurrency={recognition.focusedPrice?.currency ?? null}
           sourceCurrency={preferences.sourceCurrency}
           targetCurrencies={preferences.targetCurrencies}
-          isMember={isMember}
+          isApprovedMember={isApprovedMember}
           rates={rates}
         />
       </section>
@@ -689,20 +697,22 @@ function ConversionLedger({
   focusedCurrency,
   sourceCurrency,
   targetCurrencies,
-  isMember,
+  isApprovedMember,
   rates
 }: {
   focusedMinorUnits: number | null;
   focusedCurrency: CurrencyCode | null;
   sourceCurrency: CurrencyCode;
   targetCurrencies: CurrencyCode[];
-  isMember: boolean;
+  isApprovedMember: boolean;
   rates: GuestRateViews;
 }) {
   return (
     <section
       className="conversion-ledger"
-      aria-label={isMember ? "Member conversions" : "Guest conversion"}
+      aria-label={
+        isApprovedMember ? "Approved Member conversions" : "Guest conversion"
+      }
     >
       {targetCurrencies.map((targetCurrency) => (
         <ConversionRow
@@ -779,37 +789,43 @@ export default function App({
   );
   const [memberPreferences, setMemberPreferences] =
     useState<MemberPreferences | null>(null);
-  const [memberStatus, setMemberStatus] = useState<
+  const [approvedMemberStatus, setApprovedMemberStatus] = useState<
     "guest" | "loading" | "approved"
   >(memberUserId ? "loading" : "guest");
   const memberSaveRef = useRef<AbortController | null>(null);
   useEffect(() => {
     memberSaveRef.current?.abort();
     if (!memberUserId) {
-      setMemberStatus("guest");
+      setApprovedMemberStatus("guest");
       setMemberPreferences(null);
       return undefined;
     }
     const controller = new AbortController();
-    setMemberStatus("loading");
+    setApprovedMemberStatus("loading");
     setMemberPreferences(null);
     void loadMemberPreferences(memberUserId, controller.signal)
-      .then((saved) => {
+      .then(async (saved) => {
         if (controller.signal.aborted) {
           return;
         }
-        setMemberPreferences(
+        const restored =
           saved ?? {
             ownerId: memberUserId,
             sourceCurrency: guestPreferences.sourceCurrency,
             targetCurrencies: [guestPreferences.targetCurrency]
-          }
-        );
-        setMemberStatus("approved");
+          };
+        const synchronized = saved
+          ? restored
+          : await saveMemberPreferences(restored, controller.signal);
+        if (controller.signal.aborted) {
+          return;
+        }
+        setMemberPreferences(synchronized);
+        setApprovedMemberStatus("approved");
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setMemberStatus("guest");
+          setApprovedMemberStatus("guest");
           setMemberPreferences(null);
         }
       });
@@ -818,11 +834,14 @@ export default function App({
     guestPreferences.sourceCurrency,
     guestPreferences.targetCurrency,
     loadMemberPreferences,
-    memberUserId
+    memberUserId,
+    saveMemberPreferences
   ]);
-  const isMember =
-    memberStatus === "approved" && memberPreferences !== null;
-  const preferences: ExperiencePreferences = isMember
+  const isApprovedMember =
+    Boolean(memberUserId) &&
+    approvedMemberStatus === "approved" &&
+    memberPreferences !== null;
+  const preferences: ExperiencePreferences = isApprovedMember
     ? {
         sourceCurrency: memberPreferences.sourceCurrency,
         targetCurrencies: memberPreferences.targetCurrencies
@@ -845,7 +864,15 @@ export default function App({
       }))
     );
   }, [preferences.sourceCurrency, preferences.targetCurrencies]);
-  const loadRate = loadGuestRate ?? browserRateLoaderRef.current;
+  const approvedMemberRateLoader = useMemo(
+    () => (memberUserId ? createMemberRateLoader(memberUserId) : null),
+    [memberUserId]
+  );
+  const loadRate =
+    loadGuestRate ??
+    (isApprovedMember && approvedMemberRateLoader
+      ? approvedMemberRateLoader
+      : browserRateLoaderRef.current);
   const rates = useGuestRates(
     preferences.sourceCurrency,
     preferences.targetCurrencies,
@@ -869,7 +896,7 @@ export default function App({
   }, []);
 
   const updatePreferences = (nextPreferences: ExperiencePreferences) => {
-    if (isMember && memberUserId) {
+    if (isApprovedMember && memberUserId) {
       const synchronized: MemberPreferences = {
         ownerId: memberUserId,
         ...nextPreferences
@@ -922,7 +949,7 @@ export default function App({
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
         preferences={preferences}
-        isMember={isMember}
+        isApprovedMember={isApprovedMember}
         rates={rates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
@@ -944,7 +971,7 @@ export default function App({
       <nav className="topbar" aria-label="Primary">
         <TagLingoMark />
         <span className="guest-badge">
-          {isMember ? "Approved Member mode" : "Guest mode"}
+          {isApprovedMember ? "Approved Member mode" : "Guest mode"}
         </span>
       </nav>
 
@@ -980,7 +1007,7 @@ export default function App({
         <CurrencySettings
           preferences={preferences}
           onChange={updatePreferences}
-          isMember={isMember}
+          isApprovedMember={isApprovedMember}
         />
 
         {failure ? (

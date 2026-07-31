@@ -43,6 +43,7 @@ export interface GuestFxHandlerDependencies {
   resolveGuestActor: (request: Request) => Promise<GuestActor>;
   now?: () => Date;
   frankfurterOrigin?: string;
+  rateLimitLabel?: "Guest" | "Approved Member";
 }
 
 interface FrankfurterRate {
@@ -235,7 +236,8 @@ export function createGuestFxHandler({
   consumeGuestLimit,
   resolveGuestActor,
   now = () => new Date(),
-  frankfurterOrigin = FRANKFURTER_ORIGIN
+  frankfurterOrigin = FRANKFURTER_ORIGIN,
+  rateLimitLabel = "Guest"
 }: GuestFxHandlerDependencies) {
   const revalidations = new Map<
     string,
@@ -262,7 +264,9 @@ export function createGuestFxHandler({
     const requestedAt = now();
     if (!(await consumeGuestLimit(actor.key, ipAddress, requestedAt))) {
       return guestGatewayJsonResponse(
-        { error: "Guest Reference Rate limit exceeded. Try again shortly." },
+        {
+          error: `${rateLimitLabel} Reference Rate limit exceeded. Try again shortly.`
+        },
         429,
         actor.setCookie
       );

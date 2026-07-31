@@ -4,9 +4,13 @@ Issue #22 keeps identity, admission, and application authorization separate:
 
 - Clerk owns registration, sign-in, banning, and session revocation.
 - `taglingo_memberships` decides whether a signed-in Clerk user is an Approved
-  Member.
+  Member and records the separate application role (`member` or
+  `administrator`).
 - `member_preferences` stores one Source Currency and one to three Target
   Currencies under the stable Clerk user ID.
+- The protected Approved Member FX endpoint serves only the Source/Target pairs
+  already stored in that member's preference row and rate-limits the stable
+  Clerk user ID plus IP independently from Guests.
 
 An invitation or valid Clerk session does not create a TagLingo membership.
 The protected preference function checks the session and active membership
@@ -43,13 +47,16 @@ completes:
    VALUES ('user_REPLACE_ME', 'active')
    ON CONFLICT(clerk_user_id) DO UPDATE SET
      status = 'active',
+     role = 'member',
      updated_at = CURRENT_TIMESTAMP;
    ```
 
 3. Sign in to TagLingo. The header must change from Guest mode to Approved
    Member mode only after `/api/preferences` confirms the active row.
 4. Select one to three distinct Target Currencies. Confirm D1 contains one
-   `member_preferences` row for that Clerk user ID.
+   `member_preferences` row for that Clerk user ID. Confirm
+   `/api/member-fx` accepts those saved pairs and rejects a fourth unsaved
+   Target Currency.
 5. Sign in as the same person in a second browser and confirm the Source and
    Target Currencies restore.
 6. Sign out and confirm the browser immediately returns to the one-target

@@ -553,6 +553,31 @@ describe("Guest camera journey", () => {
 });
 
 describe("Approved Member journey", () => {
+  it("creates a synchronized preference row only after active membership is confirmed", async () => {
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi.fn(
+      async (preferences: MemberPreferences) => preferences
+    );
+
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={vi.fn().mockResolvedValue(null)}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(saveMemberPreferences).toHaveBeenCalledWith(
+      {
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"]
+      },
+      expect.any(AbortSignal)
+    );
+  });
+
   it("restores three synchronized Target Currencies and renders a dated ledger row for each", async () => {
     const user = userEvent.setup();
     useMediaDevices(vi.fn());
@@ -705,5 +730,24 @@ describe("Approved Member journey", () => {
       /conversion unavailable/i
     );
     expect(screen.getByLabelText(/usd conversion/i)).toBeInTheDocument();
+    const usdCallsBeforeRetry = loadGuestRate.mock.calls.filter(
+      (call) => call[1] === "USD"
+    ).length;
+    const twdCallsBeforeRetry = loadGuestRate.mock.calls.filter(
+      (call) => call[1] === "TWD"
+    ).length;
+
+    await user.click(
+      screen.getByRole("button", { name: /reconnect and retry/i })
+    );
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        loadGuestRate.mock.calls.filter((call) => call[1] === "TWD")
+      ).toHaveLength(twdCallsBeforeRetry + 1)
+    );
+    expect(
+      loadGuestRate.mock.calls.filter((call) => call[1] === "USD")
+    ).toHaveLength(usdCallsBeforeRetry);
   });
 });

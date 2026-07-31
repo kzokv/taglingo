@@ -23,7 +23,7 @@ function request(
 
 function dependencies() {
   const memberships: MembershipStore = {
-    findStatus: vi.fn().mockResolvedValue("active")
+    find: vi.fn().mockResolvedValue({ status: "active", role: "member" })
   };
   const preferences: MemberPreferenceStore = {
     find: vi.fn(),
@@ -50,7 +50,7 @@ describe("member preference API", () => {
         message: "Sign in with an Approved Member account."
       }
     });
-    expect(memberships.findStatus).not.toHaveBeenCalled();
+    expect(memberships.find).not.toHaveBeenCalled();
     expect(preferences.find).not.toHaveBeenCalled();
   });
 
@@ -68,13 +68,16 @@ describe("member preference API", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "invalid_session" }
     });
-    expect(memberships.findStatus).not.toHaveBeenCalled();
+    expect(memberships.find).not.toHaveBeenCalled();
     expect(preferences.find).not.toHaveBeenCalled();
   });
 
   it("denies a signed-in user without an active TagLingo membership", async () => {
     const { memberships, preferences } = dependencies();
-    vi.mocked(memberships.findStatus).mockResolvedValue("suspended");
+    vi.mocked(memberships.find).mockResolvedValue({
+      status: "suspended",
+      role: "member"
+    });
     const handle = createMemberPreferencesHandler({
       authenticate: vi.fn().mockResolvedValue({
         kind: "authenticated",
@@ -91,7 +94,7 @@ describe("member preference API", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "inactive_membership" }
     });
-    expect(memberships.findStatus).toHaveBeenCalledWith("user_member");
+    expect(memberships.find).toHaveBeenCalledWith("user_member");
     expect(preferences.find).not.toHaveBeenCalled();
   });
 

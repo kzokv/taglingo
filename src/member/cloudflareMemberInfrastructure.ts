@@ -8,6 +8,7 @@ import {
 
 interface MembershipRow {
   status: unknown;
+  role: unknown;
 }
 
 interface MemberPreferenceRow {
@@ -20,18 +21,23 @@ export function createD1MembershipStore(
   database: D1Database
 ): MembershipStore {
   return {
-    async findStatus(userId) {
+    async find(userId) {
       const row = await database
         .prepare(
-          `SELECT status
+          `SELECT status, role
              FROM taglingo_memberships
             WHERE clerk_user_id = ?1`
         )
         .bind(userId)
         .first<MembershipRow>();
-      return row?.status === "active" || row?.status === "suspended"
-        ? row.status
-        : null;
+      if (
+        !row ||
+        (row.status !== "active" && row.status !== "suspended") ||
+        (row.role !== "member" && row.role !== "administrator")
+      ) {
+        return null;
+      }
+      return { status: row.status, role: row.role };
     }
   };
 }
