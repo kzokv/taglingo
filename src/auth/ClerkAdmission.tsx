@@ -79,7 +79,7 @@ export function ClerkAdmission() {
         aria-labelledby="member-access-title"
       >
         <AdmissionHeader
-          eyebrow="Approved users"
+          eyebrow="Existing Clerk account"
           title="Sign in"
           onBack={() => setView("summary")}
         />
@@ -131,7 +131,7 @@ export function ClerkAdmission() {
           type="button"
           onClick={() => setView("sign-in")}
         >
-          Sign in as an approved user
+          Sign in with an existing Clerk account
         </button>
       </div>
     </section>

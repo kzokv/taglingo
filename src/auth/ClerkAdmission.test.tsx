@@ -50,12 +50,14 @@ describe("Clerk admission", () => {
     ).toBeInTheDocument();
   });
 
-  it("lets existing approved users reach sign-in without exposing sign-up", async () => {
+  it("lets existing Clerk accounts reach sign-in without exposing sign-up", async () => {
     const user = userEvent.setup();
     render(<ClerkAdmission />);
 
     await user.click(
-      screen.getByRole("button", { name: /sign in as an approved user/i })
+      screen.getByRole("button", {
+        name: /sign in with an existing clerk account/i
+      })
     );
 
     expect(screen.getByText("Clerk sign in")).toHaveAttribute(
