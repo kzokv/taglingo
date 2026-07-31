@@ -66,6 +66,28 @@ beforeEach(() => {
 });
 
 describe("Guest camera journey", () => {
+  it("keeps the Clerk admission surface alongside the public Guest scanner", () => {
+    useMediaDevices(vi.fn());
+
+    render(
+      <App
+        admission={
+          <section aria-label="Member admission">
+            <button type="button">Request member access</button>
+          </section>
+        }
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: /open camera/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /member admission/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/guest mode/i)).toBeInTheDocument();
+  });
+
   it("restores an offline conversion with its cached effective-date state", async () => {
     const user = userEvent.setup();
     useMediaDevices(vi.fn());

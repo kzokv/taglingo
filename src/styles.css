@@ -344,6 +344,77 @@ h1 em {
   border-color: rgba(255, 129, 95, 0.55);
 }
 
+.admission-card {
+  margin-top: 28px;
+  padding: 22px;
+  border: 1px solid rgba(152, 224, 192, 0.28);
+  border-radius: 18px;
+  background: rgba(152, 224, 192, 0.055);
+}
+
+.admission-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admission-heading span {
+  color: var(--mint);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admission-heading h2 {
+  margin: 5px 0 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.admission-card > p {
+  max-width: 610px;
+  margin: 14px 0 0;
+  color: #b9c1c0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.admission-card .admission-note {
+  color: #899493;
+  font-size: 0.72rem;
+}
+
+.admission-actions {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admission-actions button {
+  min-height: 50px;
+  border-radius: 13px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admission-embedded {
+  display: grid;
+  justify-items: stretch;
+}
+
+.admission-embedded > :last-child {
+  justify-self: center;
+  margin-top: 18px;
+}
+
+.admission-unavailable {
+  border-color: rgba(255, 129, 95, 0.35);
+  background: rgba(255, 129, 95, 0.055);
+}
+
 .feature-list {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -810,6 +881,10 @@ h1 em {
   }
 
   .primary-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .admission-actions {
     grid-template-columns: 1fr;
   }
 
