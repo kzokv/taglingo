@@ -638,10 +638,12 @@ function getBrowserStorage(): Storage | undefined {
 
 export default function App({
   createRecognizer = createBrowserRecognizer,
-  loadGuestRate
+  loadGuestRate,
+  admission
 }: {
   createRecognizer?: CreateRecognizer;
   loadGuestRate?: LoadGuestRate;
+  admission?: ReactNode;
 }) {
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
@@ -801,6 +803,8 @@ export default function App({
             </button>
           ) : null}
         </div>
+
+        {admission}
 
         <ul className="feature-list" aria-label="Privacy and access details">
           <Feature icon="◎">
