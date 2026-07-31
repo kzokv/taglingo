@@ -21,8 +21,36 @@ export interface GuestReferenceRate {
   method: "daily-blend";
   providerPublishedDate: string;
   fetchedAt: string;
-  state: "fresh" | "cached" | "last-known-good";
+  state: "fresh" | "cached" | "last-known-good" | "offline";
   attribution: string;
+}
+
+export function isGuestReferenceRate(
+  value: unknown,
+  source: CurrencyCode,
+  target: CurrencyCode,
+  allowOffline = true
+): value is GuestReferenceRate {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<GuestReferenceRate>;
+  return (
+    candidate.source === source &&
+    candidate.target === target &&
+    candidate.direction === "source-to-target" &&
+    isPositiveDecimalString(candidate.value) &&
+    candidate.provider === "Frankfurter" &&
+    candidate.method === "daily-blend" &&
+    isIsoDate(candidate.providerPublishedDate) &&
+    isIsoTimestamp(candidate.fetchedAt) &&
+    (candidate.state === "fresh" ||
+      candidate.state === "cached" ||
+      candidate.state === "last-known-good" ||
+      (allowOffline && candidate.state === "offline")) &&
+    typeof candidate.attribution === "string" &&
+    candidate.attribution.trim().length > 0
+  );
 }
 
 export function isPositiveDecimalString(value: unknown): value is string {

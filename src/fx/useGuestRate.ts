@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { CurrencyCode } from "../domain/currencies";
+import { GuestRateLoadError } from "./browserRateSnapshot";
 import {
-  isIsoDate,
-  isIsoTimestamp,
-  isPositiveDecimalString,
+  isGuestReferenceRate,
   type GuestReferenceRate
 } from "./referenceRate";
 
@@ -14,35 +13,17 @@ export type LoadGuestRate = (
   signal: AbortSignal
 ) => Promise<GuestReferenceRate>;
 
-export type GuestRateView =
+type GuestRateState =
   | { phase: "loading"; rate: null; error: null }
   | { phase: "ready"; rate: GuestReferenceRate; error: null }
-  | { phase: "error"; rate: null; error: string };
+  | {
+      phase: "error";
+      rate: null;
+      error: string;
+      reason: "expired" | "unavailable";
+    };
 
-function isGuestReferenceRate(
-  value: unknown,
-  source: CurrencyCode,
-  target: CurrencyCode
-): value is GuestReferenceRate {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Partial<GuestReferenceRate>;
-  return (
-    candidate.source === source &&
-    candidate.target === target &&
-    candidate.direction === "source-to-target" &&
-    isPositiveDecimalString(candidate.value) &&
-    candidate.provider === "Frankfurter" &&
-    candidate.method === "daily-blend" &&
-    isIsoDate(candidate.providerPublishedDate) &&
-    isIsoTimestamp(candidate.fetchedAt) &&
-    (candidate.state === "fresh" ||
-      candidate.state === "cached" ||
-      candidate.state === "last-known-good") &&
-    typeof candidate.attribution === "string"
-  );
-}
+export type GuestRateView = GuestRateState & { retry: () => void };
 
 export const loadGuestRateFromGateway: LoadGuestRate = async (
   source,
@@ -59,7 +40,7 @@ export const loadGuestRateFromGateway: LoadGuestRate = async (
     throw new Error("A validated Reference Rate is unavailable.");
   }
   const payload: unknown = await response.json();
-  if (!isGuestReferenceRate(payload, source, target)) {
+  if (!isGuestReferenceRate(payload, source, target, false)) {
     throw new Error("The Reference Rate response was invalid.");
   }
   return payload;
@@ -70,11 +51,13 @@ export function useGuestRate(
   target: CurrencyCode,
   loadGuestRate: LoadGuestRate
 ): GuestRateView {
-  const [view, setView] = useState<GuestRateView>({
+  const [view, setView] = useState<GuestRateState>({
     phase: "loading",
     rate: null,
     error: null
   });
+  const [retryCount, setRetryCount] = useState(0);
+  const retry = useCallback(() => setRetryCount((count) => count + 1), []);
 
   useEffect(() => {
     let controller: AbortController | null = null;
@@ -82,9 +65,10 @@ export function useGuestRate(
       setView({
         phase: "error",
         rate: null,
-        error: "Choose a different Target Currency."
+        error: "Choose a different Target Currency.",
+        reason: "unavailable"
       });
-      return;
+      return undefined;
     }
 
     const load = () => {
@@ -98,13 +82,18 @@ export function useGuestRate(
             setView({ phase: "ready", rate, error: null });
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!currentController.signal.aborted) {
+            const expired =
+              error instanceof GuestRateLoadError &&
+              error.reason === "expired";
             setView({
               phase: "error",
               rate: null,
-              error:
-                "A validated Reference Rate is unavailable. Try again later."
+              error: expired
+                ? "The Rate Snapshot expired after seven days. Reconnect to refresh it."
+                : "A validated Reference Rate is unavailable. Reconnect and try again.",
+              reason: expired ? "expired" : "unavailable"
             });
           }
         });
@@ -121,7 +110,7 @@ export function useGuestRate(
       document.removeEventListener("visibilitychange", refreshOnResume);
       controller?.abort();
     };
-  }, [loadGuestRate, source, target]);
+  }, [loadGuestRate, retryCount, source, target]);
 
-  return view;
+  return { ...view, retry };
 }

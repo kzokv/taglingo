@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import vm from "node:vm";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   execFileSync(process.execPath, ["scripts/prepare-ocr-assets.mjs"], {
@@ -15,6 +16,123 @@ function sha256(path: string): string {
 }
 
 describe("installable application metadata", () => {
+  it("reopens the cached shell and required JPY OCR assets offline", async () => {
+    const listeners = new Map<string, (event: Record<string, unknown>) => void>();
+    const cachedResponses = new Map<string, Response>();
+    const cache = {
+      addAll: async (urls: string[]) => {
+        for (const url of urls) {
+          cachedResponses.set(
+            new URL(url, "https://taglingo.test").href,
+            new Response(
+              url === "/"
+                ? '<script type="module" src="/assets/app-version.js"></script>'
+                : url
+            )
+          );
+        }
+      },
+      match: async (request: Request | string) =>
+        cachedResponses.get(
+          typeof request === "string"
+            ? new URL(request, "https://taglingo.test").href
+            : request.url
+        )?.clone(),
+      put: async (request: Request | string, response: Response) => {
+        cachedResponses.set(
+          typeof request === "string"
+            ? new URL(request, "https://taglingo.test").href
+            : request.url,
+          response
+        );
+      }
+    };
+    const context = {
+      URL,
+      Request,
+      Response,
+      caches: {
+        open: async () => cache,
+        keys: async () => ["taglingo-old", "taglingo-shell-v1"],
+        delete: async () => true
+      },
+      fetch: vi.fn().mockRejectedValue(new TypeError("offline")),
+      self: {
+        addEventListener: (
+          type: string,
+          listener: (event: Record<string, unknown>) => void
+        ) => listeners.set(type, listener),
+        clients: { claim: async () => undefined },
+        location: { origin: "https://taglingo.test" },
+        skipWaiting: async () => undefined
+      }
+    };
+    vm.runInNewContext(
+      readFileSync(resolve(process.cwd(), "public/sw.js"), "utf8"),
+      context
+    );
+
+    let installed: Promise<unknown> | undefined;
+    listeners.get("install")?.({
+      waitUntil: (promise: Promise<unknown>) => {
+        installed = promise;
+      }
+    });
+    await installed;
+
+    expect(
+      cachedResponses.has("https://taglingo.test/ocr/tesseract-7.0.0/worker.min.js")
+    ).toBe(true);
+    expect(
+      cachedResponses.has(
+        "https://taglingo.test/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz"
+      )
+    ).toBe(true);
+    expect(
+      cachedResponses.has("https://taglingo.test/assets/app-version.js")
+    ).toBe(true);
+
+    const fetchOffline = async (path: string) => {
+      let response: Promise<Response> | undefined;
+      listeners.get("fetch")?.({
+        request: new Request(`https://taglingo.test${path}`),
+        respondWith: (promise: Promise<Response>) => {
+          response = promise;
+        }
+      });
+      return response;
+    };
+    const activeJpyProfileAssets = [
+      "/ocr/tesseract-7.0.0/worker.min.js",
+      "/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz",
+      "/ocr/tessdata_fast-4.1.0/eng.traineddata.gz",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm.js",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm.js",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm",
+      "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm.js"
+    ];
+    for (const asset of activeJpyProfileAssets) {
+      await expect(fetchOffline(asset)).resolves.toBeInstanceOf(Response);
+    }
+
+    let offlineResponse: Promise<Response> | undefined;
+    listeners.get("fetch")?.({
+      request: new Request("https://taglingo.test/scanner", {
+        headers: { accept: "text/html" }
+      }),
+      respondWith: (promise: Promise<Response>) => {
+        offlineResponse = promise;
+      }
+    });
+
+    await expect(offlineResponse).resolves.toBeInstanceOf(Response);
+    await expect((await offlineResponse)?.text()).resolves.toContain(
+      "/assets/app-version.js"
+    );
+  });
+
   it("publishes a standalone manifest with install icons", () => {
     const manifest = JSON.parse(
       readFileSync(

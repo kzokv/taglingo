@@ -772,6 +772,19 @@ h1 em {
   color: var(--mint);
 }
 
+.conversion-card .offline-snapshot-state {
+  display: inline-block;
+  margin-top: 9px;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 129, 95, 0.35);
+  border-radius: 999px;
+  color: #ffb19b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.56rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .conversion-card .rate-disclaimer {
   color: #c2c9c8;
 }

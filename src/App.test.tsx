@@ -57,6 +57,7 @@ function useMediaDevices(getUserMedia: ReturnType<typeof vi.fn>) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -65,6 +66,64 @@ beforeEach(() => {
 });
 
 describe("Guest camera journey", () => {
+  it("restores an offline conversion with its cached effective-date state", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    vi.setSystemTime(new Date("2026-08-06T12:00:00.000Z"));
+    window.localStorage.setItem(
+      "taglingo.rate-snapshot.v1",
+      JSON.stringify({
+        version: 1,
+        records: {
+          "JPY/USD": {
+            ...DEFAULT_RATE,
+            providerPublishedDate: "2026-07-30"
+          }
+        }
+      })
+    );
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(
+      screen.getByText(/offline · rate snapshot/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/effective 2026-07-30/i)).toBeInTheDocument();
+  });
+
+  it("stops an expired conversion with a reconnect action while recognition continues", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    vi.setSystemTime(new Date("2026-08-07T12:00:00.000Z"));
+    window.localStorage.setItem(
+      "taglingo.rate-snapshot.v1",
+      JSON.stringify({
+        version: 1,
+        records: {
+          "JPY/USD": DEFAULT_RATE
+        }
+      })
+    );
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(
+      await screen.findByText(/focused price · jpy 4,142/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText("USD 27.80")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /rate snapshot expired/i
+    );
+    expect(
+      screen.getByRole("button", { name: /reconnect and retry/i })
+    ).toBeInTheDocument();
+  });
+
   it("converts the Focused Price with one dated Reference Rate without refreshing for recognition observations", async () => {
     const user = userEvent.setup();
     useMediaDevices(vi.fn());
