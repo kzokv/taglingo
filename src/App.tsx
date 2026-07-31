@@ -789,6 +789,10 @@ export default function App({
   );
   const [memberPreferences, setMemberPreferences] =
     useState<MemberPreferences | null>(null);
+  const [
+    synchronizedMemberPreferences,
+    setSynchronizedMemberPreferences
+  ] = useState<MemberPreferences | null>(null);
   const [approvedMemberStatus, setApprovedMemberStatus] = useState<
     "guest" | "loading" | "approved"
   >(memberUserId ? "loading" : "guest");
@@ -798,11 +802,13 @@ export default function App({
     if (!memberUserId) {
       setApprovedMemberStatus("guest");
       setMemberPreferences(null);
+      setSynchronizedMemberPreferences(null);
       return undefined;
     }
     const controller = new AbortController();
     setApprovedMemberStatus("loading");
     setMemberPreferences(null);
+    setSynchronizedMemberPreferences(null);
     void loadMemberPreferences(memberUserId, controller.signal)
       .then(async (saved) => {
         if (controller.signal.aborted) {
@@ -821,12 +827,14 @@ export default function App({
           return;
         }
         setMemberPreferences(synchronized);
+        setSynchronizedMemberPreferences(synchronized);
         setApprovedMemberStatus("approved");
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setApprovedMemberStatus("guest");
           setMemberPreferences(null);
+          setSynchronizedMemberPreferences(null);
         }
       });
     return () => controller.abort();
@@ -850,6 +858,14 @@ export default function App({
         sourceCurrency: guestPreferences.sourceCurrency,
         targetCurrencies: [guestPreferences.targetCurrency]
       };
+  const ratePreferences: ExperiencePreferences =
+    isApprovedMember && synchronizedMemberPreferences
+      ? {
+          sourceCurrency: synchronizedMemberPreferences.sourceCurrency,
+          targetCurrencies:
+            synchronizedMemberPreferences.targetCurrencies
+        }
+      : preferences;
   const sessionRef = useRef<CameraSession | null>(null);
   const [cameraSnapshot, setCameraSnapshot] = useState<CameraSnapshot>({
     status: "idle",
@@ -858,12 +874,12 @@ export default function App({
   const [mode, setMode] = useState<ExperienceMode>("welcome");
   useEffect(() => {
     rateSnapshotStoreRef.current.retainActivePairs(
-      preferences.targetCurrencies.map((target) => ({
-        source: preferences.sourceCurrency,
+      ratePreferences.targetCurrencies.map((target) => ({
+        source: ratePreferences.sourceCurrency,
         target
       }))
     );
-  }, [preferences.sourceCurrency, preferences.targetCurrencies]);
+  }, [ratePreferences.sourceCurrency, ratePreferences.targetCurrencies]);
   const approvedMemberRateLoader = useMemo(
     () => (memberUserId ? createMemberRateLoader(memberUserId) : null),
     [memberUserId]
@@ -874,10 +890,17 @@ export default function App({
       ? approvedMemberRateLoader
       : browserRateLoaderRef.current);
   const rates = useGuestRates(
-    preferences.sourceCurrency,
-    preferences.targetCurrencies,
+    ratePreferences.sourceCurrency,
+    ratePreferences.targetCurrencies,
     loadRate
   );
+  const displayedRates =
+    isApprovedMember &&
+    (preferences.sourceCurrency !== ratePreferences.sourceCurrency ||
+      preferences.targetCurrencies.join(",") !==
+        ratePreferences.targetCurrencies.join(","))
+      ? {}
+      : rates;
 
   useEffect(() => {
     const session = createCameraSession({
@@ -909,11 +932,11 @@ export default function App({
         .then((saved) => {
           if (!controller.signal.aborted) {
             setMemberPreferences(saved);
+            setSynchronizedMemberPreferences(saved);
           }
         })
         .catch(() => {
-          // The current selection remains usable while synchronization retries
-          // on the member's next change or browser load.
+          // Do not request a protected rate for a pair D1 has not authorized.
         });
       return;
     }
@@ -950,7 +973,7 @@ export default function App({
         snapshot={cameraSnapshot}
         preferences={preferences}
         isApprovedMember={isApprovedMember}
-        rates={rates}
+        rates={displayedRates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
         onClose={closeCamera}

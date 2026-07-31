@@ -18,26 +18,27 @@ function dependencies() {
     }),
     save: vi.fn()
   };
-  const loadReferenceRate = vi.fn().mockResolvedValue(
-    Response.json({
-      source: "JPY",
-      target: "TWD",
-      direction: "source-to-target",
-      value: "0.22",
-      provider: "Frankfurter",
-      method: "daily-blend",
-      providerPublishedDate: "2026-07-30",
-      fetchedAt: "2026-07-30T10:00:00.000Z",
-      state: "cached",
-      attribution: "Frankfurter"
-    })
+  const loadReferenceRate = vi.fn(
+    async (_source: string, target: string) =>
+      Response.json({
+        source: "JPY",
+        target,
+        direction: "source-to-target",
+        value: target === "TWD" ? "0.22" : "0.0067",
+        provider: "Frankfurter",
+        method: "daily-blend",
+        providerPublishedDate: "2026-07-30",
+        fetchedAt: "2026-07-30T10:00:00.000Z",
+        state: "cached",
+        attribution: "Frankfurter"
+      })
   );
   return { memberships, preferences, loadReferenceRate };
 }
 
 function request(target = "TWD") {
   return new Request(
-    `https://taglingo.example/api/member-fx?ownerId=user_member&source=JPY&target=${target}`,
+    `https://taglingo.example/api/member-fx?ownerId=user_member&source=JPY&targets=${target}`,
     { headers: { "cf-connecting-ip": "203.0.113.10" } }
   );
 }
@@ -65,6 +66,43 @@ describe("Approved Member FX Gateway", () => {
       "user_member",
       "203.0.113.10"
     );
+    await expect(response.json()).resolves.toMatchObject({
+      rates: [{ target: "TWD", rate: { value: "0.22" } }]
+    });
+  });
+
+  it("batches all synchronized Target Currencies in one authorized request", async () => {
+    const deps = dependencies();
+    const handle = createMemberFxHandler({
+      authenticate: vi.fn().mockResolvedValue({
+        kind: "authenticated",
+        userId: "user_member",
+        sessionId: "sess_member"
+      }),
+      ...deps
+    });
+
+    const response = await handle(request("USD,TWD,EUR"));
+
+    expect(response.status).toBe(200);
+    expect(deps.loadReferenceRate).toHaveBeenCalledTimes(3);
+  });
+
+  it("authenticates even a malformed protected request before rejecting it", async () => {
+    const deps = dependencies();
+    const authenticate = vi
+      .fn()
+      .mockResolvedValue({ kind: "unauthenticated" });
+    const handle = createMemberFxHandler({ authenticate, ...deps });
+    const malformed = new Request(
+      "https://taglingo.example/api/member-fx?cameraFrame=secret"
+    );
+
+    const response = await handle(malformed);
+
+    expect(response.status).toBe(401);
+    expect(authenticate).toHaveBeenCalledWith(malformed);
+    expect(deps.preferences.find).not.toHaveBeenCalled();
   });
 
   it("denies a target outside the member's synchronized one-to-three-target entitlement", async () => {

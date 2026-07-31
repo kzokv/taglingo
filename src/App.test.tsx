@@ -678,6 +678,49 @@ describe("Approved Member journey", () => {
     expect(saveMemberPreferences).toHaveBeenCalledTimes(2);
   });
 
+  it("waits for D1 synchronization before requesting a newly selected member rate", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const saved = createDeferred<MemberPreferences>();
+    const loadGuestRate = vi
+      .fn()
+      .mockResolvedValue(DEFAULT_RATE);
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"]
+        })}
+        saveMemberPreferences={vi.fn(() => saved.promise)}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^target currency 1/i }),
+      "TWD"
+    );
+
+    expect(
+      loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
+    ).toBe(false);
+
+    await act(async () => {
+      saved.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["TWD"]
+      });
+    });
+    await waitFor(() =>
+      expect(
+        loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
+      ).toBe(true)
+    );
+  });
+
   it("keeps a signed-in account at Guest limits when active membership is denied", async () => {
     useMediaDevices(vi.fn());
     const saveMemberPreferences = vi.fn();

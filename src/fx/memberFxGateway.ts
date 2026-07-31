@@ -41,7 +41,7 @@ function parseRequest(request: Request):
   | {
       ownerId: string;
       source: SourceCurrencyCode;
-      target: CurrencyCode;
+      targets: CurrencyCode[];
     }
   | null {
   if (request.method !== "GET" || request.url.length > 768) {
@@ -53,25 +53,33 @@ function parseRequest(request: Request):
     keys.length !== 3 ||
     !keys.includes("ownerId") ||
     !keys.includes("source") ||
-    !keys.includes("target")
+    !keys.includes("targets")
   ) {
     return null;
   }
   const ownerId = url.searchParams.get("ownerId");
   const source = url.searchParams.get("source");
-  const target = url.searchParams.get("target");
+  const targets = url.searchParams
+    .get("targets")
+    ?.split(",")
+    .filter(Boolean);
   if (
     !ownerId ||
     !SOURCE_CURRENCIES.some(({ code }) => code === source) ||
-    !isCurrencyCode(target) ||
-    source === target
+    !targets ||
+    targets.length < 1 ||
+    targets.length > 3 ||
+    !targets.every(
+      (target) => isCurrencyCode(target) && source !== target
+    ) ||
+    new Set(targets).size !== targets.length
   ) {
     return null;
   }
   return {
     ownerId,
     source: source as SourceCurrencyCode,
-    target
+    targets: targets as CurrencyCode[]
   };
 }
 
@@ -82,14 +90,6 @@ export function createMemberFxHandler({
   loadReferenceRate
 }: MemberFxHandlerDependencies) {
   return async (request: Request): Promise<Response> => {
-    const parsed = parseRequest(request);
-    if (!parsed) {
-      return errorResponse(
-        400,
-        "malformed_request",
-        "Use one Source Currency and one saved Target Currency."
-      );
-    }
     const authentication = await authenticate(request);
     if (authentication.kind === "unauthenticated") {
       return errorResponse(
@@ -103,6 +103,14 @@ export function createMemberFxHandler({
         401,
         "invalid_session",
         "The Clerk session is invalid or expired."
+      );
+    }
+    const parsed = parseRequest(request);
+    if (!parsed) {
+      return errorResponse(
+        400,
+        "malformed_request",
+        "Use one Source Currency and one to three saved Target Currencies."
       );
     }
     const membership = await memberships.find(authentication.userId);
@@ -124,7 +132,9 @@ export function createMemberFxHandler({
     if (
       !saved ||
       saved.sourceCurrency !== parsed.source ||
-      !saved.targetCurrencies.includes(parsed.target)
+      parsed.targets.some(
+        (target) => !saved.targetCurrencies.includes(target)
+      )
     ) {
       return errorResponse(
         403,
@@ -132,11 +142,28 @@ export function createMemberFxHandler({
         "Select and synchronize this Target Currency before requesting its rate."
       );
     }
-    return loadReferenceRate(
-      parsed.source,
-      parsed.target,
-      authentication.userId,
-      request.headers.get("cf-connecting-ip") ?? "unknown"
+    const ipAddress =
+      request.headers.get("cf-connecting-ip") ?? "unknown";
+    const rates = await Promise.all(
+      parsed.targets.map(async (target) => {
+        const response = await loadReferenceRate(
+          parsed.source,
+          target,
+          authentication.userId,
+          ipAddress
+        );
+        if (!response.ok) {
+          return {
+            target,
+            error: { status: response.status }
+          };
+        }
+        return { target, rate: await response.json() };
+      })
+    );
+    return Response.json(
+      { rates },
+      { headers: { "cache-control": "private, no-store" } }
     );
   };
 }

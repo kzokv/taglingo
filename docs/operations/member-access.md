@@ -9,8 +9,8 @@ Issue #22 keeps identity, admission, and application authorization separate:
 - `member_preferences` stores one Source Currency and one to three Target
   Currencies under the stable Clerk user ID.
 - The protected Approved Member FX endpoint serves only the Source/Target pairs
-  already stored in that member's preference row and rate-limits the stable
-  Clerk user ID plus IP independently from Guests.
+  already stored in that member's preference row, batches one to three targets,
+  and rate-limits the stable Clerk user ID plus IP independently from Guests.
 
 An invitation or valid Clerk session does not create a TagLingo membership.
 The protected preference function checks the session and active membership
@@ -33,7 +33,7 @@ Configure these server-side Pages values:
 
 The browser still receives only `VITE_CLERK_PUBLISHABLE_KEY`.
 
-## Activate an invited member
+## Activate an invited Approved Member
 
 After the owner invites or approves the person in Clerk and registration
 completes:
@@ -62,7 +62,7 @@ completes:
 6. Sign out and confirm the browser immediately returns to the one-target
    Guest experience. The D1 member preference row must remain.
 
-## Suspend a member
+## Suspend an Approved Member
 
 Use both systems so application authorization and Clerk sessions fail closed:
 
@@ -104,5 +104,5 @@ data:
 - denial in every previously signed-in browser.
 
 Repository tests cover the API ordering, ownership, validation, D1 mapping, and
-Guest/member UI transitions. The live Clerk invitation, second-browser session,
-and Dashboard ban remain human-owned checks.
+Guest/Approved Member UI transitions. The live Clerk invitation,
+second-browser session, and Dashboard ban remain human-owned checks.
