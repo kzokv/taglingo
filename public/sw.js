@@ -1,7 +1,7 @@
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
-      .open("taglingo-offline-v1")
+      .open("taglingo-offline-v2")
       .then(async (cache) => {
         await cache.addAll([
           "/",
@@ -11,8 +11,6 @@ self.addEventListener("install", (event) => {
           "/icon-512.png",
           "/ocr/tesseract-7.0.0/worker.min.js",
           "/ocr/tessdata_fast-4.1.0/manifest.json",
-          "/ocr/tessdata_fast-4.1.0/eng.traineddata.gz",
-          "/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz",
           "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm",
           "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm.js",
           "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm",
@@ -43,7 +41,7 @@ self.addEventListener("activate", (event) => {
             .filter(
               (name) =>
                 name.startsWith("taglingo-") &&
-                name !== "taglingo-offline-v1"
+                name !== "taglingo-offline-v2"
             )
             .map((name) => caches.delete(name))
         )
@@ -67,7 +65,7 @@ self.addEventListener("fetch", (event) => {
     request.mode === "navigate" ||
     request.headers.get("accept")?.includes("text/html");
   event.respondWith(
-    caches.open("taglingo-offline-v1").then(async (cache) => {
+    caches.open("taglingo-offline-v2").then(async (cache) => {
       if (isNavigation) {
         try {
           const response = await fetch(request);

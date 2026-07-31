@@ -18,7 +18,8 @@ import {
   searchTargetCurrencies,
   SOURCE_CURRENCIES,
   TARGET_CURRENCIES,
-  type CurrencyCode
+  type CurrencyCode,
+  type SourceCurrencyCode
 } from "./domain/currencies";
 import {
   createGuestPreferenceStore,
@@ -35,9 +36,9 @@ import {
   type LoadGuestRate
 } from "./fx/useGuestRate";
 import {
-  createBrowserJpyRecognizer,
+  createBrowserRecognizer,
   useCameraRecognition,
-  type CreateJpyRecognizer,
+  type CreateRecognizer,
   type RecognitionView
 } from "./recognition/useCameraRecognition";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
@@ -120,10 +121,13 @@ function CurrencySettings({
     (key: keyof GuestPreferences) =>
     (event: ChangeEvent<HTMLSelectElement>) => {
       const selectedCurrency = event.target.value as CurrencyCode;
-      const nextPreferences = {
-        ...preferences,
-        [key]: selectedCurrency
-      };
+      const nextPreferences: GuestPreferences =
+        key === "sourceCurrency"
+          ? {
+              ...preferences,
+              sourceCurrency: selectedCurrency as SourceCurrencyCode
+            }
+          : { ...preferences, targetCurrency: selectedCurrency };
       if (
         key === "sourceCurrency" &&
         selectedCurrency === preferences.targetCurrency
@@ -293,18 +297,20 @@ function FocusReticle({
 
 function PreparationStatus({
   detail,
-  progress
+  progress,
+  sourceCurrency
 }: {
   detail: string;
   progress: number;
+  sourceCurrency: SourceCurrencyCode;
 }) {
   return (
     <div className="scan-status" role="status">
       <span className="status-dot" />
       <div>
-        <strong>Preparing Japanese recognition…</strong>
+        <strong>Preparing {sourceCurrency} recognition…</strong>
         <progress
-          aria-label="Preparing Japanese recognition"
+          aria-label={`Preparing ${sourceCurrency} recognition`}
           max={1}
           value={progress}
         />
@@ -318,11 +324,13 @@ function StatusPanel({
   status,
   demo,
   recognition,
+  sourceCurrency,
   onRetry
 }: {
   status: CameraStatus;
   demo: boolean;
   recognition: RecognitionView;
+  sourceCurrency: SourceCurrencyCode;
   onRetry: () => void;
 }) {
   if (demo) {
@@ -331,6 +339,7 @@ function StatusPanel({
         <PreparationStatus
           detail="Loading pinned on-device language assets from TagLingo."
           progress={recognition.progress}
+          sourceCurrency={sourceCurrency}
         />
       );
     }
@@ -355,6 +364,7 @@ function StatusPanel({
       <PreparationStatus
         detail="The camera stays local while the pinned model is prepared."
         progress={recognition.progress}
+        sourceCurrency={sourceCurrency}
       />
     );
   }
@@ -422,7 +432,7 @@ function CameraSurface({
   preferences: GuestPreferences;
   guestRate: GuestRateView;
   onPreferencesChange: (preferences: GuestPreferences) => void;
-  createRecognizer: CreateJpyRecognizer;
+  createRecognizer: CreateRecognizer;
   onClose: () => void;
   onRetry: () => void;
   onPlaybackError: () => void;
@@ -476,6 +486,7 @@ function CameraSurface({
           status={snapshot.status}
           demo={demo}
           recognition={recognition}
+          sourceCurrency={preferences.sourceCurrency}
           onRetry={onRetry}
         />
         <div className="recognition-note" aria-live="polite">
@@ -495,9 +506,7 @@ function CameraSurface({
               ? "Two compatible observations matched the exact price-token rectangle."
               : demo
                 ? "The recorded observation is being checked twice for stability."
-                : preferences.sourceCurrency !== "JPY"
-                  ? "Choose JPY as the Source Currency for this recognition tracer bullet."
-                  : "Hold steady, improve the lighting, or move closer to the price tag."}
+                : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
         </div>
         <ConversionResult
@@ -628,10 +637,10 @@ function getBrowserStorage(): Storage | undefined {
 }
 
 export default function App({
-  createRecognizer = createBrowserJpyRecognizer,
+  createRecognizer = createBrowserRecognizer,
   loadGuestRate
 }: {
-  createRecognizer?: CreateJpyRecognizer;
+  createRecognizer?: CreateRecognizer;
   loadGuestRate?: LoadGuestRate;
 }) {
   const preferenceStoreRef = useRef(
@@ -816,7 +825,7 @@ export default function App({
         <p>
           Recognition setup begins only after you choose a camera or demo path.
         </p>
-        <p>Physical-iPhone OCR performance remains unvalidated.</p>
+        <p>Physical-iPhone OCR accuracy and latency remain unvalidated.</p>
       </footer>
     </main>
   );

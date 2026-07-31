@@ -1,12 +1,33 @@
 import Tesseract from "tesseract.js";
 
-import type { OcrToken } from "./jpyPriceLocalization";
+import type {
+  SourceCurrencyCode
+} from "../domain/currencies";
+import type { OcrToken } from "./priceLocalization";
 
 export const OCR_ASSET_PATHS = {
   worker: "/ocr/tesseract-7.0.0/worker.min.js",
   core: "/ocr/tesseract-core-7.0.0",
   languages: "/ocr/tessdata_fast-4.1.0"
 } as const;
+
+export const OCR_LANGUAGE_PROFILES: Record<
+  SourceCurrencyCode,
+  readonly string[]
+> = {
+  USD: ["eng"],
+  EUR: ["eng"],
+  JPY: ["jpn", "eng"],
+  GBP: ["eng"],
+  CNY: ["chi_sim", "eng"],
+  KRW: ["kor", "eng"],
+  TWD: ["chi_tra", "eng"],
+  HKD: ["chi_tra", "eng"],
+  AUD: ["eng"],
+  CAD: ["eng"],
+  SGD: ["eng"],
+  CHF: ["eng"]
+};
 
 interface OcrWord {
   text: string;
@@ -36,7 +57,7 @@ export interface OcrWorker {
   terminate(): Promise<unknown>;
 }
 
-type WorkerFactory = (
+export type WorkerFactory = (
   languages: string[],
   engineMode: Tesseract.OEM,
   options: {
@@ -49,7 +70,7 @@ type WorkerFactory = (
   }
 ) => Promise<OcrWorker>;
 
-export interface JpyOcrRecognizer {
+export interface OcrRecognizer {
   prepare(): Promise<void>;
   recognize(
     image: Tesseract.ImageLike,
@@ -70,18 +91,21 @@ function defaultWorkerFactory(
   ) as unknown as Promise<OcrWorker>;
 }
 
-export function createJpyOcrRecognizer({
-  onProgress = () => undefined,
-  workerFactory = defaultWorkerFactory
-}: {
-  onProgress?: (progress: number, status: string) => void;
-  workerFactory?: WorkerFactory;
-} = {}): JpyOcrRecognizer {
+export function createOcrRecognizer(
+  sourceCurrency: SourceCurrencyCode,
+  {
+    onProgress = () => undefined,
+    workerFactory = defaultWorkerFactory
+  }: {
+    onProgress?: (progress: number, status: string) => void;
+    workerFactory?: WorkerFactory;
+  } = {}
+): OcrRecognizer {
   let workerPromise: Promise<OcrWorker> | null = null;
 
   const getWorker = () => {
     workerPromise ??= workerFactory(
-      ["jpn", "eng"],
+      [...OCR_LANGUAGE_PROFILES[sourceCurrency]],
       Tesseract.OEM.LSTM_ONLY,
       {
         workerPath: OCR_ASSET_PATHS.worker,

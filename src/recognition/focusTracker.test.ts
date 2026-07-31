@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFocusTracker } from "./focusTracker";
-import type { DetectedPrice } from "./jpyPriceLocalization";
+import type { DetectedPrice } from "./priceLocalization";
 
 const nearReticle: DetectedPrice = {
   currency: "JPY",
@@ -75,5 +75,43 @@ describe("Focused Price tracking", () => {
     expect(
       tracker.observe([nearReticle, otherPrice], { x: 50, y: 94 })
     ).toEqual(otherPrice);
+  });
+
+  it("keeps a near-tie stable across candidate-order jitter until there is a clear winner", () => {
+    const tracker = createFocusTracker({ reticle: { x: 200, y: 400 } });
+    const leftPrice = {
+      ...nearReticle,
+      minorUnits: 1000,
+      box: { x: 150, y: 380, width: 40, height: 20 }
+    };
+    const tiedRightPrice = {
+      ...nearReticle,
+      minorUnits: 1010,
+      box: { x: 210, y: 380, width: 40, height: 20 }
+    };
+
+    expect(tracker.observe([tiedRightPrice, leftPrice])).toBeNull();
+    expect(tracker.observe([leftPrice, tiedRightPrice])).toEqual(leftPrice);
+    expect(tracker.observe([tiedRightPrice, leftPrice])).toEqual(leftPrice);
+    expect(tracker.observe([leftPrice, tiedRightPrice])).toEqual(leftPrice);
+
+    const clearRightWinner = {
+      ...tiedRightPrice,
+      box: { x: 195, y: 381, width: 40, height: 20 }
+    };
+    expect(tracker.observe([leftPrice, clearRightWinner])).toEqual(leftPrice);
+    expect(tracker.observe([clearRightWinner, leftPrice])).toEqual(
+      clearRightWinner
+    );
+  });
+
+  it("never treats a nearby amount within a percentage tolerance as the same value", () => {
+    const tracker = createFocusTracker({ reticle: { x: 195, y: 422 } });
+    const onePercentDifferent = { ...nearReticle, minorUnits: 4183 };
+    tracker.observe([nearReticle]);
+    tracker.observe([nearReticle]);
+
+    expect(tracker.observe([onePercentDifferent])).toEqual(nearReticle);
+    expect(tracker.observe([onePercentDifferent])).toEqual(onePercentDifferent);
   });
 });
