@@ -4,17 +4,20 @@ import {
   mapSampleBoxToPreview,
   type Size
 } from "../camera/previewGeometry";
-import type { CurrencyCode } from "../domain/currencies";
+import type { SourceCurrencyCode } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
-import { createFocusTracker } from "./focusTracker";
 import {
-  createJpyOcrRecognizer,
-  type JpyOcrRecognizer
-} from "./jpyOcrRecognizer";
+  areDetectedPricesAssociated,
+  createFocusTracker
+} from "./focusTracker";
 import {
-  localizeJpyPrices,
+  createOcrRecognizer,
+  type OcrRecognizer
+} from "./ocrRecognizer";
+import {
+  localizePrices,
   type DetectedPrice
-} from "./jpyPriceLocalization";
+} from "./priceLocalization";
 import { createNewestOnlyPipeline } from "./newestOnlyPipeline";
 import { nextRecognitionDelay } from "./recognitionCadence";
 
@@ -39,12 +42,15 @@ export const EMPTY_RECOGNITION: RecognitionView = {
   focusedPrice: null
 };
 
-export type CreateJpyRecognizer = (
+export type CreateRecognizer = (
+  sourceCurrency: SourceCurrencyCode,
   onProgress: (progress: number, status: string) => void
-) => JpyOcrRecognizer;
+) => OcrRecognizer;
 
-export const createBrowserJpyRecognizer: CreateJpyRecognizer = (onProgress) =>
-  createJpyOcrRecognizer({ onProgress });
+export const createBrowserRecognizer: CreateRecognizer = (
+  sourceCurrency,
+  onProgress
+) => createOcrRecognizer(sourceCurrency, { onProgress });
 
 function centralSample(camera: Size): Rectangle | null {
   if (camera.width <= 0 || camera.height <= 0) {
@@ -72,10 +78,10 @@ export function useCameraRecognition({
   createRecognizer
 }: {
   enabled: boolean;
-  sourceCurrency: CurrencyCode;
+  sourceCurrency: SourceCurrencyCode;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
-  createRecognizer: CreateJpyRecognizer;
+  createRecognizer: CreateRecognizer;
 }): RecognitionView {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
@@ -83,7 +89,6 @@ export function useCameraRecognition({
   useEffect(() => {
     if (
       !enabled ||
-      sourceCurrency !== "JPY" ||
       !video ||
       !preview
     ) {
@@ -96,6 +101,7 @@ export function useCameraRecognition({
     let nextSubmission: number | undefined;
     let recognitionDelay = 350;
     let completedPasses = 0;
+    let discoveryDetectedPrices: DetectedPrice[] = [];
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d", {
       alpha: false,
@@ -105,20 +111,24 @@ export function useCameraRecognition({
     const tracker = createFocusTracker({
       reticle: { x: previewRect.width / 2, y: previewRect.height * 0.45 }
     });
-    const recognizer = createRecognizer((progress) => {
-      if (active && !prepared) {
-        setRecognition((current) => ({
-          ...current,
-          phase: "preparing",
-          progress: Math.max(current.progress, progress)
-        }));
+    const recognizer = createRecognizer(
+      sourceCurrency,
+      (progress) => {
+        if (active && !prepared) {
+          setRecognition((current) => ({
+            ...current,
+            phase: "preparing",
+            progress: Math.max(current.progress, progress)
+          }));
+        }
       }
-    });
+    );
 
     const pipeline = createNewestOnlyPipeline<
       number,
       {
-        detectedPrices: DetectedPrice[];
+        displayedDetectedPrices: DetectedPrice[];
+        currentPassDetectedPrices: DetectedPrice[];
         ocrDurationMs: number;
         reticle: { x: number; y: number };
       }
@@ -148,7 +158,8 @@ export function useCameraRecognition({
             : centralSample(cameraSize);
         if (!sample || !context) {
           return {
-            detectedPrices: [],
+            displayedDetectedPrices: [],
+            currentPassDetectedPrices: [],
             ocrDurationMs: performance.now() - startedAt,
             reticle: {
               x: previewSize.width / 2,
@@ -171,7 +182,7 @@ export function useCameraRecognition({
         );
 
         const tokens = await recognizer.recognize(canvas, pass);
-        const detectedPrices = localizeJpyPrices(tokens)
+        const currentPassDetectedPrices = localizePrices(sourceCurrency, tokens)
           .filter(({ confidence }) => confidence >= 60)
           .map((price) => ({
             ...price,
@@ -182,9 +193,16 @@ export function useCameraRecognition({
               previewSize
             )
           }));
+        if (pass === "discovery") {
+          discoveryDetectedPrices = currentPassDetectedPrices;
+        }
 
         return {
-          detectedPrices,
+          displayedDetectedPrices:
+            discoveryDetectedPrices.length > 0
+              ? discoveryDetectedPrices
+              : currentPassDetectedPrices,
+          currentPassDetectedPrices,
           ocrDurationMs: performance.now() - startedAt,
           reticle: {
             x: previewSize.width / 2,
@@ -192,16 +210,37 @@ export function useCameraRecognition({
           }
         };
       },
-      onResult({ detectedPrices, ocrDurationMs, reticle }) {
+      onResult({
+        displayedDetectedPrices,
+        currentPassDetectedPrices,
+        ocrDurationMs,
+        reticle
+      }) {
         if (!active) {
           return;
         }
         recognitionDelay = nextRecognitionDelay(ocrDurationMs);
-        const focusedPrice = tracker.observe(detectedPrices, reticle);
+        const focusedPrice = tracker.observe(
+          currentPassDetectedPrices,
+          reticle
+        );
+        const displayedDetectedPricesWithFocus = focusedPrice
+          ? displayedDetectedPrices.map((price) =>
+              areDetectedPricesAssociated(price, focusedPrice)
+                ? focusedPrice
+                : price
+            )
+          : displayedDetectedPrices;
+        if (
+          focusedPrice &&
+          !displayedDetectedPricesWithFocus.includes(focusedPrice)
+        ) {
+          displayedDetectedPricesWithFocus.push(focusedPrice);
+        }
         setRecognition({
           phase: focusedPrice ? "focused" : "searching",
           progress: 1,
-          detectedPrices,
+          detectedPrices: displayedDetectedPricesWithFocus,
           focusedPrice
         });
       },

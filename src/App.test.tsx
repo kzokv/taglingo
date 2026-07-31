@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import type { GuestReferenceRate } from "./fx/referenceRate";
-import type { JpyOcrRecognizer } from "./recognition/jpyOcrRecognizer";
+import type { OcrRecognizer } from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
   source: "JPY",
@@ -180,6 +180,11 @@ describe("Guest camera journey", () => {
     expect(
       screen.getByText(/camera frames stay on this device/i)
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /physical-iphone ocr accuracy and latency remain unvalidated/i
+      )
+    ).toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /open camera/i }));
@@ -287,7 +292,7 @@ describe("Guest camera journey", () => {
 
     expect(screen.getByText("4,142円")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      /preparing japanese recognition/i
+      /preparing jpy recognition/i
     );
     expect(
       await screen.findByText(/focused price · jpy 4,142/i)
@@ -316,7 +321,7 @@ describe("Guest camera journey", () => {
           }
         ]
       );
-    const recognizer: JpyOcrRecognizer = {
+    const recognizer: OcrRecognizer = {
       prepare: vi.fn().mockResolvedValue(undefined),
       recognize,
       terminate: vi.fn().mockResolvedValue(undefined)
@@ -330,7 +335,7 @@ describe("Guest camera journey", () => {
 
     render(
       <App
-        createRecognizer={(onProgress) => {
+        createRecognizer={(_sourceCurrency, onProgress) => {
           reportProgress = onProgress;
           return recognizer;
         }}
@@ -386,6 +391,84 @@ describe("Guest camera journey", () => {
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it("outlines every confident candidate but focuses and converts only the reticle-nearest price", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    const recognize = vi.fn().mockImplementation(
+      async (_image: unknown, pass: "focused" | "discovery" = "focused") =>
+        pass === "discovery"
+          ? [
+              {
+                text: "4,142円",
+                confidence: 96,
+                box: { x: 880, y: 446, width: 160, height: 80 }
+              },
+              {
+                text: "980円",
+                confidence: 89,
+                box: { x: 1120, y: 200, width: 120, height: 70 }
+              }
+            ]
+          : [
+              {
+                text: "4,142円",
+                confidence: 96,
+                box: { x: 592, y: 111, width: 160, height: 80 }
+              }
+            ]
+    );
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize,
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+
+    render(
+      <App
+        createRecognizer={(_sourceCurrency, onProgress) => {
+          onProgress(1, "ready");
+          return recognizer;
+        }}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+
+    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(4), {
+      timeout: 1800
+    });
+    const focused = screen.getByLabelText(/detected price jpy 4,142/i);
+    const other = screen.getByLabelText(/detected price jpy 980/i);
+    await waitFor(() => expect(focused).toHaveClass("focused-detection"));
+    expect(other).not.toHaveClass("focused-detection");
+    expect(screen.getAllByLabelText(/detected price jpy/i)).toHaveLength(2);
+    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
+    expect(
+      screen.getByLabelText(/detected price jpy 980/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
   });
 
   it("searches one Target Currency and restores Guest preferences after reload", async () => {

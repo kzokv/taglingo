@@ -1,5 +1,5 @@
 import type { Rectangle } from "../domain/geometry";
-import type { DetectedPrice } from "./jpyPriceLocalization";
+import type { DetectedPrice } from "./priceLocalization";
 
 interface Point {
   x: number;
@@ -33,8 +33,14 @@ function overlaps(left: Rectangle, right: Rectangle): boolean {
   );
 }
 
-function compatible(left: DetectedPrice, right: DetectedPrice): boolean {
-  if (left.minorUnits !== right.minorUnits) {
+export function areDetectedPricesAssociated(
+  left: DetectedPrice,
+  right: DetectedPrice
+): boolean {
+  if (
+    left.currency !== right.currency ||
+    left.minorUnits !== right.minorUnits
+  ) {
     return false;
   }
 
@@ -49,17 +55,50 @@ function compatible(left: DetectedPrice, right: DetectedPrice): boolean {
 
 function nearestTo(
   candidates: DetectedPrice[],
-  point: Point
+  point: Point,
+  preferred: DetectedPrice | null
 ): DetectedPrice | undefined {
-  return candidates.reduce<DetectedPrice | undefined>((nearest, candidate) => {
-    if (!nearest) {
-      return candidate;
-    }
-    return distance(center(candidate.box), point) <
-      distance(center(nearest.box), point)
-      ? candidate
-      : nearest;
-  }, undefined);
+  const stableTieKey = (price: DetectedPrice) =>
+    [
+      price.box.x,
+      price.box.y,
+      price.box.width,
+      price.box.height,
+      price.currency,
+      price.minorUnits
+    ].join(":");
+  const nearest = candidates.reduce<DetectedPrice | undefined>(
+    (current, candidate) => {
+      if (!current) {
+        return candidate;
+      }
+      const distanceDifference =
+        distance(center(candidate.box), point) -
+        distance(center(current.box), point);
+      if (Math.abs(distanceDifference) <= 0.001) {
+        return stableTieKey(candidate) < stableTieKey(current)
+          ? candidate
+          : current;
+      }
+      return distanceDifference < 0 ? candidate : current;
+    },
+    undefined
+  );
+  const preferredCandidate =
+    preferred &&
+    candidates.find((candidate) =>
+      areDetectedPricesAssociated(preferred, candidate)
+    );
+  if (!nearest || !preferredCandidate) {
+    return nearest;
+  }
+
+  const hysteresis =
+    Math.max(preferredCandidate.box.width, preferredCandidate.box.height) * 0.1;
+  return distance(center(preferredCandidate.box), point) <=
+    distance(center(nearest.box), point) + hysteresis
+    ? preferredCandidate
+    : nearest;
 }
 
 export function createFocusTracker({
@@ -73,7 +112,11 @@ export function createFocusTracker({
 
   return {
     observe(candidates, currentReticle = reticle) {
-      const selected = nearestTo(candidates, currentReticle);
+      const selected = nearestTo(
+        candidates,
+        currentReticle,
+        focusedPrice ?? pending?.candidate ?? null
+      );
       if (!selected) {
         pending = null;
         consecutiveMisses += 1;
@@ -84,13 +127,19 @@ export function createFocusTracker({
       }
       consecutiveMisses = 0;
 
-      if (focusedPrice && compatible(focusedPrice, selected)) {
+      if (
+        focusedPrice &&
+        areDetectedPricesAssociated(focusedPrice, selected)
+      ) {
         focusedPrice = selected;
         pending = null;
         return focusedPrice;
       }
 
-      if (pending && compatible(pending.candidate, selected)) {
+      if (
+        pending &&
+        areDetectedPricesAssociated(pending.candidate, selected)
+      ) {
         pending = {
           candidate: selected,
           observations: pending.observations + 1

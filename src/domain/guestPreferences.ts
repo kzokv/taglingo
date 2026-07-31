@@ -1,13 +1,14 @@
 import {
   isCurrencyCode,
   SOURCE_CURRENCIES,
-  type CurrencyCode
+  type CurrencyCode,
+  type SourceCurrencyCode
 } from "./currencies";
 
 const STORAGE_KEY = "taglingo.guest-preferences.v1";
 
 export interface GuestPreferences {
-  sourceCurrency: CurrencyCode;
+  sourceCurrency: SourceCurrencyCode;
   targetCurrency: CurrencyCode;
 }
 
@@ -16,7 +17,7 @@ const DEFAULT_PREFERENCES: GuestPreferences = {
   targetCurrency: "USD"
 };
 
-function isSourceCurrency(value: unknown): value is CurrencyCode {
+function isSourceCurrency(value: unknown): value is SourceCurrencyCode {
   return SOURCE_CURRENCIES.some(({ code }) => code === value);
 }
 

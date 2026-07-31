@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { createFocusTracker } from "./focusTracker";
-import { localizeJpyPrices } from "./jpyPriceLocalization";
+import { localizePrices } from "./priceLocalization";
 import {
   EMPTY_RECOGNITION,
   type RecognitionView
@@ -17,7 +17,7 @@ export function useDemoRecognition(enabled: boolean): RecognitionView {
       return;
     }
 
-    const detectedPrices = localizeJpyPrices([
+    const detectedPrices = localizePrices("JPY", [
       {
         text: "4,142円",
         confidence: 96,

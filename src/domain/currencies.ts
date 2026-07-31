@@ -52,6 +52,8 @@ export const SOURCE_CURRENCIES = [
   { code: "CHF", name: "Swiss Franc", aliases: ["franc", "瑞士法郎"] }
 ] as const satisfies readonly Currency[];
 
+export type SourceCurrencyCode = (typeof SOURCE_CURRENCIES)[number]["code"];
+
 // Wayfinder verified these searchable prototype targets with Frankfurter v2
 // on 2026-07-30. The FX Gateway remains authoritative for pair availability.
 const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [

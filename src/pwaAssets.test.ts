@@ -16,7 +16,7 @@ function sha256(path: string): string {
 }
 
 describe("installable application metadata", () => {
-  it("reopens the cached shell and required JPY OCR assets offline", async () => {
+  it("lazily caches only a requested OCR language profile for later offline use", async () => {
     const listeners = new Map<string, (event: Record<string, unknown>) => void>();
     const cachedResponses = new Map<string, Response>();
     const cache = {
@@ -87,7 +87,7 @@ describe("installable application metadata", () => {
       cachedResponses.has(
         "https://taglingo.test/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz"
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       cachedResponses.has("https://taglingo.test/assets/app-version.js")
     ).toBe(true);
@@ -113,9 +113,19 @@ describe("installable application metadata", () => {
       "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm",
       "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm.js"
     ];
+    context.fetch.mockResolvedValue(new Response("language model"));
+    await fetchOffline("/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz");
+    await fetchOffline("/ocr/tessdata_fast-4.1.0/eng.traineddata.gz");
+    context.fetch.mockRejectedValue(new TypeError("offline"));
+
     for (const asset of activeJpyProfileAssets) {
       await expect(fetchOffline(asset)).resolves.toBeInstanceOf(Response);
     }
+    expect(
+      cachedResponses.has(
+        "https://taglingo.test/ocr/tessdata_fast-4.1.0/chi_sim.traineddata.gz"
+      )
+    ).toBe(false);
 
     let offlineResponse: Promise<Response> | undefined;
     listeners.get("fetch")?.({
@@ -185,8 +195,24 @@ describe("installable application metadata", () => {
         )
       )
     ).toBe(true);
-    expect(
-      sha256(resolve(ocrRoot, "tessdata_fast-4.1.0/jpn.traineddata.gz"))
-    ).toBe("daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45");
+    const expectedLanguageHashes = {
+      "chi_sim.traineddata.gz":
+        "7d4b727797dac9c3668dd09769c07aec3c29fef88b0e980e187f61394cedc823",
+      "chi_tra.traineddata.gz":
+        "730d84d5263d9ca6c1db04af24eb37c8e750c94e6419d22e506dd3d7453f9d19",
+      "eng.traineddata.gz":
+        "afa9b778b3bfe580362a0b61308d08389c77dd3052c29a35270c827d7e75165c",
+      "jpn.traineddata.gz":
+        "daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45",
+      "kor.traineddata.gz":
+        "4c3a46d02d0faa699a0010b67e02692800a212d60c5cfca5d51a275bd2e107a9"
+    };
+    for (const [file, expectedHash] of Object.entries(
+      expectedLanguageHashes
+    )) {
+      expect(sha256(resolve(ocrRoot, "tessdata_fast-4.1.0", file))).toBe(
+        expectedHash
+      );
+    }
   });
 });
