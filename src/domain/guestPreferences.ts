@@ -4,6 +4,7 @@ import {
   type CurrencyCode,
   type SourceCurrencyCode
 } from "./currencies";
+import { hasExactKeys } from "./exactObject";
 
 const STORAGE_KEY = "taglingo.guest-preferences.v1";
 
@@ -22,11 +23,11 @@ function isSourceCurrency(value: unknown): value is SourceCurrencyCode {
 }
 
 function isGuestPreferences(value: unknown): value is GuestPreferences {
-  if (!value || typeof value !== "object") {
+  if (!hasExactKeys(value, ["sourceCurrency", "targetCurrency"])) {
     return false;
   }
 
-  const candidate = value as Partial<GuestPreferences>;
+  const candidate = value;
   return (
     isSourceCurrency(candidate.sourceCurrency) &&
     isCurrencyCode(candidate.targetCurrency) &&

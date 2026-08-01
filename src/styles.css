@@ -405,6 +405,41 @@ h1 em {
   text-transform: uppercase;
 }
 
+.account-status {
+  margin-top: 14px;
+  padding: 13px 15px;
+  border: 1px solid rgba(152, 224, 192, 0.24);
+  border-radius: 12px;
+  background: rgba(152, 224, 192, 0.07);
+  color: #cbd3d2;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.account-status strong,
+.account-status p {
+  margin: 0;
+}
+
+.account-status p {
+  margin-top: 4px;
+}
+
+.account-error {
+  border-color: rgba(255, 129, 95, 0.36);
+  background: rgba(255, 129, 95, 0.08);
+}
+
+.account-status .text-button {
+  margin-top: 8px;
+}
+
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
 .field {
   display: grid;
   gap: 8px;

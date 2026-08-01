@@ -34,17 +34,28 @@ export interface BrowserRateSnapshotStore {
   save(rate: GuestReferenceRate): void;
 }
 
+export type GuestRateFailureReason =
+  | "expired"
+  | "quota"
+  | "unauthenticated"
+  | "unauthorized"
+  | "unavailable";
+
+const failureMessages: Record<GuestRateFailureReason, string> = {
+  expired: "The Rate Snapshot expired after seven days.",
+  quota: "The Reference Rate request limit was reached.",
+  unauthenticated: "The account session is unavailable.",
+  unauthorized:
+    "Approved Member access does not authorize this Reference Rate.",
+  unavailable: "A validated Reference Rate is unavailable."
+};
+
 export class GuestRateLoadError extends Error {
   constructor(
-    public readonly reason: "expired" | "unavailable",
+    public readonly reason: GuestRateFailureReason,
     options?: ErrorOptions
   ) {
-    super(
-      reason === "expired"
-        ? "The Rate Snapshot expired after seven days."
-        : "A validated Reference Rate is unavailable.",
-      options
-    );
+    super(failureMessages[reason], options);
     this.name = "GuestRateLoadError";
   }
 }
@@ -194,6 +205,12 @@ export function createOfflineGuestRateLoader({
     } catch (error) {
       if (signal.aborted) {
         throw signal.reason ?? error;
+      }
+      if (
+        error instanceof GuestRateLoadError &&
+        ["quota", "unauthenticated", "unauthorized"].includes(error.reason)
+      ) {
+        throw error;
       }
       const cached = store.find(source, target, now());
       if (cached.status === "eligible") {

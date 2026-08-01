@@ -75,13 +75,15 @@ export function useCameraRecognition({
   sourceCurrency,
   video,
   preview,
-  createRecognizer
+  createRecognizer,
+  attempt = 0
 }: {
   enabled: boolean;
   sourceCurrency: SourceCurrencyCode;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
   createRecognizer: CreateRecognizer;
+  attempt?: number;
 }): RecognitionView {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
@@ -292,7 +294,7 @@ export function useCameraRecognition({
       pipeline.dispose();
       void recognizer.terminate();
     };
-  }, [createRecognizer, enabled, preview, sourceCurrency, video]);
+  }, [attempt, createRecognizer, enabled, preview, sourceCurrency, video]);
 
   return recognition;
 }
