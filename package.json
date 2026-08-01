@@ -14,6 +14,8 @@
     "dev:spa": "vite",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "test": "vitest run",
+    "test:browser": "playwright test",
+    "test:browser:ui": "playwright test --ui",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false"
   },
@@ -26,6 +28,7 @@
     "tesseract.js-core": "7.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.0.0",

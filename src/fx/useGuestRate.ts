@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CurrencyCode } from "../domain/currencies";
-import { GuestRateLoadError } from "./browserRateSnapshot";
+import {
+  GuestRateLoadError,
+  type ReferenceRateFailureReason
+} from "./browserRateSnapshot";
 import {
   isGuestReferenceRate,
   type GuestReferenceRate
@@ -20,7 +23,7 @@ type GuestRateState =
       phase: "error";
       rate: null;
       error: string;
-      reason: "expired" | "unavailable";
+      reason: ReferenceRateFailureReason;
     };
 
 export type GuestRateView = GuestRateState & { retry: () => void };
@@ -40,6 +43,9 @@ export const loadGuestRateFromGateway: LoadGuestRate = async (
     signal
   });
   if (!response.ok) {
+    if (response.status === 429) {
+      throw new GuestRateLoadError("quota");
+    }
     throw new Error("A validated Reference Rate is unavailable.");
   }
   const payload: unknown = await response.json();
@@ -108,18 +114,29 @@ export function useGuestRates(
         })
         .catch((error: unknown) => {
           if (!controller.signal.aborted) {
-            const expired =
-              error instanceof GuestRateLoadError &&
-              error.reason === "expired";
+            const reason =
+              error instanceof GuestRateLoadError
+                ? error.reason
+                : "unavailable";
+            const errorMessage = {
+              expired:
+                "The Rate Snapshot expired after seven days. Reconnect to refresh it.",
+              quota:
+                "The Reference Rate request limit reached its safe quota. Wait briefly, then try again.",
+              unauthenticated:
+                "Your account session expired. Sign in again before retrying this Reference Rate.",
+              unauthorized:
+                "Approved Member access no longer authorizes this Reference Rate. Continue with Guest settings or contact the owner.",
+              unavailable:
+                "A validated Reference Rate is unavailable. Reconnect and try again."
+            } satisfies Record<typeof reason, string>;
             setViews((current) => ({
               ...current,
               [target]: {
                 phase: "error",
                 rate: null,
-                error: expired
-                  ? "The Rate Snapshot expired after seven days. Reconnect to refresh it."
-                  : "A validated Reference Rate is unavailable. Reconnect and try again.",
-                reason: expired ? "expired" : "unavailable"
+                error: errorMessage[reason],
+                reason
               }
             }));
           }

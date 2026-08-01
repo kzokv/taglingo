@@ -6,6 +6,7 @@ import {
   isCurrencyCode,
   SOURCE_CURRENCIES
 } from "../domain/currencies";
+import { hasExactKeys } from "../domain/exactObject";
 
 export interface MemberPreferences {
   ownerId: string;
@@ -90,10 +91,16 @@ export function isMemberPreferences(
   value: unknown,
   ownerId: string
 ): value is MemberPreferences {
-  if (!value || typeof value !== "object") {
+  if (
+    !hasExactKeys(value, [
+      "ownerId",
+      "sourceCurrency",
+      "targetCurrencies"
+    ])
+  ) {
     return false;
   }
-  const candidate = value as Partial<MemberPreferences>;
+  const candidate = value;
   const sourceCurrency = SOURCE_CURRENCIES.some(
     ({ code }) => code === candidate.sourceCurrency
   );

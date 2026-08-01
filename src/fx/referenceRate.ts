@@ -1,4 +1,5 @@
 import type { CurrencyCode } from "../domain/currencies";
+import { hasExactKeys } from "../domain/exactObject";
 
 export interface RateRecord {
   source: CurrencyCode;
@@ -31,10 +32,23 @@ export function isGuestReferenceRate(
   target: CurrencyCode,
   allowOffline = true
 ): value is GuestReferenceRate {
-  if (!value || typeof value !== "object") {
+  if (
+    !hasExactKeys(value, [
+      "source",
+      "target",
+      "direction",
+      "value",
+      "provider",
+      "method",
+      "providerPublishedDate",
+      "fetchedAt",
+      "state",
+      "attribution"
+    ])
+  ) {
     return false;
   }
-  const candidate = value as Partial<GuestReferenceRate>;
+  const candidate = value;
   return (
     candidate.source === source &&
     candidate.target === target &&

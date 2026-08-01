@@ -151,6 +151,28 @@ describe("Guest camera journey", () => {
     ).toBeInTheDocument();
   });
 
+  it("explains quota exhaustion and permits a targeted Reference Rate retry", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        { error: "Guest Reference Rate limit exceeded. Try again shortly." },
+        { status: 429 }
+      )
+    );
+
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /reference rate request limit reached/i
+    );
+    await user.click(
+      screen.getByRole("button", { name: /try reference rate again/i })
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("converts the Focused Price with one dated Reference Rate without refreshing for recognition observations", async () => {
     const user = userEvent.setup();
     useMediaDevices(vi.fn());
@@ -325,9 +347,92 @@ describe("Guest camera journey", () => {
       await screen.findByText(/focused price · jpy 4,142/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText(/detected price jpy 4,142/i)
-    ).toBeInTheDocument();
+      screen.getByRole("region", { name: /recognition summary/i })
+    ).toHaveTextContent(/1 Detected Price/i);
+    expect(
+      document.querySelector(".detected-price")
+    ).toHaveAttribute("aria-hidden", "true");
+    expect(
+      screen.queryByRole("img", { name: /detected price/i })
+    ).not.toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("returns keyboard focus to Target Currency settings after dismissing the picker", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+
+    render(<App />);
+    const trigger = screen.getByRole("button", {
+      name: /target currencies: 1 selected · usd/i
+    });
+    await user.click(trigger);
+    expect(
+      screen.getByRole("searchbox", { name: /search target currencies/i })
+    ).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    expect(
+      screen.queryByRole("searchbox", { name: /search target currencies/i })
+    ).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("offers deterministic recovery when local recognition preparation fails", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    const failedRecognizer: OcrRecognizer = {
+      prepare: vi.fn().mockRejectedValue(new Error("model unavailable")),
+      recognize: vi.fn(),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    const recoveredRecognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize: vi.fn().mockResolvedValue([]),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    const createRecognizer = vi
+      .fn()
+      .mockReturnValueOnce(failedRecognizer)
+      .mockReturnValueOnce(recoveredRecognizer);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+
+    render(<App createRecognizer={createRecognizer} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /recognition could not start/i
+    );
+    expect(
+      screen.getByRole("button", { name: /use no-camera demo/i })
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /try recognition again/i })
+    );
+
+    expect(await screen.findByText(/no Detected Price yet/i)).toBeInTheDocument();
+    expect(createRecognizer).toHaveBeenCalledTimes(2);
   });
 
   it("stabilizes browser-local camera observations without uploading them", async () => {
@@ -390,7 +495,9 @@ describe("Guest camera journey", () => {
     expect(
       await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 1500 })
     ).toBeInTheDocument();
-    const highlightedPrice = screen.getByLabelText(/detected price jpy 4,142/i);
+    const highlightedPrice = document.querySelector(
+      '[data-detected-price="JPY-4142"]'
+    ) as HTMLElement;
     expect(highlightedPrice).toHaveClass("focused-detection");
     expect(Number.parseFloat(highlightedPrice.style.left)).toBeCloseTo(
       132.481,
@@ -413,7 +520,7 @@ describe("Guest camera journey", () => {
     recognize.mockResolvedValue([]);
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
     expect(
-      screen.getByLabelText(/detected price jpy 4,142/i)
+      document.querySelector('[data-detected-price="JPY-4142"]')
     ).toHaveClass("focused-detection");
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
@@ -486,14 +593,19 @@ describe("Guest camera journey", () => {
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(4), {
       timeout: 1800
     });
-    const focused = screen.getByLabelText(/detected price jpy 4,142/i);
-    const other = screen.getByLabelText(/detected price jpy 980/i);
+    const focused = document.querySelector('[data-detected-price="JPY-4142"]');
+    const other = document.querySelector('[data-detected-price="JPY-980"]');
     await waitFor(() => expect(focused).toHaveClass("focused-detection"));
     expect(other).not.toHaveClass("focused-detection");
-    expect(screen.getAllByLabelText(/detected price jpy/i)).toHaveLength(2);
+    expect(document.querySelectorAll("[data-detected-price]")).toHaveLength(2);
+    const recognitionSummary = screen.getByRole("region", {
+      name: /recognition summary/i
+    });
+    expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
+    expect(recognitionSummary).toHaveTextContent(/Detected Price · JPY 980/i);
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
     expect(
-      screen.getByLabelText(/detected price jpy 980/i)
+      document.querySelector('[data-detected-price="JPY-980"]')
     ).toBeInTheDocument();
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
   });
@@ -807,7 +919,12 @@ describe("Approved Member journey", () => {
       />
     );
 
-    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      await screen.findAllByText(/signed in · guest limits/i)
+    ).toHaveLength(2);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /active membership is not available/i
+    );
     expect(
       screen.getByRole("button", {
         name: /target currencies: 1 selected · usd/i
@@ -817,7 +934,16 @@ describe("Approved Member journey", () => {
   });
 
   it("shows a signed-in access failure instead of describing it as Guest mode", async () => {
+    const user = userEvent.setup();
     useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("preference service unavailable"))
+      .mockResolvedValueOnce({
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"]
+      });
 
     render(
       <App
@@ -825,9 +951,7 @@ describe("Approved Member journey", () => {
           userId: "user_member",
           getSessionToken: getTestMemberSessionToken
         }}
-        loadMemberPreferences={vi
-          .fn()
-          .mockRejectedValue(new Error("preference service unavailable"))}
+        loadMemberPreferences={loadMemberPreferences}
       />
     );
 
@@ -841,6 +965,73 @@ describe("Approved Member journey", () => {
         name: /target currencies: 1 selected · usd/i
       })
     ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /could not verify approved member access/i
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /retry member access/i })
+    );
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(loadMemberPreferences).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps unsynchronized member settings visible and retries a failed save", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("D1 unavailable"))
+      .mockImplementation(async (preferences: MemberPreferences) => preferences);
+    const loadGuestRate = vi.fn().mockResolvedValue(DEFAULT_RATE);
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"]
+        })}
+        saveMemberPreferences={saveMemberPreferences}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /member settings were not saved/i
+    );
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 2 selected · usd · twd/i
+      })
+    ).toBeInTheDocument();
+    expect(loadGuestRate.mock.calls.some((call) => call[1] === "TWD")).toBe(
+      false
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /retry saving settings/i })
+    );
+    await waitFor(() => expect(saveMemberPreferences).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(loadGuestRate.mock.calls.some((call) => call[1] === "TWD")).toBe(
+        true
+      )
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("preserves unaffected member conversions when one Target Currency rate fails", async () => {
@@ -896,5 +1087,51 @@ describe("Approved Member journey", () => {
     expect(
       loadGuestRate.mock.calls.filter((call) => call[1] === "USD")
     ).toHaveLength(usdCallsBeforeRetry);
+  });
+
+  it("lets an unauthorized member conversion continue immediately as a Guest", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) =>
+        String(input).startsWith("/api/member-fx")
+          ? Response.json(
+              { error: { code: "inactive_membership" } },
+              { status: 403 }
+            )
+          : Response.json(DEFAULT_RATE)
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        })}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /no longer authorizes this Reference Rate/i
+    );
+    await user.click(screen.getByRole("button", { name: /continue as Guest/i }));
+
+    expect(await screen.findByText(/using Guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(
+      fetchSpy.mock.calls.some(([input]) => String(input).startsWith("/api/fx"))
+    ).toBe(true);
   });
 });

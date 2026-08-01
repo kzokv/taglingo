@@ -88,6 +88,48 @@ describe("Approved Member FX Gateway", () => {
     expect(deps.loadReferenceRate).toHaveBeenCalledTimes(3);
   });
 
+  it("returns unaffected rates when one authorized target fails", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.loadReferenceRate).mockImplementation(
+      async (_source, target) =>
+        target === "TWD"
+          ? Response.json({ error: "quota" }, { status: 429 })
+          : Response.json({
+              source: "JPY",
+              target,
+              direction: "source-to-target",
+              value: "0.0067",
+              provider: "Frankfurter",
+              method: "daily-blend",
+              providerPublishedDate: "2026-07-30",
+              fetchedAt: "2026-07-30T10:00:00.000Z",
+              state: "cached",
+              attribution: "Frankfurter"
+            })
+    );
+    const handle = createMemberFxHandler({
+      authenticate: vi.fn().mockResolvedValue({
+        kind: "authenticated",
+        userId: "user_member",
+        sessionId: "sess_member"
+      }),
+      ...deps
+    });
+
+    const response = await handle(request("USD,TWD"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      rates: [
+        {
+          target: "USD",
+          rate: expect.objectContaining({ target: "USD", value: "0.0067" })
+        },
+        { target: "TWD", error: { status: 429 } }
+      ]
+    });
+  });
+
   it("authenticates even a malformed protected request before rejecting it", async () => {
     const deps = dependencies();
     const authenticate = vi

@@ -8,6 +8,7 @@ import {
   memberRequestHeaders,
   type GetMemberSessionToken
 } from "../member/sessionToken";
+import { GuestRateLoadError } from "./browserRateSnapshot";
 
 interface PendingRate {
   source: SourceCurrencyCode;
@@ -21,6 +22,19 @@ interface BatchRateResult {
   target?: unknown;
   rate?: unknown;
   error?: unknown;
+}
+
+function rateRequestError(status: number): Error {
+  if (status === 401) {
+    return new GuestRateLoadError("unauthenticated");
+  }
+  if (status === 403) {
+    return new GuestRateLoadError("unauthorized");
+  }
+  if (status === 429) {
+    return new GuestRateLoadError("quota");
+  }
+  return new Error("An entitled Approved Member Reference Rate is unavailable.");
 }
 
 export function createMemberRateLoader(
@@ -65,9 +79,7 @@ export function createMemberRateLoader(
             })
           });
           if (!response.ok) {
-            throw new Error(
-              "An entitled Approved Member Reference Rate is unavailable."
-            );
+            throw rateRequestError(response.status);
           }
           payload = await response.json();
         } catch (error) {
@@ -95,11 +107,26 @@ export function createMemberRateLoader(
           const result = results.find(
             (candidate) => candidate.target === target
           );
-          if (
-            !result ||
-            result.error !== undefined ||
-            !isGuestReferenceRate(result.rate, source, target, false)
-          ) {
+          if (!result) {
+            reject(
+              new Error(
+                "The Approved Member Reference Rate response was invalid."
+              )
+            );
+            return;
+          }
+          if (result.error !== undefined) {
+            const status =
+              result.error &&
+              typeof result.error === "object" &&
+              "status" in result.error &&
+              typeof result.error.status === "number"
+                ? result.error.status
+                : 502;
+            reject(rateRequestError(status));
+            return;
+          }
+          if (!isGuestReferenceRate(result.rate, source, target, false)) {
             reject(
               new Error(
                 "The Approved Member Reference Rate response was invalid."
