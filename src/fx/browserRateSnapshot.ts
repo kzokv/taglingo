@@ -34,14 +34,14 @@ export interface BrowserRateSnapshotStore {
   save(rate: GuestReferenceRate): void;
 }
 
-export type GuestRateFailureReason =
+export type ReferenceRateFailureReason =
   | "expired"
   | "quota"
   | "unauthenticated"
   | "unauthorized"
   | "unavailable";
 
-const failureMessages: Record<GuestRateFailureReason, string> = {
+const failureMessages: Record<ReferenceRateFailureReason, string> = {
   expired: "The Rate Snapshot expired after seven days.",
   quota: "The Reference Rate request limit was reached.",
   unauthenticated: "The account session is unavailable.",
@@ -52,7 +52,7 @@ const failureMessages: Record<GuestRateFailureReason, string> = {
 
 export class GuestRateLoadError extends Error {
   constructor(
-    public readonly reason: GuestRateFailureReason,
+    public readonly reason: ReferenceRateFailureReason,
     options?: ErrorOptions
   ) {
     super(failureMessages[reason], options);

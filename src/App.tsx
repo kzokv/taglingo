@@ -55,6 +55,7 @@ import {
   type RecognitionView
 } from "./recognition/useCameraRecognition";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
+import { RecognitionSummary } from "./recognition/RecognitionSummary";
 
 import "./styles.css";
 
@@ -70,6 +71,7 @@ type MemberAccessStatus =
   | "loading"
   | "approved"
   | "inactive"
+  | "guest-choice"
   | "unavailable";
 type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
@@ -148,7 +150,9 @@ function CurrencySettings({
         ? "Signed in · access unavailable"
         : memberAccessStatus === "inactive"
           ? "Signed in · Guest limits"
-        : "Guest · 1";
+          : memberAccessStatus === "guest-choice"
+            ? "Signed in · Guest limits"
+            : "Guest · 1";
 
   useEffect(() => {
     if (!isTargetPickerOpen) {
@@ -572,7 +576,8 @@ function CameraSurface({
   onRetry,
   onPlaybackError,
   onUseDemo,
-  memberStatus
+  memberStatus,
+  onContinueAsGuest
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -587,10 +592,11 @@ function CameraSurface({
   onPlaybackError: () => void;
   onUseDemo: () => void;
   memberStatus: ReactNode;
+  onContinueAsGuest: () => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
-  const [recognitionAttempt, setRecognitionAttempt] = useState(0);
+  const [recognitionRestartKey, setRecognitionRestartKey] = useState(0);
   const demoRecognition = useDemoRecognition(
     demo && preferences.sourceCurrency === "JPY"
   );
@@ -600,7 +606,7 @@ function CameraSurface({
     video,
     preview,
     createRecognizer,
-    attempt: recognitionAttempt
+    recognitionRestartKey
   });
   const recognition = demo ? demoRecognition : cameraRecognition;
 
@@ -645,38 +651,11 @@ function CameraSurface({
           sourceCurrency={preferences.sourceCurrency}
           onRetry={onRetry}
           onRecognitionRetry={() =>
-            setRecognitionAttempt((attempt) => attempt + 1)
+            setRecognitionRestartKey((restartKey) => restartKey + 1)
           }
           onUseDemo={onUseDemo}
         />
-        <section
-          className="recognition-note"
-          aria-label="Recognition summary"
-        >
-          <span aria-hidden="true">⌁</span>
-          <p>
-            <strong aria-live="polite" aria-atomic="true">
-              {recognition.focusedPrice
-                ? `Focused Price · ${recognition.focusedPrice.currency} ${recognition.focusedPrice.minorUnits.toLocaleString(
-                    "en-US"
-                  )}`
-                : demo
-                  ? "No Focused Price yet"
-                  : "No Detected Price yet"}
-            </strong>
-            <br />
-            {recognition.detectedPrices.length.toLocaleString("en-US")} {" "}
-            {recognition.detectedPrices.length === 1
-              ? "Detected Price"
-              : "Detected Prices"}
-            .{" "}
-            {recognition.focusedPrice
-              ? "Two compatible observations matched the exact price-token rectangle."
-              : demo
-                ? "The recorded observation is being checked twice for stability."
-                : "Hold steady, improve the lighting, or move closer to the price tag."}
-          </p>
-        </section>
+        <RecognitionSummary recognition={recognition} demo={demo} />
         <ConversionLedger
           focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
           focusedCurrency={recognition.focusedPrice?.currency ?? null}
@@ -684,6 +663,7 @@ function CameraSurface({
           targetCurrencies={preferences.targetCurrencies}
           isApprovedMember={isApprovedMember}
           rates={rates}
+          onContinueAsGuest={onContinueAsGuest}
         />
       </section>
     </main>
@@ -724,7 +704,7 @@ function ConversionRow({
         : guestRate.reason === "unauthenticated"
           ? "Retry after sign in"
           : guestRate.reason === "unauthorized"
-            ? "Try authorized rate again"
+            ? "Try authorized Reference Rate again"
             : "Reconnect and retry";
     return (
       <div className="conversion-card conversion-error" role="alert">
@@ -799,7 +779,8 @@ function ConversionLedger({
   sourceCurrency,
   targetCurrencies,
   isApprovedMember,
-  rates
+  rates,
+  onContinueAsGuest
 }: {
   focusedMinorUnits: number | null;
   focusedCurrency: CurrencyCode | null;
@@ -807,7 +788,15 @@ function ConversionLedger({
   targetCurrencies: CurrencyCode[];
   isApprovedMember: boolean;
   rates: GuestRateViews;
+  onContinueAsGuest: () => void;
 }) {
+  const accessFailure = targetCurrencies
+    .map((targetCurrency) => rates[targetCurrency])
+    .find(
+      (rate) =>
+        rate?.phase === "error" &&
+        (rate.reason === "unauthenticated" || rate.reason === "unauthorized")
+    );
   return (
     <section
       className="conversion-ledger"
@@ -815,22 +804,39 @@ function ConversionLedger({
         isApprovedMember ? "Approved Member conversions" : "Guest conversion"
       }
     >
+      {accessFailure?.phase === "error" ? (
+        <div className="conversion-card conversion-error" role="alert">
+          <strong>Approved Member Reference Rates unavailable</strong>
+          <p>{accessFailure.error}</p>
+          <button
+            className="text-button"
+            type="button"
+            onClick={onContinueAsGuest}
+          >
+            Continue as Guest
+          </button>
+        </div>
+      ) : null}
       {targetCurrencies.map((targetCurrency) => (
-        <ConversionRow
-          key={targetCurrency}
-          focusedMinorUnits={focusedMinorUnits}
-          focusedCurrency={focusedCurrency}
-          sourceCurrency={sourceCurrency}
-          targetCurrency={targetCurrency}
-          guestRate={
-            rates[targetCurrency] ?? {
-              phase: "loading",
-              rate: null,
-              error: null,
-              retry: () => undefined
+        rates[targetCurrency]?.phase === "error" &&
+        (rates[targetCurrency].reason === "unauthenticated" ||
+          rates[targetCurrency].reason === "unauthorized") ? null : (
+          <ConversionRow
+            key={targetCurrency}
+            focusedMinorUnits={focusedMinorUnits}
+            focusedCurrency={focusedCurrency}
+            sourceCurrency={sourceCurrency}
+            targetCurrency={targetCurrency}
+            guestRate={
+              rates[targetCurrency] ?? {
+                phase: "loading",
+                rate: null,
+                error: null,
+                retry: () => undefined
+              }
             }
-          }
-        />
+          />
+        )
       ))}
     </section>
   );
@@ -881,6 +887,17 @@ function MemberStatusPanel({
       </div>
     );
   }
+  if (accessStatus === "guest-choice") {
+    return (
+      <div className="account-status" role="status">
+        <strong>Using Guest mode</strong>
+        <p>
+          The account remains signed in, but scanning now uses one Target
+          Currency and browser-local preferences.
+        </p>
+      </div>
+    );
+  }
   if (accessStatus === "unavailable") {
     return (
       <div className="account-status account-error" role="alert">
@@ -897,8 +914,8 @@ function MemberStatusPanel({
       <div className="account-status account-error" role="alert">
         <strong>Member settings were not saved</strong>
         <p>
-          Your choices remain visible here, but protected rates wait until D1
-          synchronization succeeds.
+          Your choices remain visible here, but protected Reference Rates wait
+          until D1 synchronization succeeds.
         </p>
         <button className="text-button" type="button" onClick={onRetrySave}>
           Retry saving settings
@@ -957,10 +974,12 @@ export default function App({
     MemberAccessStatus
   >(memberUserId ? "loading" : "guest");
   const [memberAccessAttempt, setMemberAccessAttempt] = useState(0);
+  const [useGuestMode, setUseGuestMode] = useState(false);
   const [memberSaveStatus, setMemberSaveStatus] =
     useState<MemberSaveStatus>("idle");
   const memberSaveRef = useRef<AbortController | null>(null);
   const pendingMemberPreferencesRef = useRef<MemberPreferences | null>(null);
+  useEffect(() => setUseGuestMode(false), [memberUserId]);
   useEffect(() => {
     memberSaveRef.current?.abort();
     pendingMemberPreferencesRef.current = null;
@@ -1019,6 +1038,7 @@ export default function App({
   ]);
   const isApprovedMember =
     Boolean(memberUserId) &&
+    !useGuestMode &&
     memberAccessStatus === "approved" &&
     memberPreferences !== null;
   const preferences: ExperiencePreferences = isApprovedMember
@@ -1152,7 +1172,7 @@ export default function App({
   }, []);
   const memberStatus = (
     <MemberStatusPanel
-      accessStatus={memberAccessStatus}
+      accessStatus={useGuestMode ? "guest-choice" : memberAccessStatus}
       saveStatus={memberSaveStatus}
       onRetryAccess={() => setMemberAccessAttempt((attempt) => attempt + 1)}
       onRetrySave={() => {
@@ -1179,6 +1199,7 @@ export default function App({
         onPlaybackError={handlePlaybackError}
         onUseDemo={openDemo}
         memberStatus={memberStatus}
+        onContinueAsGuest={() => setUseGuestMode(true)}
       />
     );
   }
@@ -1202,7 +1223,9 @@ export default function App({
                 ? "Member access unavailable"
                 : memberAccessStatus === "inactive"
                   ? "Signed in · Guest limits"
-                : "Guest mode"}
+                  : useGuestMode
+                    ? "Signed in · Guest limits"
+                    : "Guest mode"}
         </span>
       </nav>
 
