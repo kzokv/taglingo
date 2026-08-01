@@ -38,4 +38,22 @@ describe("Guest Preference Store", () => {
       targetCurrency: "USD"
     });
   });
+
+  it("rejects camera-derived and identity fields at the Guest persistence boundary", () => {
+    const store = createGuestPreferenceStore(window.localStorage);
+    store.save({
+      sourceCurrency: "JPY",
+      targetCurrency: "TWD",
+      cameraFrame: "data:image/jpeg;base64,secret",
+      ocrText: "4,142円",
+      detectedPrices: [{ minorUnits: 4142 }],
+      email: "shopper@example.com"
+    } as never);
+
+    expect(window.localStorage.length).toBe(0);
+    expect(store.load()).toEqual({
+      sourceCurrency: "JPY",
+      targetCurrency: "USD"
+    });
+  });
 });

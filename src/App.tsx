@@ -65,7 +65,13 @@ interface ExperiencePreferences {
   targetCurrencies: CurrencyCode[];
 }
 
-type MemberAccessStatus = "guest" | "loading" | "approved" | "unavailable";
+type MemberAccessStatus =
+  | "guest"
+  | "loading"
+  | "approved"
+  | "inactive"
+  | "unavailable";
+type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 
 const statusContent: Partial<
@@ -128,6 +134,7 @@ function CurrencySettings({
   const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetQuery, setTargetQuery] = useState("");
   const targetPickerRef = useRef<HTMLDivElement>(null);
+  const targetTriggerRef = useRef<HTMLButtonElement>(null);
   const targetListId = useId();
   const matches = searchTargetCurrencies(targetQuery).filter(
     ({ code }) => code !== preferences.sourceCurrency
@@ -139,6 +146,8 @@ function CurrencySettings({
       ? CHECKING_MEMBER_ACCESS_LABEL
       : memberAccessStatus === "unavailable"
         ? "Signed in · access unavailable"
+        : memberAccessStatus === "inactive"
+          ? "Signed in · Guest limits"
         : "Guest · 1";
 
   useEffect(() => {
@@ -153,6 +162,7 @@ function CurrencySettings({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setIsTargetPickerOpen(false);
+        targetTriggerRef.current?.focus();
       }
     };
     document.addEventListener("pointerdown", closeOnOutsidePress);
@@ -215,6 +225,7 @@ function CurrencySettings({
           Target Currency <em>{accessLabel}</em>
         </span>
         <button
+          ref={targetTriggerRef}
           className="target-currency-trigger"
           type="button"
           aria-label={`Target Currencies: ${preferences.targetCurrencies.length} selected · ${preferences.targetCurrencies.join(" · ")}`}
@@ -236,7 +247,13 @@ function CurrencySettings({
                   {preferences.targetCurrencies.length} of {maxTargets} selected
                 </span>
               </div>
-              <button type="button" onClick={() => setIsTargetPickerOpen(false)}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTargetPickerOpen(false);
+                  targetTriggerRef.current?.focus();
+                }}
+              >
                 Done
               </button>
             </div>
@@ -387,10 +404,8 @@ function FocusReticle({
                   height: price.box.height
                 }
           }
-          role="img"
-          aria-label={`Detected Price ${price.currency} ${price.minorUnits.toLocaleString(
-            "en-US"
-          )}`}
+          aria-hidden="true"
+          data-detected-price={`${price.currency}-${price.minorUnits}`}
         >
           <span aria-hidden="true">
             {recognition.focusedPrice === price ? "Focused" : "Detected"}
@@ -437,13 +452,17 @@ function StatusPanel({
   demo,
   recognition,
   sourceCurrency,
-  onRetry
+  onRetry,
+  onRecognitionRetry,
+  onUseDemo
 }: {
   status: CameraStatus;
   demo: boolean;
   recognition: RecognitionView;
   sourceCurrency: SourceCurrencyCode;
   onRetry: () => void;
+  onRecognitionRetry: () => void;
+  onUseDemo: () => void;
 }) {
   if (demo) {
     if (recognition.phase === "preparing") {
@@ -487,7 +506,19 @@ function StatusPanel({
         <span className="status-dot" />
         <div>
           <strong>Recognition could not start</strong>
-          <p>Reload the scanner or use the no-camera demonstration.</p>
+          <p>Try preparing the local model again or continue without a camera.</p>
+          <div className="status-actions">
+            <button
+              className="text-button"
+              type="button"
+              onClick={onRecognitionRetry}
+            >
+              Try recognition again
+            </button>
+            <button className="text-button" type="button" onClick={onUseDemo}>
+              Use no-camera demo
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -539,7 +570,9 @@ function CameraSurface({
   createRecognizer,
   onClose,
   onRetry,
-  onPlaybackError
+  onPlaybackError,
+  onUseDemo,
+  memberStatus
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -552,9 +585,12 @@ function CameraSurface({
   onClose: () => void;
   onRetry: () => void;
   onPlaybackError: () => void;
+  onUseDemo: () => void;
+  memberStatus: ReactNode;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
+  const [recognitionAttempt, setRecognitionAttempt] = useState(0);
   const demoRecognition = useDemoRecognition(
     demo && preferences.sourceCurrency === "JPY"
   );
@@ -563,7 +599,8 @@ function CameraSurface({
     sourceCurrency: preferences.sourceCurrency,
     video,
     preview,
-    createRecognizer
+    createRecognizer,
+    attempt: recognitionAttempt
   });
   const recognition = demo ? demoRecognition : cameraRecognition;
 
@@ -600,17 +637,25 @@ function CameraSurface({
           memberAccessStatus={memberAccessStatus}
           compact
         />
+        {memberStatus}
         <StatusPanel
           status={snapshot.status}
           demo={demo}
           recognition={recognition}
           sourceCurrency={preferences.sourceCurrency}
           onRetry={onRetry}
+          onRecognitionRetry={() =>
+            setRecognitionAttempt((attempt) => attempt + 1)
+          }
+          onUseDemo={onUseDemo}
         />
-        <div className="recognition-note" aria-live="polite">
+        <section
+          className="recognition-note"
+          aria-label="Recognition summary"
+        >
           <span aria-hidden="true">⌁</span>
           <p>
-            <strong>
+            <strong aria-live="polite" aria-atomic="true">
               {recognition.focusedPrice
                 ? `Focused Price · ${recognition.focusedPrice.currency} ${recognition.focusedPrice.minorUnits.toLocaleString(
                     "en-US"
@@ -620,13 +665,18 @@ function CameraSurface({
                   : "No Detected Price yet"}
             </strong>
             <br />
+            {recognition.detectedPrices.length.toLocaleString("en-US")} {" "}
+            {recognition.detectedPrices.length === 1
+              ? "Detected Price"
+              : "Detected Prices"}
+            .{" "}
             {recognition.focusedPrice
               ? "Two compatible observations matched the exact price-token rectangle."
               : demo
                 ? "The recorded observation is being checked twice for stability."
                 : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
-        </div>
+        </section>
         <ConversionLedger
           focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
           focusedCurrency={recognition.focusedPrice?.currency ?? null}
@@ -668,12 +718,20 @@ function ConversionRow({
     );
   }
   if (guestRate.phase === "error") {
+    const retryLabel =
+      guestRate.reason === "quota"
+        ? "Try Reference Rate again"
+        : guestRate.reason === "unauthenticated"
+          ? "Retry after sign in"
+          : guestRate.reason === "unauthorized"
+            ? "Try authorized rate again"
+            : "Reconnect and retry";
     return (
       <div className="conversion-card conversion-error" role="alert">
         <strong>Conversion unavailable</strong>
         <p>{guestRate.error}</p>
         <button className="text-button" type="button" onClick={guestRate.retry}>
-          Reconnect and retry
+          {retryLabel}
         </button>
       </div>
     );
@@ -801,6 +859,63 @@ function getBrowserStorage(): Storage | undefined {
   }
 }
 
+function MemberStatusPanel({
+  accessStatus,
+  saveStatus,
+  onRetryAccess,
+  onRetrySave
+}: {
+  accessStatus: MemberAccessStatus;
+  saveStatus: MemberSaveStatus;
+  onRetryAccess: () => void;
+  onRetrySave: () => void;
+}) {
+  if (accessStatus === "inactive") {
+    return (
+      <div className="account-status" role="status">
+        <strong>Signed in with Guest limits</strong>
+        <p>
+          An active membership is not available. Continue scanning as a Guest
+          or ask the owner to review access.
+        </p>
+      </div>
+    );
+  }
+  if (accessStatus === "unavailable") {
+    return (
+      <div className="account-status account-error" role="alert">
+        <strong>Could not verify Approved Member access</strong>
+        <p>Check the connection or account session, then try again.</p>
+        <button className="text-button" type="button" onClick={onRetryAccess}>
+          Retry member access
+        </button>
+      </div>
+    );
+  }
+  if (saveStatus === "error") {
+    return (
+      <div className="account-status account-error" role="alert">
+        <strong>Member settings were not saved</strong>
+        <p>
+          Your choices remain visible here, but protected rates wait until D1
+          synchronization succeeds.
+        </p>
+        <button className="text-button" type="button" onClick={onRetrySave}>
+          Retry saving settings
+        </button>
+      </div>
+    );
+  }
+  if (saveStatus === "saving") {
+    return (
+      <div className="account-status" role="status">
+        Saving member settings…
+      </div>
+    );
+  }
+  return null;
+}
+
 export default function App({
   createRecognizer = createBrowserRecognizer,
   loadGuestRate,
@@ -841,9 +956,15 @@ export default function App({
   const [memberAccessStatus, setMemberAccessStatus] = useState<
     MemberAccessStatus
   >(memberUserId ? "loading" : "guest");
+  const [memberAccessAttempt, setMemberAccessAttempt] = useState(0);
+  const [memberSaveStatus, setMemberSaveStatus] =
+    useState<MemberSaveStatus>("idle");
   const memberSaveRef = useRef<AbortController | null>(null);
+  const pendingMemberPreferencesRef = useRef<MemberPreferences | null>(null);
   useEffect(() => {
     memberSaveRef.current?.abort();
+    pendingMemberPreferencesRef.current = null;
+    setMemberSaveStatus("idle");
     if (!memberUserId) {
       setMemberAccessStatus("guest");
       setMemberPreferences(null);
@@ -880,7 +1001,7 @@ export default function App({
           setMemberAccessStatus(
             error instanceof MemberPreferencesRequestError &&
               error.kind === "inactive-membership"
-              ? "guest"
+              ? "inactive"
               : "unavailable"
           );
           setMemberPreferences(null);
@@ -892,6 +1013,7 @@ export default function App({
     guestPreferences.sourceCurrency,
     guestPreferences.targetCurrency,
     loadMemberPreferences,
+    memberAccessAttempt,
     memberUserId,
     saveMemberPreferences
   ]);
@@ -971,6 +1093,28 @@ export default function App({
     };
   }, []);
 
+  const persistMemberPreferences = (preferences: MemberPreferences) => {
+    pendingMemberPreferencesRef.current = preferences;
+    memberSaveRef.current?.abort();
+    const controller = new AbortController();
+    memberSaveRef.current = controller;
+    setMemberSaveStatus("saving");
+    void saveMemberPreferences(preferences, controller.signal)
+      .then((saved) => {
+        if (!controller.signal.aborted) {
+          pendingMemberPreferencesRef.current = null;
+          setMemberPreferences(saved);
+          setSynchronizedMemberPreferences(saved);
+          setMemberSaveStatus("idle");
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMemberSaveStatus("error");
+        }
+      });
+  };
+
   const updatePreferences = (nextPreferences: ExperiencePreferences) => {
     if (isApprovedMember && memberUserId) {
       const synchronized: MemberPreferences = {
@@ -978,19 +1122,7 @@ export default function App({
         ...nextPreferences
       };
       setMemberPreferences(synchronized);
-      memberSaveRef.current?.abort();
-      const controller = new AbortController();
-      memberSaveRef.current = controller;
-      void saveMemberPreferences(synchronized, controller.signal)
-        .then((saved) => {
-          if (!controller.signal.aborted) {
-            setMemberPreferences(saved);
-            setSynchronizedMemberPreferences(saved);
-          }
-        })
-        .catch(() => {
-          // Do not request a protected rate for a pair D1 has not authorized.
-        });
+      persistMemberPreferences(synchronized);
       return;
     }
     const guest: GuestPreferences = {
@@ -1018,6 +1150,18 @@ export default function App({
   const handlePlaybackError = useCallback(() => {
     sessionRef.current?.interrupt();
   }, []);
+  const memberStatus = (
+    <MemberStatusPanel
+      accessStatus={memberAccessStatus}
+      saveStatus={memberSaveStatus}
+      onRetryAccess={() => setMemberAccessAttempt((attempt) => attempt + 1)}
+      onRetrySave={() => {
+        if (pendingMemberPreferencesRef.current) {
+          persistMemberPreferences(pendingMemberPreferencesRef.current);
+        }
+      }}
+    />
+  );
 
   if (mode !== "welcome") {
     return (
@@ -1033,6 +1177,8 @@ export default function App({
         onClose={closeCamera}
         onRetry={startCamera}
         onPlaybackError={handlePlaybackError}
+        onUseDemo={openDemo}
+        memberStatus={memberStatus}
       />
     );
   }
@@ -1054,6 +1200,8 @@ export default function App({
               ? CHECKING_MEMBER_ACCESS_LABEL
               : memberAccessStatus === "unavailable"
                 ? "Member access unavailable"
+                : memberAccessStatus === "inactive"
+                  ? "Signed in · Guest limits"
                 : "Guest mode"}
         </span>
       </nav>
@@ -1093,6 +1241,7 @@ export default function App({
           isApprovedMember={isApprovedMember}
           memberAccessStatus={memberAccessStatus}
         />
+        {memberStatus}
 
         {failure ? (
           <div className="failure-card" role="alert">

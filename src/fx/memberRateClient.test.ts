@@ -134,4 +134,21 @@ describe("Approved Member rate client", () => {
       "/api/member-fx?ownerId=user_member&source=JPY&targets=USD%2CTWD"
     );
   });
+
+  it.each([
+    [401, "unauthenticated"],
+    [403, "unauthorized"],
+    [429, "quota"]
+  ])("preserves actionable HTTP %s failures", async (status, reason) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ error: { code: "controlled_failure" } }, { status })
+    );
+
+    await expect(
+      createMemberRateLoader(
+        "user_member",
+        async () => "session-token"
+      )("JPY", "TWD", new AbortController().signal)
+    ).rejects.toMatchObject({ reason });
+  });
 });

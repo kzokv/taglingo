@@ -35,7 +35,7 @@ function createStorage(): Storage {
 }
 
 describe("browser Rate Snapshots", () => {
-  it("refreshes online and stores only the validated active FX payload", async () => {
+  it("rejects camera-derived and identity fields before Rate Snapshot persistence", async () => {
     const storage = createStorage();
     const store = createBrowserRateSnapshotStore(storage);
     const onlineRate = {
@@ -53,12 +53,10 @@ describe("browser Rate Snapshots", () => {
 
     await expect(
       load("JPY", "USD", new AbortController().signal)
-    ).resolves.toEqual(onlineRate);
+    ).rejects.toMatchObject({ reason: "unavailable" });
 
     const serialized = storage.getItem(RATE_SNAPSHOT_STORAGE_KEY);
-    expect(serialized).toContain('"providerPublishedDate":"2026-07-30"');
-    expect(serialized).not.toContain("accountId");
-    expect(serialized).not.toContain("detectedPrice");
+    expect(serialized).toBeNull();
   });
 
   it("starts offline with a clearly marked snapshot through calendar day seven", async () => {

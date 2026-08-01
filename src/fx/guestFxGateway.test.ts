@@ -156,7 +156,12 @@ describe("Guest FX Gateway", () => {
     );
   });
 
-  it("rejects camera and Detected Price input before rate limiting or provider access", async () => {
+  it.each([
+    ["camera frames", "cameraFrame=data%3Aimage%2Fjpeg%3Bbase64%2Csecret"],
+    ["OCR text", "ocrText=4%2C142%E5%86%86"],
+    ["Detected Prices", "detectedPrice=4142"],
+    ["unnecessary identity", "email=shopper%40example.com"]
+  ])("rejects %s before rate limiting or provider access", async (_case, parameter) => {
     const consumeGuestLimit = vi.fn().mockResolvedValue(true);
     const providerFetch = vi.fn();
     const handle = createGuestFxHandler({
@@ -168,7 +173,7 @@ describe("Guest FX Gateway", () => {
 
     const response = await handle(
       new Request(
-        "https://taglingo.test/api/fx?source=JPY&target=USD&detectedPrice=4142"
+        `https://taglingo.test/api/fx?source=JPY&target=USD&${parameter}`
       )
     );
 

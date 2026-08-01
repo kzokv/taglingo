@@ -205,4 +205,34 @@ describe("member preference API", () => {
     });
     expect(preferences.save).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["camera frames", { cameraFrame: "data:image/jpeg;base64,secret" }],
+    ["OCR text", { ocrText: "4,142円" }],
+    ["Detected Prices", { detectedPrices: [{ minorUnits: 4142 }] }],
+    ["unnecessary identity", { email: "shopper@example.com" }]
+  ])("rejects %s at the member persistence boundary", async (_case, extra) => {
+    const { memberships, preferences } = dependencies();
+    const handle = createMemberPreferencesHandler({
+      authenticate: vi.fn().mockResolvedValue({
+        kind: "authenticated",
+        userId: "user_member",
+        sessionId: "sess_member"
+      }),
+      memberships,
+      preferences
+    });
+
+    const response = await handle(
+      request("PUT", {
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"],
+        ...extra
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(preferences.save).not.toHaveBeenCalled();
+  });
 });
