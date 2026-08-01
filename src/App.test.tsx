@@ -13,6 +13,7 @@ import App from "./App";
 import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
+import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
 import type { OcrRecognizer } from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
@@ -510,13 +511,17 @@ describe("Guest camera journey", () => {
       screen.getByRole("combobox", { name: /source currency/i }),
       "EUR"
     );
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
     await user.type(
-      screen.getByRole("searchbox", { name: /find target currency/i }),
+      screen.getByRole("searchbox", { name: /search target currencies/i }),
       "台幣"
     );
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /^target currency/i }),
-      "TWD"
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
     );
 
     firstVisit.unmount();
@@ -527,8 +532,10 @@ describe("Guest camera journey", () => {
         screen.getByRole("combobox", { name: /source currency/i })
       ).toHaveValue("EUR");
       expect(
-        screen.getByRole("combobox", { name: /^target currency/i })
-      ).toHaveValue("TWD");
+        screen.getByRole("button", {
+          name: /target currencies: 1 selected · twd/i
+        })
+      ).toBeInTheDocument();
     });
   });
 
@@ -608,9 +615,17 @@ describe("Approved Member journey", () => {
       "user_member",
       expect.any(AbortSignal)
     );
+    const targetPicker = screen.getByRole("button", {
+      name: /target currencies: 3 selected · usd · twd · eur/i
+    });
+    await user.click(targetPicker);
     expect(
-      screen.getAllByRole("combobox", { name: /^target currency/i })
-    ).toHaveLength(3);
+      screen.getByRole("listbox", { name: /target currencies/i })
+    ).toHaveAttribute("aria-multiselectable", "true");
+    expect(
+      screen.getByRole("option", { name: /cad canadian dollar/i })
+    ).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /done/i }));
 
     await user.click(screen.getByRole("button", { name: /try without camera/i }));
 
@@ -642,12 +657,20 @@ describe("Approved Member journey", () => {
     await screen.findByText(/approved member mode/i);
 
     await user.click(
-      screen.getByRole("button", { name: /add target currency/i })
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
     );
-    const targets = screen.getAllByRole("combobox", {
-      name: /^target currency/i
-    });
-    await user.selectOptions(targets[1], "TWD");
+    expect(
+      screen.getByRole("searchbox", { name: /search target currencies/i })
+    ).toBeInTheDocument();
+    await user.type(
+      screen.getByRole("searchbox", { name: /search target currencies/i }),
+      "台幣"
+    );
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
+    );
 
     await waitFor(() =>
       expect(saveMemberPreferences).toHaveBeenLastCalledWith(
@@ -670,12 +693,11 @@ describe("Approved Member journey", () => {
 
     expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
     expect(
-      screen.getAllByRole("combobox", { name: /^target currency/i })
-    ).toHaveLength(1);
-    expect(
-      screen.getByRole("combobox", { name: /^target currency/i })
-    ).toHaveValue("USD");
-    expect(saveMemberPreferences).toHaveBeenCalledTimes(2);
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+    expect(saveMemberPreferences).toHaveBeenCalledTimes(1);
   });
 
   it("waits for D1 synchronization before requesting a newly selected member rate", async () => {
@@ -698,9 +720,13 @@ describe("Approved Member journey", () => {
       />
     );
     await screen.findByText(/approved member mode/i);
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /^target currency 1/i }),
-      "TWD"
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
     );
 
     expect(
@@ -711,7 +737,7 @@ describe("Approved Member journey", () => {
       saved.resolve({
         ownerId: "user_member",
         sourceCurrency: "JPY",
-        targetCurrencies: ["TWD"]
+        targetCurrencies: ["USD", "TWD"]
       });
     });
     await waitFor(() =>
@@ -730,16 +756,47 @@ describe("Approved Member journey", () => {
         memberUserId="user_inactive"
         loadMemberPreferences={vi
           .fn()
-          .mockRejectedValue(new Error("inactive membership"))}
+          .mockRejectedValue(
+            new MemberPreferencesRequestError(
+              "denied",
+              "inactive membership"
+            )
+          )}
         saveMemberPreferences={saveMemberPreferences}
       />
     );
 
     expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
     expect(
-      screen.getAllByRole("combobox", { name: /^target currency/i })
-    ).toHaveLength(1);
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
     expect(saveMemberPreferences).not.toHaveBeenCalled();
+  });
+
+  it("shows a signed-in access failure instead of describing it as Guest mode", async () => {
+    useMediaDevices(vi.fn());
+
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={vi
+          .fn()
+          .mockRejectedValue(new Error("preference service unavailable"))}
+      />
+    );
+
+    expect(
+      await screen.findByText(/member access unavailable/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/signed in · access unavailable/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
   });
 
   it("preserves unaffected member conversions when one Target Currency rate fails", async () => {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadMemberPreferencesFromApi,
+  MemberPreferencesRequestError,
   saveMemberPreferencesToApi
 } from "./memberPreferencesClient";
 
@@ -54,5 +55,45 @@ describe("member preference client", () => {
       credentials: "same-origin"
     });
     expect(JSON.parse(String(request[1]?.body))).toEqual(preferences);
+  });
+
+  it("distinguishes inactive membership from an unavailable preference service", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        { error: { code: "inactive_membership" } },
+        { status: 403 }
+      )
+    );
+
+    await expect(
+      loadMemberPreferencesFromApi(
+        "user_inactive",
+        new AbortController().signal
+      )
+    ).rejects.toEqual(
+      expect.objectContaining<MemberPreferencesRequestError>({
+        kind: "denied"
+      })
+    );
+  });
+
+  it("reports an HTML development fallback as unavailable member access", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<!doctype html><title>TagLingo</title>", {
+        headers: { "content-type": "text/html" },
+        status: 200
+      })
+    );
+
+    await expect(
+      loadMemberPreferencesFromApi(
+        "user_member",
+        new AbortController().signal
+      )
+    ).rejects.toEqual(
+      expect.objectContaining<MemberPreferencesRequestError>({
+        kind: "unavailable"
+      })
+    );
   });
 });

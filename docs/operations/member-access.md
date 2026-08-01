@@ -33,6 +33,32 @@ Configure these server-side Pages values:
 
 The browser still receives only `VITE_CLERK_PUBLISHABLE_KEY`.
 
+## Run the member journey locally
+
+The default development command builds the SPA, applies migrations to a
+Wrangler-managed local D1 database, and serves both the static app and Pages
+Functions on `http://localhost:8788`:
+
+```sh
+cp .dev.vars.example .dev.vars
+npm run dev
+```
+
+Replace the placeholders in `.dev.vars` with server-side values from the same
+Clerk Development instance used by `VITE_CLERK_PUBLISHABLE_KEY`. Never copy a
+production Clerk secret into local development or commit `.dev.vars`.
+
+Activate a local test member after that person signs in and you have copied
+their stable Clerk `user_...` ID:
+
+```sh
+npx wrangler d1 execute DB --local --config wrangler.local.jsonc \
+  --command "INSERT INTO taglingo_memberships (clerk_user_id, status) VALUES ('user_REPLACE_ME', 'active') ON CONFLICT(clerk_user_id) DO UPDATE SET status = 'active', role = 'member', updated_at = CURRENT_TIMESTAMP"
+```
+
+Restart or reload TagLingo after activation. Use `npm run dev:spa` only for
+Guest-only frontend work; it intentionally does not serve `/api/*` Functions.
+
 ## Activate an invited Approved Member
 
 After the owner invites or approves the person in Clerk and registration

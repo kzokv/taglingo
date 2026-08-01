@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -41,6 +42,7 @@ import { createMemberRateLoader } from "./fx/memberRateClient";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import {
   loadMemberPreferencesFromApi,
+  MemberPreferencesRequestError,
   saveMemberPreferencesToApi,
   type LoadMemberPreferences,
   type SaveMemberPreferences
@@ -61,6 +63,8 @@ interface ExperiencePreferences {
   sourceCurrency: SourceCurrencyCode;
   targetCurrencies: CurrencyCode[];
 }
+
+type MemberAccessStatus = "guest" | "loading" | "approved" | "unavailable";
 
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
@@ -110,20 +114,50 @@ function CurrencySettings({
   preferences,
   onChange,
   isApprovedMember,
+  memberAccessStatus = isApprovedMember ? "approved" : "guest",
   compact = false
 }: {
   preferences: ExperiencePreferences;
   onChange: (preferences: ExperiencePreferences) => void;
   isApprovedMember: boolean;
+  memberAccessStatus?: MemberAccessStatus;
   compact?: boolean;
 }) {
+  const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetQuery, setTargetQuery] = useState("");
+  const targetPickerRef = useRef<HTMLDivElement>(null);
+  const targetListId = useId();
   const matches = searchTargetCurrencies(targetQuery).filter(
-    ({ code }) =>
-      code !== preferences.sourceCurrency &&
-      (!preferences.targetCurrencies.includes(code) ||
-        preferences.targetCurrencies.some((target) => target === code))
+    ({ code }) => code !== preferences.sourceCurrency
   );
+  const maxTargets = isApprovedMember ? 3 : 1;
+  const accessLabel = isApprovedMember
+    ? "Approved Member · up to 3"
+    : memberAccessStatus === "unavailable"
+      ? "Signed in · access unavailable"
+      : "Guest · 1";
+
+  useEffect(() => {
+    if (!isTargetPickerOpen) {
+      return undefined;
+    }
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!targetPickerRef.current?.contains(event.target as Node)) {
+        setIsTargetPickerOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTargetPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isTargetPickerOpen]);
 
   const updateSource = (event: ChangeEvent<HTMLSelectElement>) => {
     const sourceCurrency = event.target.value as SourceCurrencyCode;
@@ -132,31 +166,26 @@ function CurrencySettings({
     );
     onChange({ sourceCurrency, targetCurrencies });
   };
-  const updateTarget =
-    (index: number) => (event: ChangeEvent<HTMLSelectElement>) => {
-      const targetCurrencies = [...preferences.targetCurrencies];
-      targetCurrencies[index] = event.target.value as CurrencyCode;
-      onChange({ ...preferences, targetCurrencies });
-    };
-  const addTarget = () => {
-    const target = TARGET_CURRENCIES.find(
-      ({ code }) =>
-        code !== preferences.sourceCurrency &&
-        !preferences.targetCurrencies.includes(code)
-    );
-    if (target) {
+  const toggleTarget = (target: CurrencyCode) => {
+    const isSelected = preferences.targetCurrencies.includes(target);
+    if (isSelected) {
+      if (preferences.targetCurrencies.length === 1) {
+        return;
+      }
       onChange({
         ...preferences,
-        targetCurrencies: [...preferences.targetCurrencies, target.code]
+        targetCurrencies: preferences.targetCurrencies.filter(
+          (selected) => selected !== target
+        )
       });
+      return;
     }
-  };
-  const removeTarget = (index: number) => {
     onChange({
       ...preferences,
-      targetCurrencies: preferences.targetCurrencies.filter(
-        (_target, targetIndex) => targetIndex !== index
-      )
+      targetCurrencies:
+        maxTargets === 1
+          ? [target]
+          : [...preferences.targetCurrencies, target]
     });
   };
 
@@ -177,83 +206,90 @@ function CurrencySettings({
         </select>
       </label>
 
-      <div className="target-fields">
-        <label className="field search-field">
-          <span>Find Target Currency</span>
-          <input
-            name={compact ? "cameraTargetCurrencySearch" : "targetCurrencySearch"}
-            type="search"
-            value={targetQuery}
-            onChange={(event) => setTargetQuery(event.target.value)}
-            placeholder="Code, name, or alias"
-            autoComplete="off"
-          />
-        </label>
-        <div className="target-selectors">
-          {preferences.targetCurrencies.map((selectedCode, index) => {
-            const selected = TARGET_CURRENCIES.find(
-              ({ code }) => code === selectedCode
-            );
-            const visibleTargets = matches.some(
-              ({ code }) => code === selectedCode
-            )
-              ? matches
-              : selected
-                ? [selected, ...matches]
-                : matches;
-            return (
-              <div className="target-selector" key={`${index}-${selectedCode}`}>
-                <label className="field">
-                  <span>
-                    Target Currency{isApprovedMember ? ` ${index + 1}` : ""}{" "}
-                    <em>
-                      {isApprovedMember
-                        ? "Approved Member · up to 3"
-                        : "Guest · 1"}
-                    </em>
-                  </span>
-                  <select
-                    name={`${compact ? "camera" : ""}TargetCurrency${index + 1}`}
-                    value={selectedCode}
-                    onChange={updateTarget(index)}
-                  >
-                    {visibleTargets
-                      .filter(
-                        ({ code }) =>
-                          code === selectedCode ||
-                          !preferences.targetCurrencies.includes(code)
-                      )
-                      .map((currency) => (
-                        <option key={currency.code} value={currency.code}>
-                          {currency.code} — {currency.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                {isApprovedMember &&
-                preferences.targetCurrencies.length > 1 ? (
-                  <button
-                    className="text-button target-remove"
-                    type="button"
-                    onClick={() => removeTarget(index)}
-                  >
-                    Remove Target Currency {index + 1}
-                  </button>
-                ) : null}
+      <div className="target-currency-picker field" ref={targetPickerRef}>
+        <span>
+          Target Currency <em>{accessLabel}</em>
+        </span>
+        <button
+          className="target-currency-trigger"
+          type="button"
+          aria-label={`Target Currencies: ${preferences.targetCurrencies.length} selected · ${preferences.targetCurrencies.join(" · ")}`}
+          aria-haspopup="listbox"
+          aria-expanded={isTargetPickerOpen}
+          aria-controls={isTargetPickerOpen ? targetListId : undefined}
+          onClick={() => setIsTargetPickerOpen((open) => !open)}
+        >
+          <strong>{preferences.targetCurrencies.length} selected</strong>
+          <small>{preferences.targetCurrencies.join(" · ")}</small>
+          <span aria-hidden="true">⌄</span>
+        </button>
+        {isTargetPickerOpen ? (
+          <div className="target-currency-popover">
+            <div className="target-currency-heading">
+              <div>
+                <strong>Choose Target Currencies</strong>
+                <span>
+                  {preferences.targetCurrencies.length} of {maxTargets} selected
+                </span>
               </div>
-            );
-          })}
-          {isApprovedMember &&
-          preferences.targetCurrencies.length < 3 ? (
-            <button
-              className="text-button target-add"
-              type="button"
-              onClick={addTarget}
+              <button type="button" onClick={() => setIsTargetPickerOpen(false)}>
+                Done
+              </button>
+            </div>
+            <label className="target-currency-search">
+              <span className="visually-hidden">Search Target Currencies</span>
+              <input
+                name={compact ? "cameraTargetCurrencySearch" : "targetCurrencySearch"}
+                type="search"
+                value={targetQuery}
+                onChange={(event) => setTargetQuery(event.target.value)}
+                placeholder="Search code, currency, or alias"
+                autoComplete="off"
+                autoFocus
+              />
+            </label>
+            <div
+              id={targetListId}
+              className="target-currency-list"
+              role="listbox"
+              aria-label="Target Currencies"
+              aria-multiselectable={isApprovedMember}
             >
-              Add Target Currency
-            </button>
-          ) : null}
-        </div>
+              {matches.map((currency) => {
+                const isSelected = preferences.targetCurrencies.includes(
+                  currency.code
+                );
+                const isDisabled =
+                  (isSelected && preferences.targetCurrencies.length === 1) ||
+                  (!isSelected &&
+                    maxTargets > 1 &&
+                    preferences.targetCurrencies.length >= maxTargets);
+                return (
+                  <button
+                    key={currency.code}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-disabled={isDisabled}
+                    disabled={isDisabled}
+                    onClick={() => toggleTarget(currency.code)}
+                  >
+                    <span className="target-currency-name">
+                      <strong>{currency.code}</strong>
+                      <small>{currency.name}</small>
+                    </span>
+                    <span className="target-currency-check" aria-hidden="true">
+                      {isSelected ? "✓" : "+"}
+                    </span>
+                  </button>
+                );
+              })}
+              {matches.length === 0 ? (
+                <p className="target-currency-empty">No matching currency</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -794,7 +830,7 @@ export default function App({
     setSynchronizedMemberPreferences
   ] = useState<MemberPreferences | null>(null);
   const [approvedMemberStatus, setApprovedMemberStatus] = useState<
-    "guest" | "loading" | "approved"
+    MemberAccessStatus
   >(memberUserId ? "loading" : "guest");
   const memberSaveRef = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -830,9 +866,14 @@ export default function App({
         setSynchronizedMemberPreferences(synchronized);
         setApprovedMemberStatus("approved");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setApprovedMemberStatus("guest");
+          setApprovedMemberStatus(
+            error instanceof MemberPreferencesRequestError &&
+              error.kind === "denied"
+              ? "guest"
+              : "unavailable"
+          );
           setMemberPreferences(null);
           setSynchronizedMemberPreferences(null);
         }
@@ -994,7 +1035,11 @@ export default function App({
       <nav className="topbar" aria-label="Primary">
         <TagLingoMark />
         <span className="guest-badge">
-          {isApprovedMember ? "Approved Member mode" : "Guest mode"}
+          {isApprovedMember
+            ? "Approved Member mode"
+            : approvedMemberStatus === "unavailable"
+              ? "Member access unavailable"
+              : "Guest mode"}
         </span>
       </nav>
 
@@ -1031,6 +1076,7 @@ export default function App({
           preferences={preferences}
           onChange={updatePreferences}
           isApprovedMember={isApprovedMember}
+          memberAccessStatus={approvedMemberStatus}
         />
 
         {failure ? (
