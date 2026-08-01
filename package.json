@@ -6,6 +6,7 @@
   "scripts": {
     "assets:icons": "node scripts/generate-icons.mjs",
     "assets:ocr": "node scripts/prepare-ocr-assets.mjs",
+    "prototype:camera-benchmark": "node src/recognition/prototype-camera-benchmark/cli.mjs",
     "prebuild": "npm run assets:ocr",
     "predev": "npm run build && npm run db:migrate:local",
     "predev:spa": "npm run assets:ocr",
