@@ -47,6 +47,7 @@ import {
   type LoadMemberPreferences,
   type SaveMemberPreferences
 } from "./member/memberPreferencesClient";
+import type { MemberSession } from "./member/sessionToken";
 import {
   createBrowserRecognizer,
   useCameraRecognition,
@@ -804,17 +805,19 @@ export default function App({
   createRecognizer = createBrowserRecognizer,
   loadGuestRate,
   admission,
-  memberUserId = null,
+  memberSession = null,
   loadMemberPreferences = loadMemberPreferencesFromApi,
   saveMemberPreferences = saveMemberPreferencesToApi
 }: {
   createRecognizer?: CreateRecognizer;
   loadGuestRate?: LoadGuestRate;
   admission?: ReactNode;
-  memberUserId?: string | null;
+  memberSession?: MemberSession | null;
   loadMemberPreferences?: LoadMemberPreferences;
   saveMemberPreferences?: SaveMemberPreferences;
 }) {
+  const memberUserId = memberSession?.userId ?? null;
+  const getMemberSessionToken = memberSession?.getSessionToken;
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
   );
@@ -928,8 +931,11 @@ export default function App({
     );
   }, [ratePreferences.sourceCurrency, ratePreferences.targetCurrencies]);
   const approvedMemberRateLoader = useMemo(
-    () => (memberUserId ? createMemberRateLoader(memberUserId) : null),
-    [memberUserId]
+    () =>
+      memberUserId && getMemberSessionToken
+        ? createMemberRateLoader(memberUserId, getMemberSessionToken)
+        : null,
+    [getMemberSessionToken, memberUserId]
   );
   const loadRate =
     loadGuestRate ??

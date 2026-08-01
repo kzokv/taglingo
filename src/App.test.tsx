@@ -29,6 +29,8 @@ const DEFAULT_RATE: GuestReferenceRate = {
   attribution: "Frankfurter · ECB, BOJ"
 };
 
+const getTestMemberSessionToken = async () => "session-token";
+
 function createMediaStream() {
   const track = {
     stop: vi.fn(),
@@ -567,7 +569,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi.fn(() => pending.promise)}
       />
     );
@@ -589,7 +594,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi.fn().mockResolvedValue(null)}
         saveMemberPreferences={saveMemberPreferences}
       />
@@ -625,7 +633,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={loadMemberPreferences}
         loadGuestRate={loadGuestRate}
       />
@@ -670,7 +681,10 @@ describe("Approved Member journey", () => {
     );
     const view = render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={loadMemberPreferences}
         saveMemberPreferences={saveMemberPreferences}
       />
@@ -706,7 +720,7 @@ describe("Approved Member journey", () => {
 
     view.rerender(
       <App
-        memberUserId={null}
+        memberSession={null}
         loadMemberPreferences={loadMemberPreferences}
         saveMemberPreferences={saveMemberPreferences}
       />
@@ -730,7 +744,10 @@ describe("Approved Member journey", () => {
       .mockResolvedValue(DEFAULT_RATE);
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi.fn().mockResolvedValue({
           ownerId: "user_member",
           sourceCurrency: "JPY",
@@ -774,7 +791,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_inactive"
+        memberSession={{
+          userId: "user_inactive",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi
           .fn()
           .mockRejectedValue(
@@ -801,7 +821,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi
           .fn()
           .mockRejectedValue(new Error("preference service unavailable"))}
@@ -834,7 +857,10 @@ describe("Approved Member journey", () => {
 
     render(
       <App
-        memberUserId="user_member"
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
         loadMemberPreferences={vi.fn().mockResolvedValue({
           ownerId: "user_member",
           sourceCurrency: "JPY",

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createMemberPreferencesClient,
   loadMemberPreferencesFromApi,
   saveMemberPreferencesToApi
 } from "./memberPreferencesClient";
@@ -10,6 +11,41 @@ afterEach(() => {
 });
 
 describe("member preference client", () => {
+  it("attaches the current Clerk session token to protected reads and writes", async () => {
+    const preferences = {
+      ownerId: "user_member",
+      sourceCurrency: "JPY" as const,
+      targetCurrencies: ["TWD" as const]
+    };
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ preferences }))
+      .mockResolvedValueOnce(Response.json({ preferences }));
+    const client = createMemberPreferencesClient(async () => "session-token");
+
+    await expect(
+      client.load("user_member", new AbortController().signal)
+    ).resolves.toEqual(preferences);
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer session-token"
+      }
+    });
+
+    await expect(
+      client.save(preferences, new AbortController().signal)
+    ).resolves.toEqual(preferences);
+    expect(fetchSpy.mock.calls[1][1]).toMatchObject({
+      method: "PUT",
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer session-token",
+        "content-type": "application/json"
+      }
+    });
+  });
+
   it("loads synchronized preferences through the same-origin protected endpoint", async () => {
     const preferences = {
       ownerId: "user_member",

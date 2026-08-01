@@ -2,6 +2,10 @@ import {
   isMemberPreferences,
   type MemberPreferences
 } from "./memberPreferencesApi";
+import {
+  memberRequestHeaders,
+  type GetMemberSessionToken
+} from "./sessionToken";
 
 export type LoadMemberPreferences = (
   userId: string,
@@ -72,13 +76,16 @@ function endpoint(userId: string): string {
   return `/api/preferences?${new URLSearchParams({ ownerId: userId })}`;
 }
 
-export const loadMemberPreferencesFromApi: LoadMemberPreferences = async (
-  userId,
-  signal
-) => {
+async function loadMemberPreferences(
+  userId: string,
+  signal: AbortSignal,
+  getSessionToken?: GetMemberSessionToken
+): Promise<MemberPreferences | null> {
   const response = await fetch(endpoint(userId), {
     credentials: "same-origin",
-    headers: { accept: "application/json" },
+    headers: await memberRequestHeaders(getSessionToken, {
+      accept: "application/json"
+    }),
     signal
   });
   if (!response.ok) {
@@ -104,19 +111,23 @@ export const loadMemberPreferencesFromApi: LoadMemberPreferences = async (
     throw invalidResponseError();
   }
   return preferences;
-};
+}
 
-export const saveMemberPreferencesToApi: SaveMemberPreferences = async (
-  preferences,
-  signal
-) => {
+export const loadMemberPreferencesFromApi: LoadMemberPreferences =
+  loadMemberPreferences;
+
+async function saveMemberPreferences(
+  preferences: MemberPreferences,
+  signal: AbortSignal,
+  getSessionToken?: GetMemberSessionToken
+): Promise<MemberPreferences> {
   const response = await fetch(endpoint(preferences.ownerId), {
     method: "PUT",
     credentials: "same-origin",
-    headers: {
+    headers: await memberRequestHeaders(getSessionToken, {
       accept: "application/json",
       "content-type": "application/json"
-    },
+    }),
     body: JSON.stringify(preferences),
     signal
   });
@@ -135,4 +146,21 @@ export const saveMemberPreferencesToApi: SaveMemberPreferences = async (
     throw invalidResponseError();
   }
   return saved;
-};
+}
+
+export const saveMemberPreferencesToApi: SaveMemberPreferences =
+  saveMemberPreferences;
+
+export function createMemberPreferencesClient(
+  getSessionToken: GetMemberSessionToken
+): {
+  load: LoadMemberPreferences;
+  save: SaveMemberPreferences;
+} {
+  return {
+    load: (userId, signal) =>
+      loadMemberPreferences(userId, signal, getSessionToken),
+    save: (preferences, signal) =>
+      saveMemberPreferences(preferences, signal, getSessionToken)
+  };
+}

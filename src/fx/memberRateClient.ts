@@ -4,6 +4,10 @@ import {
   type GuestReferenceRate
 } from "./referenceRate";
 import type { LoadGuestRate } from "./useGuestRate";
+import {
+  memberRequestHeaders,
+  type GetMemberSessionToken
+} from "../member/sessionToken";
 
 interface PendingRate {
   source: SourceCurrencyCode;
@@ -19,7 +23,10 @@ interface BatchRateResult {
   error?: unknown;
 }
 
-export function createMemberRateLoader(userId: string): LoadGuestRate {
+export function createMemberRateLoader(
+  userId: string,
+  getSessionToken: GetMemberSessionToken
+): LoadGuestRate {
   let pending: PendingRate[] = [];
   let scheduled = false;
 
@@ -53,7 +60,9 @@ export function createMemberRateLoader(userId: string): LoadGuestRate {
         try {
           const response = await fetch(`/api/member-fx?${query}`, {
             credentials: "same-origin",
-            headers: { accept: "application/json" }
+            headers: await memberRequestHeaders(getSessionToken, {
+              accept: "application/json"
+            })
           });
           if (!response.ok) {
             throw new Error(

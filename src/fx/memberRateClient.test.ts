@@ -7,6 +7,38 @@ afterEach(() => {
 });
 
 describe("Approved Member rate client", () => {
+  it("attaches the current Clerk session token", async () => {
+    const rate = {
+      source: "JPY",
+      target: "TWD",
+      direction: "source-to-target",
+      value: "0.22",
+      provider: "Frankfurter",
+      method: "daily-blend",
+      providerPublishedDate: "2026-07-30",
+      fetchedAt: "2026-07-30T10:00:00.000Z",
+      state: "cached",
+      attribution: "Frankfurter"
+    };
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({ rates: [{ target: "TWD", rate }] })
+      );
+
+    await createMemberRateLoader(
+      "user_member",
+      async () => "session-token"
+    )("JPY", "TWD", new AbortController().signal);
+
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer session-token"
+      }
+    });
+  });
+
   it("uses the protected owner-scoped FX endpoint", async () => {
     const rate = {
       source: "JPY",
@@ -28,7 +60,10 @@ describe("Approved Member rate client", () => {
     const controller = new AbortController();
 
     await expect(
-      createMemberRateLoader("user_member")(
+      createMemberRateLoader(
+        "user_member",
+        async () => "session-token"
+      )(
         "JPY",
         "TWD",
         controller.signal
@@ -38,7 +73,10 @@ describe("Approved Member rate client", () => {
       "/api/member-fx?ownerId=user_member&source=JPY&targets=TWD",
       {
         credentials: "same-origin",
-        headers: { accept: "application/json" }
+        headers: {
+          accept: "application/json",
+          authorization: "Bearer session-token"
+        }
       }
     );
   });
@@ -80,7 +118,10 @@ describe("Approved Member rate client", () => {
         ]
       })
     );
-    const load = createMemberRateLoader("user_member");
+    const load = createMemberRateLoader(
+      "user_member",
+      async () => "session-token"
+    );
     const signal = new AbortController().signal;
 
     await Promise.all([

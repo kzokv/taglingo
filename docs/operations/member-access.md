@@ -52,12 +52,89 @@ Activate a local test Approved Member after that person signs in and you have co
 their stable Clerk `user_...` ID:
 
 ```sh
-npx wrangler d1 execute DB --local --config wrangler.local.jsonc \
+npx wrangler d1 execute DB --local \
   --command "INSERT INTO taglingo_memberships (clerk_user_id, status) VALUES ('user_REPLACE_ME', 'active') ON CONFLICT(clerk_user_id) DO UPDATE SET status = 'active', role = 'member', updated_at = CURRENT_TIMESTAMP"
 ```
 
 Restart or reload TagLingo after activation. Use `npm run dev:spa` only for
 Guest-only frontend work; it intentionally does not serve `/api/*` Functions.
+
+### Change the local origin or port
+
+`CLERK_AUTHORIZED_PARTIES` is an authentication allowlist. It does not choose
+the address where Wrangler listens. The default `npm run dev` origin is
+`http://localhost:8788` because 8788 is Wrangler Pages' default port.
+
+To run the complete Pages application on another port, make the browser origin
+an exact authorized party and pass the port to Wrangler. For example:
+
+```dotenv
+CLERK_AUTHORIZED_PARTIES="http://localhost:5173,http://127.0.0.1:5173"
+```
+
+```sh
+npm run dev -- --port 5173
+```
+
+Add `--ip 127.0.0.1` when an explicit IPv4 listener is required. Open the same
+origin that appears in the allowlist. Wrangler uses `--ip` and
+`--log-level debug`; Vite flags such as `--host`, `--strictPort`, and `--debug`
+do not apply to `wrangler pages dev`.
+
+Restart `npm run dev` after changing `.dev.vars`. Reloading the browser alone
+does not reload Pages Function environment variables.
+
+### Understand local D1 state
+
+The root `wrangler.jsonc` is the shared configuration for both
+`db:migrate:local` and `wrangler pages dev`. Do not point either command at a
+different local Wrangler configuration: doing so can create two D1 databases,
+leaving the Pages Function without the migrated membership tables or active
+member rows.
+
+Check local membership state without printing personal details:
+
+```sh
+npx wrangler d1 execute DB --local \
+  --command "SELECT status, role, COUNT(*) AS count FROM taglingo_memberships GROUP BY status, role"
+```
+
+### Interpret the access labels
+
+| Visible state | Meaning | First check |
+| --- | --- | --- |
+| `Guest mode` / `Guest` | No signed-in Approved Member was confirmed | Sign in and confirm the stable Clerk user ID has an active local membership |
+| `Checking member access` | Clerk or the protected preference request is still loading | Wait for the request to finish before changing Target Currencies |
+| `Member access unavailable` / `Signed in · access unavailable` | The browser is signed in, but the protected request failed | Confirm the server is running, all three server-side Clerk values are loaded, and Pages uses the migrated D1 database |
+| `Approved Member mode` / `Approved Member · up to 3` | The protected request confirmed the session and active membership | Select one to three Target Currencies and reload to verify synchronization |
+
+Clerk sign-in and TagLingo membership are separate checks. A visible Clerk user
+button proves only that the browser has a Clerk session; it does not prove that
+the Pages Function authenticated the request or found an active D1 membership.
+
+## Offline application shell
+
+The production build registers `public/sw.js`. Because `npm run dev` serves a
+production build through Pages, a normal browser profile that has previously
+loaded TagLingo may continue displaying the cached application shell after the
+server stops. A fresh private profile has separate storage and cannot load the
+site until a server is listening.
+
+The service worker caches the application shell, built assets, and OCR assets.
+It deliberately excludes `/api/*`. Offline display therefore does not mean
+that member preference synchronization or fresh Reference Rate requests are
+available. Previously validated browser-local Rate Snapshots retain their
+separate seven-day eligibility rule.
+
+When the server or network returns, reload TagLingo and confirm
+`Approved Member mode` before changing synchronized preferences. The current
+application does not automatically retry unavailable member access merely
+because the browser fires an online event. Guest preference changes made while
+member access is unavailable are not queued for later account synchronization.
+
+To remove the local offline copy in Chrome, open DevTools and use
+**Application → Service Workers → Unregister**, then
+**Application → Storage → Clear site data**.
 
 ## Activate an invited Approved Member
 

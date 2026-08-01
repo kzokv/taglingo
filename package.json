@@ -10,9 +10,9 @@
     "predev": "npm run build && npm run db:migrate:local",
     "predev:spa": "npm run assets:ocr",
     "build": "tsc -b && vite build",
-    "dev": "wrangler pages dev dist --d1 DB --compatibility-date 2026-08-01 --compatibility-flag nodejs_compat",
+    "dev": "wrangler pages dev dist",
     "dev:spa": "vite",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false"

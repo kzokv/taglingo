@@ -1,8 +1,10 @@
 import { ClerkProvider, UserButton, useAuth } from "@clerk/react";
-import { StrictMode } from "react";
+import { StrictMode, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
+import type { MemberSession } from "./member/sessionToken";
 import {
   CLERK_ACCESS_ROUTES,
   ClerkAdmission,
@@ -12,11 +14,24 @@ import {
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
 
 function ClerkTagLingo() {
-  const { isLoaded, userId } = useAuth();
+  const { getToken, isLoaded, userId } = useAuth();
   const memberUserId = isLoaded ? userId : null;
+  const memberSession = useMemo<MemberSession | null>(
+    () =>
+      memberUserId
+        ? { userId: memberUserId, getSessionToken: getToken }
+        : null,
+    [getToken, memberUserId]
+  );
+  const memberPreferencesClient = useMemo(
+    () => createMemberPreferencesClient(getToken),
+    [getToken]
+  );
   return (
     <App
-      memberUserId={memberUserId}
+      memberSession={memberSession}
+      loadMemberPreferences={memberPreferencesClient.load}
+      saveMemberPreferences={memberPreferencesClient.save}
       admission={
         <ClerkAdmission
           isSignedIn={Boolean(memberUserId)}
