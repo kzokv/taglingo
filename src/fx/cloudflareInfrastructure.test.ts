@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createD1GuestRateLimiter,
+  createD1MemberRateLimiter,
   createD1RateRecordStore,
   createSignedGuestActorResolver,
   type D1Database,
@@ -104,6 +105,32 @@ describe("Cloudflare FX infrastructure", () => {
       "ip",
       expect.any(String),
       Date.parse("2026-07-30T10:00:00.000Z")
+    );
+  });
+
+  it("keeps Approved Member rate-limit counters separate from Guest counters", async () => {
+    const actorCounter = statement({
+      first: vi.fn().mockResolvedValue({ request_count: 1 })
+    });
+    const ipCounter = statement({
+      first: vi.fn().mockResolvedValue({ request_count: 1 })
+    });
+    const database: D1Database = {
+      prepare: vi
+        .fn()
+        .mockReturnValueOnce(actorCounter)
+        .mockReturnValueOnce(ipCounter)
+    };
+
+    await expect(
+      createD1MemberRateLimiter(database)(
+        "user_member",
+        "203.0.113.10",
+        new Date("2026-07-30T10:00:00.000Z")
+      )
+    ).resolves.toBe(true);
+    expect(vi.mocked(database.prepare).mock.calls[0][0]).toContain(
+      "member_fx_rate_limits"
     );
   });
 

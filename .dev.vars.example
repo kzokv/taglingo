@@ -1,0 +1,5 @@
+# Server-only values loaded by `npm run dev` through Wrangler.
+# Use the same Clerk Development instance as VITE_CLERK_PUBLISHABLE_KEY.
+CLERK_AUTHORIZED_PARTIES="http://localhost:8788"
+CLERK_PUBLISHABLE_KEY="pk_test_REPLACE_ME"
+CLERK_SECRET_KEY="sk_test_REPLACE_ME"

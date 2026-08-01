@@ -119,8 +119,10 @@ the development/preview Clerk instance and `pk_live_...` only with the matching
 owned production domain.
 
 Do not add `CLERK_SECRET_KEY` to Vite, Git, `.env.example`, or any client
-bundle. When later server issues require Clerk's Backend API, store the secret
-as an encrypted Cloudflare secret and read it only in Pages Functions.
+bundle. The Approved Member preference function requires it as an encrypted
+Cloudflare secret and reads it only in Pages Functions. See
+[Approved Member operations](./member-access.md) for the D1 membership,
+authorized-party, synchronization, and suspension procedure.
 
 Without a publishable key, TagLingo deliberately keeps the Guest scanner
 available and shows that access requests are temporarily unavailable.

@@ -1,5 +1,5 @@
 import { SignIn, Waitlist } from "@clerk/react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 type AdmissionView = "summary" | "waitlist" | "sign-in";
 
@@ -46,8 +46,35 @@ function AdmissionHeader({
   );
 }
 
-export function ClerkAdmission() {
+export function ClerkAdmission({
+  isSignedIn = false,
+  accountControl
+}: {
+  isSignedIn?: boolean;
+  accountControl?: ReactNode;
+}) {
   const [view, setView] = useState<AdmissionView>(initialAdmissionView);
+
+  if (isSignedIn) {
+    return (
+      <section
+        id="member-access"
+        className="admission-card"
+        aria-labelledby="member-access-title"
+      >
+        <AdmissionHeader
+          eyebrow="Clerk session"
+          title="Account signed in"
+        />
+        <p>
+          TagLingo checks your active membership before restoring synchronized
+          preferences. Signing out returns this browser to Guest limits without
+          deleting member preferences.
+        </p>
+        {accountControl}
+      </section>
+    );
+  }
 
   if (view === "waitlist") {
     return (

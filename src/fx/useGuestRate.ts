@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CurrencyCode } from "../domain/currencies";
 import { GuestRateLoadError } from "./browserRateSnapshot";
@@ -24,6 +24,9 @@ type GuestRateState =
     };
 
 export type GuestRateView = GuestRateState & { retry: () => void };
+export type GuestRateViews = Partial<
+  Record<CurrencyCode, GuestRateView>
+>;
 
 export const loadGuestRateFromGateway: LoadGuestRate = async (
   source,
@@ -51,66 +54,114 @@ export function useGuestRate(
   target: CurrencyCode,
   loadGuestRate: LoadGuestRate
 ): GuestRateView {
-  const [view, setView] = useState<GuestRateState>({
-    phase: "loading",
-    rate: null,
-    error: null
-  });
-  const [retryCount, setRetryCount] = useState(0);
-  const retry = useCallback(() => setRetryCount((count) => count + 1), []);
-
-  useEffect(() => {
-    let controller: AbortController | null = null;
-    if (source === target) {
-      setView({
-        phase: "error",
-        rate: null,
-        error: "Choose a different Target Currency.",
-        reason: "unavailable"
-      });
-      return undefined;
+  return (
+    useGuestRates(source, [target], loadGuestRate)[target] ?? {
+      phase: "loading",
+      rate: null,
+      error: null,
+      retry: () => undefined
     }
+  );
+}
 
-    const load = () => {
-      controller?.abort();
-      const currentController = new AbortController();
-      controller = currentController;
-      setView({ phase: "loading", rate: null, error: null });
-      void loadGuestRate(source, target, currentController.signal)
+export function useGuestRates(
+  source: CurrencyCode,
+  targets: CurrencyCode[],
+  loadGuestRate: LoadGuestRate
+): GuestRateViews {
+  const targetKey = targets.join(",");
+  const [views, setViews] = useState<
+    Partial<Record<CurrencyCode, GuestRateState>>
+  >({});
+  const controllers = useRef(
+    new Map<CurrencyCode, AbortController>()
+  );
+  const loadTarget = useCallback(
+    (target: CurrencyCode) => {
+      controllers.current.get(target)?.abort();
+      if (source === target) {
+        setViews((current) => ({
+          ...current,
+          [target]: {
+            phase: "error",
+            rate: null,
+            error: "Choose a different Target Currency.",
+            reason: "unavailable"
+          }
+        }));
+        return;
+      }
+      const controller = new AbortController();
+      controllers.current.set(target, controller);
+      setViews((current) => ({
+        ...current,
+        [target]: { phase: "loading", rate: null, error: null }
+      }));
+      void loadGuestRate(source, target, controller.signal)
         .then((rate) => {
-          if (!currentController.signal.aborted) {
-            setView({ phase: "ready", rate, error: null });
+          if (!controller.signal.aborted) {
+            setViews((current) => ({
+              ...current,
+              [target]: { phase: "ready", rate, error: null }
+            }));
           }
         })
         .catch((error: unknown) => {
-          if (!currentController.signal.aborted) {
+          if (!controller.signal.aborted) {
             const expired =
               error instanceof GuestRateLoadError &&
               error.reason === "expired";
-            setView({
-              phase: "error",
-              rate: null,
-              error: expired
-                ? "The Rate Snapshot expired after seven days. Reconnect to refresh it."
-                : "A validated Reference Rate is unavailable. Reconnect and try again.",
-              reason: expired ? "expired" : "unavailable"
-            });
+            setViews((current) => ({
+              ...current,
+              [target]: {
+                phase: "error",
+                rate: null,
+                error: expired
+                  ? "The Rate Snapshot expired after seven days. Reconnect to refresh it."
+                  : "A validated Reference Rate is unavailable. Reconnect and try again.",
+                reason: expired ? "expired" : "unavailable"
+              }
+            }));
           }
         });
-    };
+    },
+    [loadGuestRate, source]
+  );
+
+  useEffect(() => {
+    const activeTargets = targetKey
+      .split(",")
+      .filter(Boolean) as CurrencyCode[];
+    for (const [target, controller] of controllers.current) {
+      if (!activeTargets.includes(target)) {
+        controller.abort();
+        controllers.current.delete(target);
+      }
+    }
+    activeTargets.forEach(loadTarget);
     const refreshOnResume = () => {
       if (document.visibilityState === "visible") {
-        load();
+        activeTargets.forEach(loadTarget);
       }
     };
-    load();
     document.addEventListener("visibilitychange", refreshOnResume);
-
     return () => {
       document.removeEventListener("visibilitychange", refreshOnResume);
-      controller?.abort();
+      controllers.current.forEach((controller) => controller.abort());
     };
-  }, [loadGuestRate, retryCount, source, target]);
+  }, [loadTarget, targetKey]);
 
-  return { ...view, retry };
+  return Object.fromEntries(
+    targets.map((target) => [
+      target,
+      {
+        ...(views[target] ?? {
+          phase: "loading",
+          rate: null,
+          error: null
+        }),
+        retry: () => loadTarget(target)
+      }
+    ])
+  );
 }

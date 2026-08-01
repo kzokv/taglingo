@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "taglingo-local",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "taglingo-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "secrets": {
+    "required": [
+      "CLERK_AUTHORIZED_PARTIES",
+      "CLERK_PUBLISHABLE_KEY",
+      "CLERK_SECRET_KEY"
+    ]
+  }
+}

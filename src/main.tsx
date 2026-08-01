@@ -1,8 +1,10 @@
-import { ClerkProvider } from "@clerk/react";
-import { StrictMode } from "react";
+import { ClerkProvider, UserButton, useAuth } from "@clerk/react";
+import { StrictMode, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
+import type { MemberSession } from "./member/sessionToken";
 import {
   CLERK_ACCESS_ROUTES,
   ClerkAdmission,
@@ -10,6 +12,43 @@ import {
 } from "./auth/ClerkAdmission";
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
+
+function ClerkTagLingo() {
+  const { getToken, isLoaded, userId } = useAuth();
+  const memberUserId = isLoaded ? userId : null;
+  const memberSession = useMemo<MemberSession | null>(
+    () =>
+      memberUserId
+        ? { userId: memberUserId, getSessionToken: getToken }
+        : null,
+    [getToken, memberUserId]
+  );
+  const memberPreferencesClient = useMemo(
+    () => createMemberPreferencesClient(getToken),
+    [getToken]
+  );
+  return (
+    <App
+      memberSession={memberSession}
+      loadMemberPreferences={memberPreferencesClient.load}
+      saveMemberPreferences={memberPreferencesClient.save}
+      admission={
+        <ClerkAdmission
+          isSignedIn={Boolean(memberUserId)}
+          accountControl={
+            memberUserId ? (
+              <div className="member-account-control">
+                <span>Account and sign out</span>
+                <UserButton />
+              </div>
+            ) : null
+          }
+        />
+      }
+    />
+  );
+}
+
 const application = publishableKey ? (
   <ClerkProvider
     publishableKey={publishableKey}
@@ -18,7 +57,7 @@ const application = publishableKey ? (
     signInFallbackRedirectUrl={CLERK_ACCESS_ROUTES.afterSignIn}
     signUpFallbackRedirectUrl={CLERK_ACCESS_ROUTES.afterSignIn}
   >
-    <App admission={<ClerkAdmission />} />
+    <ClerkTagLingo />
   </ClerkProvider>
 ) : (
   <App admission={<ClerkAdmissionUnavailable />} />

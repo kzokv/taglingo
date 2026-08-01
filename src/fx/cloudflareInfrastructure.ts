@@ -236,8 +236,9 @@ export function createSignedGuestActorResolver(secret: string) {
   };
 }
 
-export function createD1GuestRateLimiter(
+function createD1RateLimiter(
   database: D1Database,
+  table: "guest_fx_rate_limits" | "member_fx_rate_limits",
   {
     maxRequests = 30,
     windowMs = 60_000
@@ -257,7 +258,7 @@ export function createD1GuestRateLimiter(
     const increment = (kind: "actor" | "ip", subjectHash: string) =>
       database
         .prepare(
-          `INSERT INTO guest_fx_rate_limits (
+          `INSERT INTO ${table} (
              subject_kind, subject_hash, bucket_start, request_count
            ) VALUES (?1, ?2, ?3, 1)
            ON CONFLICT(subject_kind, subject_hash, bucket_start) DO UPDATE SET
@@ -277,4 +278,18 @@ export function createD1GuestRateLimiter(
         row.request_count <= maxRequests
     );
   };
+}
+
+export function createD1GuestRateLimiter(
+  database: D1Database,
+  options: { maxRequests?: number; windowMs?: number } = {}
+) {
+  return createD1RateLimiter(database, "guest_fx_rate_limits", options);
+}
+
+export function createD1MemberRateLimiter(
+  database: D1Database,
+  options: { maxRequests?: number; windowMs?: number } = {}
+) {
+  return createD1RateLimiter(database, "member_fx_rate_limits", options);
 }

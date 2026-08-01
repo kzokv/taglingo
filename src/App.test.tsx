@@ -10,7 +10,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
+import type { MemberPreferences } from "./member/memberPreferencesApi";
+import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
 import type { OcrRecognizer } from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
@@ -25,6 +28,8 @@ const DEFAULT_RATE: GuestReferenceRate = {
   state: "fresh",
   attribution: "Frankfurter · ECB, BOJ"
 };
+
+const getTestMemberSessionToken = async () => "session-token";
 
 function createMediaStream() {
   const track = {
@@ -508,13 +513,17 @@ describe("Guest camera journey", () => {
       screen.getByRole("combobox", { name: /source currency/i }),
       "EUR"
     );
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
     await user.type(
-      screen.getByRole("searchbox", { name: /find target currency/i }),
+      screen.getByRole("searchbox", { name: /search target currencies/i }),
       "台幣"
     );
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /^target currency/i }),
-      "TWD"
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
     );
 
     firstVisit.unmount();
@@ -525,8 +534,10 @@ describe("Guest camera journey", () => {
         screen.getByRole("combobox", { name: /source currency/i })
       ).toHaveValue("EUR");
       expect(
-        screen.getByRole("combobox", { name: /^target currency/i })
-      ).toHaveValue("TWD");
+        screen.getByRole("button", {
+          name: /target currencies: 1 selected · twd/i
+        })
+      ).toBeInTheDocument();
     });
   });
 
@@ -547,5 +558,343 @@ describe("Guest camera journey", () => {
       screen.getByRole("combobox", { name: /source currency/i })
     ).toHaveValue("JPY");
     localStorageGetter.mockRestore();
+  });
+});
+
+describe("Approved Member journey", () => {
+  it("describes the signed-in membership check without flashing Guest mode", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const pending = createDeferred<MemberPreferences | null>();
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn(() => pending.promise)}
+      />
+    );
+
+    expect(screen.getAllByText(/checking member access/i)).toHaveLength(2);
+    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(screen.getByText(/checking member access/i)).toBeInTheDocument();
+    expect(screen.queryByText(/guest · 1/i)).not.toBeInTheDocument();
+  });
+
+  it("creates a synchronized preference row only after active membership is confirmed", async () => {
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi.fn(
+      async (preferences: MemberPreferences) => preferences
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue(null)}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(saveMemberPreferences).toHaveBeenCalledWith(
+      {
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"]
+      },
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("restores three synchronized Target Currencies and renders a dated ledger row for each", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi.fn().mockResolvedValue({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD", "TWD", "EUR"]
+    });
+    const loadGuestRate = vi.fn(
+      async (_source: CurrencyCode, target: CurrencyCode) => ({
+        ...DEFAULT_RATE,
+        target,
+        value:
+          target === "USD" ? "0.0067123" : target === "TWD" ? "0.22" : "0.0058"
+      })
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(loadMemberPreferences).toHaveBeenCalledWith(
+      "user_member",
+      expect.any(AbortSignal)
+    );
+    const targetPicker = screen.getByRole("button", {
+      name: /target currencies: 3 selected · usd · twd · eur/i
+    });
+    await user.click(targetPicker);
+    expect(
+      screen.getByRole("listbox", { name: /target currencies/i })
+    ).toHaveAttribute("aria-multiselectable", "true");
+    expect(
+      screen.getByRole("option", { name: /cad canadian dollar/i })
+    ).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /done/i }));
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(screen.getByText("TWD 911.24")).toBeInTheDocument();
+    expect(screen.getByText("EUR 24.02")).toBeInTheDocument();
+    expect(screen.getAllByText(/reference rate/i)).toHaveLength(3);
+    expect(screen.getAllByText(/effective 2026-07-30/i)).toHaveLength(3);
+  });
+
+  it("synchronizes member changes and returns to one browser-local target after sign-out", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi.fn().mockResolvedValue({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD"]
+    });
+    const saveMemberPreferences = vi.fn(
+      async (preferences: MemberPreferences) => preferences
+    );
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
+    expect(
+      screen.getByRole("searchbox", { name: /search target currencies/i })
+    ).toBeInTheDocument();
+    await user.type(
+      screen.getByRole("searchbox", { name: /search target currencies/i }),
+      "台幣"
+    );
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
+    );
+
+    await waitFor(() =>
+      expect(saveMemberPreferences).toHaveBeenLastCalledWith(
+        {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        },
+        expect.any(AbortSignal)
+      )
+    );
+
+    view.rerender(
+      <App
+        memberSession={null}
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+    expect(saveMemberPreferences).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for D1 synchronization before requesting a newly selected member rate", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const saved = createDeferred<MemberPreferences>();
+    const loadGuestRate = vi
+      .fn()
+      .mockResolvedValue(DEFAULT_RATE);
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"]
+        })}
+        saveMemberPreferences={vi.fn(() => saved.promise)}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    );
+    await user.click(
+      screen.getByRole("option", { name: /twd new taiwan dollar/i })
+    );
+
+    expect(
+      loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
+    ).toBe(false);
+
+    await act(async () => {
+      saved.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD", "TWD"]
+      });
+    });
+    await waitFor(() =>
+      expect(
+        loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
+      ).toBe(true)
+    );
+  });
+
+  it("keeps a signed-in account at Guest limits when active membership is denied", async () => {
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi.fn();
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_inactive",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi
+          .fn()
+          .mockRejectedValue(
+            new MemberPreferencesRequestError(
+              "inactive-membership",
+              "inactive membership"
+            )
+          )}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+    expect(saveMemberPreferences).not.toHaveBeenCalled();
+  });
+
+  it("shows a signed-in access failure instead of describing it as Guest mode", async () => {
+    useMediaDevices(vi.fn());
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi
+          .fn()
+          .mockRejectedValue(new Error("preference service unavailable"))}
+      />
+    );
+
+    expect(
+      await screen.findByText(/member access unavailable/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/signed in · access unavailable/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("preserves unaffected member conversions when one Target Currency rate fails", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadGuestRate = vi.fn(
+      async (_source: CurrencyCode, target: CurrencyCode) => {
+        if (target === "TWD") {
+          throw new Error("rate unavailable");
+        }
+        return { ...DEFAULT_RATE, target };
+      }
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        })}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /conversion unavailable/i
+    );
+    expect(screen.getByLabelText(/usd conversion/i)).toBeInTheDocument();
+    const usdCallsBeforeRetry = loadGuestRate.mock.calls.filter(
+      (call) => call[1] === "USD"
+    ).length;
+    const twdCallsBeforeRetry = loadGuestRate.mock.calls.filter(
+      (call) => call[1] === "TWD"
+    ).length;
+
+    await user.click(
+      screen.getByRole("button", { name: /reconnect and retry/i })
+    );
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        loadGuestRate.mock.calls.filter((call) => call[1] === "TWD")
+      ).toHaveLength(twdCallsBeforeRetry + 1)
+    );
+    expect(
+      loadGuestRate.mock.calls.filter((call) => call[1] === "USD")
+    ).toHaveLength(usdCallsBeforeRetry);
   });
 });

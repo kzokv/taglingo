@@ -1,6 +1,8 @@
 import {
   useCallback,
   useEffect,
+  useId,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -31,10 +33,21 @@ import {
 } from "./fx/browserRateSnapshot";
 import {
   loadGuestRateFromGateway,
-  useGuestRate,
+  useGuestRates,
+  type GuestRateViews,
   type GuestRateView,
   type LoadGuestRate
 } from "./fx/useGuestRate";
+import { createMemberRateLoader } from "./fx/memberRateClient";
+import type { MemberPreferences } from "./member/memberPreferencesApi";
+import {
+  loadMemberPreferencesFromApi,
+  MemberPreferencesRequestError,
+  saveMemberPreferencesToApi,
+  type LoadMemberPreferences,
+  type SaveMemberPreferences
+} from "./member/memberPreferencesClient";
+import type { MemberSession } from "./member/sessionToken";
 import {
   createBrowserRecognizer,
   useCameraRecognition,
@@ -46,6 +59,14 @@ import { useDemoRecognition } from "./recognition/useDemoRecognition";
 import "./styles.css";
 
 type ExperienceMode = "welcome" | "camera" | "demo";
+
+interface ExperiencePreferences {
+  sourceCurrency: SourceCurrencyCode;
+  targetCurrencies: CurrencyCode[];
+}
+
+type MemberAccessStatus = "guest" | "loading" | "approved" | "unavailable";
+const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
@@ -94,48 +115,83 @@ function TagLingoMark() {
 function CurrencySettings({
   preferences,
   onChange,
+  isApprovedMember,
+  memberAccessStatus = isApprovedMember ? "approved" : "guest",
   compact = false
 }: {
-  preferences: GuestPreferences;
-  onChange: (preferences: GuestPreferences) => void;
+  preferences: ExperiencePreferences;
+  onChange: (preferences: ExperiencePreferences) => void;
+  isApprovedMember: boolean;
+  memberAccessStatus?: MemberAccessStatus;
   compact?: boolean;
 }) {
+  const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetQuery, setTargetQuery] = useState("");
+  const targetPickerRef = useRef<HTMLDivElement>(null);
+  const targetListId = useId();
   const matches = searchTargetCurrencies(targetQuery).filter(
     ({ code }) => code !== preferences.sourceCurrency
   );
-  const selectedTarget = TARGET_CURRENCIES.find(
-    ({ code }) =>
-      code === preferences.targetCurrency &&
-      code !== preferences.sourceCurrency
-  );
-  const visibleTargets = matches.some(
-    ({ code }) => code === preferences.targetCurrency
-  )
-    ? matches
-    : selectedTarget
-      ? [selectedTarget, ...matches]
-      : matches;
+  const maxTargets = isApprovedMember ? 3 : 1;
+  const accessLabel = isApprovedMember
+    ? "Approved Member · up to 3"
+    : memberAccessStatus === "loading"
+      ? CHECKING_MEMBER_ACCESS_LABEL
+      : memberAccessStatus === "unavailable"
+        ? "Signed in · access unavailable"
+        : "Guest · 1";
 
-  const update =
-    (key: keyof GuestPreferences) =>
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const selectedCurrency = event.target.value as CurrencyCode;
-      const nextPreferences: GuestPreferences =
-        key === "sourceCurrency"
-          ? {
-              ...preferences,
-              sourceCurrency: selectedCurrency as SourceCurrencyCode
-            }
-          : { ...preferences, targetCurrency: selectedCurrency };
-      if (
-        key === "sourceCurrency" &&
-        selectedCurrency === preferences.targetCurrency
-      ) {
-        nextPreferences.targetCurrency = preferences.sourceCurrency;
+  useEffect(() => {
+    if (!isTargetPickerOpen) {
+      return undefined;
+    }
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!targetPickerRef.current?.contains(event.target as Node)) {
+        setIsTargetPickerOpen(false);
       }
-      onChange(nextPreferences);
     };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTargetPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isTargetPickerOpen]);
+
+  const updateSource = (event: ChangeEvent<HTMLSelectElement>) => {
+    const sourceCurrency = event.target.value as SourceCurrencyCode;
+    const targetCurrencies = preferences.targetCurrencies.map((target) =>
+      target === sourceCurrency ? preferences.sourceCurrency : target
+    );
+    onChange({ sourceCurrency, targetCurrencies });
+  };
+  const toggleTarget = (target: CurrencyCode) => {
+    const isSelected = preferences.targetCurrencies.includes(target);
+    if (isSelected) {
+      if (preferences.targetCurrencies.length === 1) {
+        return;
+      }
+      onChange({
+        ...preferences,
+        targetCurrencies: preferences.targetCurrencies.filter(
+          (selected) => selected !== target
+        )
+      });
+      return;
+    }
+    onChange({
+      ...preferences,
+      targetCurrencies:
+        maxTargets === 1
+          ? [target]
+          : [...preferences.targetCurrencies, target]
+    });
+  };
 
   return (
     <div className={compact ? "currency-grid compact" : "currency-grid"}>
@@ -144,7 +200,7 @@ function CurrencySettings({
         <select
           name={compact ? "cameraSourceCurrency" : "sourceCurrency"}
           value={preferences.sourceCurrency}
-          onChange={update("sourceCurrency")}
+          onChange={updateSource}
         >
           {SOURCE_CURRENCIES.map((currency) => (
             <option key={currency.code} value={currency.code}>
@@ -154,34 +210,90 @@ function CurrencySettings({
         </select>
       </label>
 
-      <div className="target-fields">
-        <label className="field search-field">
-          <span>Find Target Currency</span>
-          <input
-            name={compact ? "cameraTargetCurrencySearch" : "targetCurrencySearch"}
-            type="search"
-            value={targetQuery}
-            onChange={(event) => setTargetQuery(event.target.value)}
-            placeholder="Code, name, or alias"
-            autoComplete="off"
-          />
-        </label>
-        <label className="field">
-          <span>
-            Target Currency <em>Guest · 1</em>
-          </span>
-          <select
-            name={compact ? "cameraTargetCurrency" : "targetCurrency"}
-            value={preferences.targetCurrency}
-            onChange={update("targetCurrency")}
-          >
-            {visibleTargets.map((currency) => (
-              <option key={currency.code} value={currency.code}>
-                {currency.code} — {currency.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="target-currency-picker field" ref={targetPickerRef}>
+        <span>
+          Target Currency <em>{accessLabel}</em>
+        </span>
+        <button
+          className="target-currency-trigger"
+          type="button"
+          aria-label={`Target Currencies: ${preferences.targetCurrencies.length} selected · ${preferences.targetCurrencies.join(" · ")}`}
+          aria-haspopup="listbox"
+          aria-expanded={isTargetPickerOpen}
+          aria-controls={isTargetPickerOpen ? targetListId : undefined}
+          onClick={() => setIsTargetPickerOpen((open) => !open)}
+        >
+          <strong>{preferences.targetCurrencies.length} selected</strong>
+          <small>{preferences.targetCurrencies.join(" · ")}</small>
+          <span aria-hidden="true">⌄</span>
+        </button>
+        {isTargetPickerOpen ? (
+          <div className="target-currency-popover">
+            <div className="target-currency-heading">
+              <div>
+                <strong>Choose Target Currencies</strong>
+                <span>
+                  {preferences.targetCurrencies.length} of {maxTargets} selected
+                </span>
+              </div>
+              <button type="button" onClick={() => setIsTargetPickerOpen(false)}>
+                Done
+              </button>
+            </div>
+            <label className="target-currency-search">
+              <span className="visually-hidden">Search Target Currencies</span>
+              <input
+                name={compact ? "cameraTargetCurrencySearch" : "targetCurrencySearch"}
+                type="search"
+                value={targetQuery}
+                onChange={(event) => setTargetQuery(event.target.value)}
+                placeholder="Search code, currency, or alias"
+                autoComplete="off"
+                autoFocus
+              />
+            </label>
+            <div
+              id={targetListId}
+              className="target-currency-list"
+              role="listbox"
+              aria-label="Target Currencies"
+              aria-multiselectable={isApprovedMember}
+            >
+              {matches.map((currency) => {
+                const isSelected = preferences.targetCurrencies.includes(
+                  currency.code
+                );
+                const isDisabled =
+                  (isSelected && preferences.targetCurrencies.length === 1) ||
+                  (!isSelected &&
+                    maxTargets > 1 &&
+                    preferences.targetCurrencies.length >= maxTargets);
+                return (
+                  <button
+                    key={currency.code}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-disabled={isDisabled}
+                    disabled={isDisabled}
+                    onClick={() => toggleTarget(currency.code)}
+                  >
+                    <span className="target-currency-name">
+                      <strong>{currency.code}</strong>
+                      <small>{currency.name}</small>
+                    </span>
+                    <span className="target-currency-check" aria-hidden="true">
+                      {isSelected ? "✓" : "+"}
+                    </span>
+                  </button>
+                );
+              })}
+              {matches.length === 0 ? (
+                <p className="target-currency-empty">No matching currency</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -420,7 +532,9 @@ function CameraSurface({
   demo,
   snapshot,
   preferences,
-  guestRate,
+  isApprovedMember,
+  memberAccessStatus,
+  rates,
   onPreferencesChange,
   createRecognizer,
   onClose,
@@ -429,9 +543,11 @@ function CameraSurface({
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
-  preferences: GuestPreferences;
-  guestRate: GuestRateView;
-  onPreferencesChange: (preferences: GuestPreferences) => void;
+  preferences: ExperiencePreferences;
+  isApprovedMember: boolean;
+  memberAccessStatus: MemberAccessStatus;
+  rates: GuestRateViews;
+  onPreferencesChange: (preferences: ExperiencePreferences) => void;
   createRecognizer: CreateRecognizer;
   onClose: () => void;
   onRetry: () => void;
@@ -480,6 +596,8 @@ function CameraSurface({
         <CurrencySettings
           preferences={preferences}
           onChange={onPreferencesChange}
+          isApprovedMember={isApprovedMember}
+          memberAccessStatus={memberAccessStatus}
           compact
         />
         <StatusPanel
@@ -509,12 +627,13 @@ function CameraSurface({
                 : "Hold steady, improve the lighting, or move closer to the price tag."}
           </p>
         </div>
-        <ConversionResult
+        <ConversionLedger
           focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
           focusedCurrency={recognition.focusedPrice?.currency ?? null}
           sourceCurrency={preferences.sourceCurrency}
-          targetCurrency={preferences.targetCurrency}
-          guestRate={guestRate}
+          targetCurrencies={preferences.targetCurrencies}
+          isApprovedMember={isApprovedMember}
+          rates={rates}
         />
       </section>
     </main>
@@ -528,7 +647,7 @@ function currencyFractionDigits(currency: CurrencyCode): number {
   }).resolvedOptions().maximumFractionDigits ?? 2;
 }
 
-function ConversionResult({
+function ConversionRow({
   focusedMinorUnits,
   focusedCurrency,
   sourceCurrency,
@@ -581,9 +700,12 @@ function ConversionResult({
   });
 
   return (
-    <section className="conversion-card" aria-label="Guest conversion">
+    <section
+      className="conversion-card"
+      aria-label={`${targetCurrency} conversion`}
+    >
       <div className="conversion-heading">
-        <span>Guest conversion</span>
+        <span>Target Currency</span>
         <strong>
           {targetCurrency} {formatted}
         </strong>
@@ -609,6 +731,49 @@ function ConversionResult({
       <p className="rate-disclaimer">
         Reference estimate; your payment rate may differ.
       </p>
+    </section>
+  );
+}
+
+function ConversionLedger({
+  focusedMinorUnits,
+  focusedCurrency,
+  sourceCurrency,
+  targetCurrencies,
+  isApprovedMember,
+  rates
+}: {
+  focusedMinorUnits: number | null;
+  focusedCurrency: CurrencyCode | null;
+  sourceCurrency: CurrencyCode;
+  targetCurrencies: CurrencyCode[];
+  isApprovedMember: boolean;
+  rates: GuestRateViews;
+}) {
+  return (
+    <section
+      className="conversion-ledger"
+      aria-label={
+        isApprovedMember ? "Approved Member conversions" : "Guest conversion"
+      }
+    >
+      {targetCurrencies.map((targetCurrency) => (
+        <ConversionRow
+          key={targetCurrency}
+          focusedMinorUnits={focusedMinorUnits}
+          focusedCurrency={focusedCurrency}
+          sourceCurrency={sourceCurrency}
+          targetCurrency={targetCurrency}
+          guestRate={
+            rates[targetCurrency] ?? {
+              phase: "loading",
+              rate: null,
+              error: null,
+              retry: () => undefined
+            }
+          }
+        />
+      ))}
     </section>
   );
 }
@@ -639,12 +804,20 @@ function getBrowserStorage(): Storage | undefined {
 export default function App({
   createRecognizer = createBrowserRecognizer,
   loadGuestRate,
-  admission
+  admission,
+  memberSession = null,
+  loadMemberPreferences = loadMemberPreferencesFromApi,
+  saveMemberPreferences = saveMemberPreferencesToApi
 }: {
   createRecognizer?: CreateRecognizer;
   loadGuestRate?: LoadGuestRate;
   admission?: ReactNode;
+  memberSession?: MemberSession | null;
+  loadMemberPreferences?: LoadMemberPreferences;
+  saveMemberPreferences?: SaveMemberPreferences;
 }) {
+  const memberUserId = memberSession?.userId ?? null;
+  const getMemberSessionToken = memberSession?.getSessionToken;
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
   );
@@ -656,9 +829,93 @@ export default function App({
     loadOnline: loadGuestRateFromGateway,
     store: rateSnapshotStoreRef.current
   });
-  const [preferences, setPreferences] = useState(() =>
+  const [guestPreferences, setGuestPreferences] = useState(() =>
     preferenceStoreRef.current.load()
   );
+  const [memberPreferences, setMemberPreferences] =
+    useState<MemberPreferences | null>(null);
+  const [
+    synchronizedMemberPreferences,
+    setSynchronizedMemberPreferences
+  ] = useState<MemberPreferences | null>(null);
+  const [memberAccessStatus, setMemberAccessStatus] = useState<
+    MemberAccessStatus
+  >(memberUserId ? "loading" : "guest");
+  const memberSaveRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    memberSaveRef.current?.abort();
+    if (!memberUserId) {
+      setMemberAccessStatus("guest");
+      setMemberPreferences(null);
+      setSynchronizedMemberPreferences(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setMemberAccessStatus("loading");
+    setMemberPreferences(null);
+    setSynchronizedMemberPreferences(null);
+    void loadMemberPreferences(memberUserId, controller.signal)
+      .then(async (saved) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const restored =
+          saved ?? {
+            ownerId: memberUserId,
+            sourceCurrency: guestPreferences.sourceCurrency,
+            targetCurrencies: [guestPreferences.targetCurrency]
+          };
+        const synchronized = saved
+          ? restored
+          : await saveMemberPreferences(restored, controller.signal);
+        if (controller.signal.aborted) {
+          return;
+        }
+        setMemberPreferences(synchronized);
+        setSynchronizedMemberPreferences(synchronized);
+        setMemberAccessStatus("approved");
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setMemberAccessStatus(
+            error instanceof MemberPreferencesRequestError &&
+              error.kind === "inactive-membership"
+              ? "guest"
+              : "unavailable"
+          );
+          setMemberPreferences(null);
+          setSynchronizedMemberPreferences(null);
+        }
+      });
+    return () => controller.abort();
+  }, [
+    guestPreferences.sourceCurrency,
+    guestPreferences.targetCurrency,
+    loadMemberPreferences,
+    memberUserId,
+    saveMemberPreferences
+  ]);
+  const isApprovedMember =
+    Boolean(memberUserId) &&
+    memberAccessStatus === "approved" &&
+    memberPreferences !== null;
+  const preferences: ExperiencePreferences = isApprovedMember
+    ? {
+        sourceCurrency: memberPreferences.sourceCurrency,
+        targetCurrencies: memberPreferences.targetCurrencies
+      }
+    : {
+        sourceCurrency: guestPreferences.sourceCurrency,
+        targetCurrencies: [guestPreferences.targetCurrency]
+      };
+  const ratePreferences: ExperiencePreferences =
+    isApprovedMember && synchronizedMemberPreferences
+      ? {
+          sourceCurrency: synchronizedMemberPreferences.sourceCurrency,
+          targetCurrencies:
+            synchronizedMemberPreferences.targetCurrencies
+        }
+      : preferences;
   const sessionRef = useRef<CameraSession | null>(null);
   const [cameraSnapshot, setCameraSnapshot] = useState<CameraSnapshot>({
     status: "idle",
@@ -666,18 +923,37 @@ export default function App({
   });
   const [mode, setMode] = useState<ExperienceMode>("welcome");
   useEffect(() => {
-    rateSnapshotStoreRef.current.retainActivePairs([
-      {
-        source: preferences.sourceCurrency,
-        target: preferences.targetCurrency
-      }
-    ]);
-  }, [preferences.sourceCurrency, preferences.targetCurrency]);
-  const guestRate = useGuestRate(
-    preferences.sourceCurrency,
-    preferences.targetCurrency,
-    loadGuestRate ?? browserRateLoaderRef.current
+    rateSnapshotStoreRef.current.retainActivePairs(
+      ratePreferences.targetCurrencies.map((target) => ({
+        source: ratePreferences.sourceCurrency,
+        target
+      }))
+    );
+  }, [ratePreferences.sourceCurrency, ratePreferences.targetCurrencies]);
+  const approvedMemberRateLoader = useMemo(
+    () =>
+      memberUserId && getMemberSessionToken
+        ? createMemberRateLoader(memberUserId, getMemberSessionToken)
+        : null,
+    [getMemberSessionToken, memberUserId]
   );
+  const loadRate =
+    loadGuestRate ??
+    (isApprovedMember && approvedMemberRateLoader
+      ? approvedMemberRateLoader
+      : browserRateLoaderRef.current);
+  const rates = useGuestRates(
+    ratePreferences.sourceCurrency,
+    ratePreferences.targetCurrencies,
+    loadRate
+  );
+  const displayedRates =
+    isApprovedMember &&
+    (preferences.sourceCurrency !== ratePreferences.sourceCurrency ||
+      preferences.targetCurrencies.join(",") !==
+        ratePreferences.targetCurrencies.join(","))
+      ? {}
+      : rates;
 
   useEffect(() => {
     const session = createCameraSession({
@@ -695,9 +971,34 @@ export default function App({
     };
   }, []);
 
-  const updatePreferences = (nextPreferences: GuestPreferences) => {
-    setPreferences(nextPreferences);
-    preferenceStoreRef.current.save(nextPreferences);
+  const updatePreferences = (nextPreferences: ExperiencePreferences) => {
+    if (isApprovedMember && memberUserId) {
+      const synchronized: MemberPreferences = {
+        ownerId: memberUserId,
+        ...nextPreferences
+      };
+      setMemberPreferences(synchronized);
+      memberSaveRef.current?.abort();
+      const controller = new AbortController();
+      memberSaveRef.current = controller;
+      void saveMemberPreferences(synchronized, controller.signal)
+        .then((saved) => {
+          if (!controller.signal.aborted) {
+            setMemberPreferences(saved);
+            setSynchronizedMemberPreferences(saved);
+          }
+        })
+        .catch(() => {
+          // Do not request a protected rate for a pair D1 has not authorized.
+        });
+      return;
+    }
+    const guest: GuestPreferences = {
+      sourceCurrency: nextPreferences.sourceCurrency,
+      targetCurrency: nextPreferences.targetCurrencies[0]
+    };
+    setGuestPreferences(guest);
+    preferenceStoreRef.current.save(guest);
   };
 
   const startCamera = async () => {
@@ -724,7 +1025,9 @@ export default function App({
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
         preferences={preferences}
-        guestRate={guestRate}
+        isApprovedMember={isApprovedMember}
+        memberAccessStatus={memberAccessStatus}
+        rates={displayedRates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
         onClose={closeCamera}
@@ -744,7 +1047,15 @@ export default function App({
     <main className="welcome-shell">
       <nav className="topbar" aria-label="Primary">
         <TagLingoMark />
-        <span className="guest-badge">Guest mode</span>
+        <span className="guest-badge">
+          {isApprovedMember
+            ? "Approved Member mode"
+            : memberAccessStatus === "loading" && memberUserId
+              ? CHECKING_MEMBER_ACCESS_LABEL
+              : memberAccessStatus === "unavailable"
+                ? "Member access unavailable"
+                : "Guest mode"}
+        </span>
       </nav>
 
       <section className="hero">
@@ -779,6 +1090,8 @@ export default function App({
         <CurrencySettings
           preferences={preferences}
           onChange={updatePreferences}
+          isApprovedMember={isApprovedMember}
+          memberAccessStatus={memberAccessStatus}
         />
 
         {failure ? (
