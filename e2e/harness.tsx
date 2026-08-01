@@ -4,6 +4,7 @@ import App from "../src/App";
 import type { CurrencyCode } from "../src/domain/currencies";
 import type { GuestReferenceRate } from "../src/fx/referenceRate";
 import type { MemberPreferences } from "../src/member/memberPreferencesApi";
+import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 
 function fixtureRate(target: CurrencyCode): GuestReferenceRate {
   return {
@@ -23,6 +24,24 @@ function fixtureRate(target: CurrencyCode): GuestReferenceRate {
 
 const loadRate = async (_source: CurrencyCode, target: CurrencyCode) =>
   fixtureRate(target);
+const createFixtureRecognizer: CreateRecognizer = (_source, onProgress) => ({
+  async prepare() {
+    onProgress(1, "deterministic browser fixture ready");
+  },
+  async recognize(_image, pass = "focused") {
+    return [
+      {
+        text: "4,142円",
+        confidence: 96,
+        box:
+          pass === "discovery"
+            ? { x: 880, y: 446, width: 160, height: 80 }
+            : { x: 592, y: 111, width: 160, height: 80 }
+      }
+    ];
+  },
+  async terminate() {}
+});
 const memberPreferences: MemberPreferences = {
   ownerId: "user_browser_fixture",
   sourceCurrency: "JPY",
@@ -41,6 +60,7 @@ createRoot(document.getElementById("root")!).render(
       loadMemberPreferences={async () => memberPreferences}
       saveMemberPreferences={async (preferences) => preferences}
       loadGuestRate={loadRate}
+      createRecognizer={createFixtureRecognizer}
       admission={
         <section aria-label="Fixture account">
           <button type="button">Sign out fixture account</button>
@@ -50,6 +70,7 @@ createRoot(document.getElementById("root")!).render(
   ) : (
     <App
       loadGuestRate={loadRate}
+      createRecognizer={createFixtureRecognizer}
       admission={
         <section aria-label="Fixture member admission">
           <button type="button">Request fixture member access</button>
