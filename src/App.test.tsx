@@ -560,6 +560,27 @@ describe("Guest camera journey", () => {
 });
 
 describe("Approved Member journey", () => {
+  it("describes the signed-in membership check without flashing Guest mode", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const pending = createDeferred<MemberPreferences | null>();
+
+    render(
+      <App
+        memberUserId="user_member"
+        loadMemberPreferences={vi.fn(() => pending.promise)}
+      />
+    );
+
+    expect(screen.getAllByText(/checking member access/i)).toHaveLength(2);
+    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(screen.getByText(/checking member access/i)).toBeInTheDocument();
+    expect(screen.queryByText(/guest · 1/i)).not.toBeInTheDocument();
+  });
+
   it("creates a synchronized preference row only after active membership is confirmed", async () => {
     useMediaDevices(vi.fn());
     const saveMemberPreferences = vi.fn(
@@ -758,7 +779,7 @@ describe("Approved Member journey", () => {
           .fn()
           .mockRejectedValue(
             new MemberPreferencesRequestError(
-              "denied",
+              "inactive-membership",
               "inactive membership"
             )
           )}

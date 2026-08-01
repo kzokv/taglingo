@@ -65,6 +65,7 @@ interface ExperiencePreferences {
 }
 
 type MemberAccessStatus = "guest" | "loading" | "approved" | "unavailable";
+const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
@@ -133,9 +134,11 @@ function CurrencySettings({
   const maxTargets = isApprovedMember ? 3 : 1;
   const accessLabel = isApprovedMember
     ? "Approved Member · up to 3"
-    : memberAccessStatus === "unavailable"
-      ? "Signed in · access unavailable"
-      : "Guest · 1";
+    : memberAccessStatus === "loading"
+      ? CHECKING_MEMBER_ACCESS_LABEL
+      : memberAccessStatus === "unavailable"
+        ? "Signed in · access unavailable"
+        : "Guest · 1";
 
   useEffect(() => {
     if (!isTargetPickerOpen) {
@@ -529,6 +532,7 @@ function CameraSurface({
   snapshot,
   preferences,
   isApprovedMember,
+  memberAccessStatus,
   rates,
   onPreferencesChange,
   createRecognizer,
@@ -540,6 +544,7 @@ function CameraSurface({
   snapshot: CameraSnapshot;
   preferences: ExperiencePreferences;
   isApprovedMember: boolean;
+  memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   createRecognizer: CreateRecognizer;
@@ -591,6 +596,7 @@ function CameraSurface({
           preferences={preferences}
           onChange={onPreferencesChange}
           isApprovedMember={isApprovedMember}
+          memberAccessStatus={memberAccessStatus}
           compact
         />
         <StatusPanel
@@ -829,20 +835,20 @@ export default function App({
     synchronizedMemberPreferences,
     setSynchronizedMemberPreferences
   ] = useState<MemberPreferences | null>(null);
-  const [approvedMemberStatus, setApprovedMemberStatus] = useState<
+  const [memberAccessStatus, setMemberAccessStatus] = useState<
     MemberAccessStatus
   >(memberUserId ? "loading" : "guest");
   const memberSaveRef = useRef<AbortController | null>(null);
   useEffect(() => {
     memberSaveRef.current?.abort();
     if (!memberUserId) {
-      setApprovedMemberStatus("guest");
+      setMemberAccessStatus("guest");
       setMemberPreferences(null);
       setSynchronizedMemberPreferences(null);
       return undefined;
     }
     const controller = new AbortController();
-    setApprovedMemberStatus("loading");
+    setMemberAccessStatus("loading");
     setMemberPreferences(null);
     setSynchronizedMemberPreferences(null);
     void loadMemberPreferences(memberUserId, controller.signal)
@@ -864,13 +870,13 @@ export default function App({
         }
         setMemberPreferences(synchronized);
         setSynchronizedMemberPreferences(synchronized);
-        setApprovedMemberStatus("approved");
+        setMemberAccessStatus("approved");
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setApprovedMemberStatus(
+          setMemberAccessStatus(
             error instanceof MemberPreferencesRequestError &&
-              error.kind === "denied"
+              error.kind === "inactive-membership"
               ? "guest"
               : "unavailable"
           );
@@ -888,7 +894,7 @@ export default function App({
   ]);
   const isApprovedMember =
     Boolean(memberUserId) &&
-    approvedMemberStatus === "approved" &&
+    memberAccessStatus === "approved" &&
     memberPreferences !== null;
   const preferences: ExperiencePreferences = isApprovedMember
     ? {
@@ -1014,6 +1020,7 @@ export default function App({
         snapshot={cameraSnapshot}
         preferences={preferences}
         isApprovedMember={isApprovedMember}
+        memberAccessStatus={memberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
@@ -1037,9 +1044,11 @@ export default function App({
         <span className="guest-badge">
           {isApprovedMember
             ? "Approved Member mode"
-            : approvedMemberStatus === "unavailable"
-              ? "Member access unavailable"
-              : "Guest mode"}
+            : memberAccessStatus === "loading" && memberUserId
+              ? CHECKING_MEMBER_ACCESS_LABEL
+              : memberAccessStatus === "unavailable"
+                ? "Member access unavailable"
+                : "Guest mode"}
         </span>
       </nav>
 
@@ -1076,7 +1085,7 @@ export default function App({
           preferences={preferences}
           onChange={updatePreferences}
           isApprovedMember={isApprovedMember}
-          memberAccessStatus={approvedMemberStatus}
+          memberAccessStatus={memberAccessStatus}
         />
 
         {failure ? (

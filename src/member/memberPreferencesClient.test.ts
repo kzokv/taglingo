@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadMemberPreferencesFromApi,
-  MemberPreferencesRequestError,
   saveMemberPreferencesToApi
 } from "./memberPreferencesClient";
 
@@ -57,7 +56,7 @@ describe("member preference client", () => {
     expect(JSON.parse(String(request[1]?.body))).toEqual(preferences);
   });
 
-  it("distinguishes inactive membership from an unavailable preference service", async () => {
+  it("classifies inactive membership without collapsing every authorization failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json(
         { error: { code: "inactive_membership" } },
@@ -71,8 +70,28 @@ describe("member preference client", () => {
         new AbortController().signal
       )
     ).rejects.toEqual(
-      expect.objectContaining<MemberPreferencesRequestError>({
-        kind: "denied"
+      expect.objectContaining({
+        kind: "inactive-membership"
+      })
+    );
+  });
+
+  it("keeps a cross-account denial distinct from inactive membership", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        { error: { code: "cross_account" } },
+        { status: 403 }
+      )
+    );
+
+    await expect(
+      loadMemberPreferencesFromApi(
+        "user_member",
+        new AbortController().signal
+      )
+    ).rejects.toEqual(
+      expect.objectContaining({
+        kind: "forbidden"
       })
     );
   });
@@ -91,7 +110,7 @@ describe("member preference client", () => {
         new AbortController().signal
       )
     ).rejects.toEqual(
-      expect.objectContaining<MemberPreferencesRequestError>({
+      expect.objectContaining({
         kind: "unavailable"
       })
     );

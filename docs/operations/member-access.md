@@ -48,7 +48,7 @@ Replace the placeholders in `.dev.vars` with server-side values from the same
 Clerk Development instance used by `VITE_CLERK_PUBLISHABLE_KEY`. Never copy a
 production Clerk secret into local development or commit `.dev.vars`.
 
-Activate a local test member after that person signs in and you have copied
+Activate a local test Approved Member after that person signs in and you have copied
 their stable Clerk `user_...` ID:
 
 ```sh

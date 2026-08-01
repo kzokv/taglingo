@@ -13,7 +13,12 @@ export type SaveMemberPreferences = (
   signal: AbortSignal
 ) => Promise<MemberPreferences>;
 
-export type MemberPreferencesFailureKind = "denied" | "unavailable";
+export type MemberPreferencesFailureKind =
+  | "inactive-membership"
+  | "unauthenticated"
+  | "forbidden"
+  | "malformed"
+  | "unavailable";
 
 export class MemberPreferencesRequestError extends Error {
   readonly kind: MemberPreferencesFailureKind;
@@ -25,10 +30,41 @@ export class MemberPreferencesRequestError extends Error {
   }
 }
 
-function responseError(response: Response, message: string) {
+async function responseError(response: Response, message: string) {
+  let code: unknown;
+  try {
+    const payload: unknown = await response.json();
+    code =
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      payload.error &&
+      typeof payload.error === "object" &&
+      "code" in payload.error
+        ? payload.error.code
+        : undefined;
+  } catch {
+    code = undefined;
+  }
+  const kind: MemberPreferencesFailureKind =
+    code === "inactive_membership"
+      ? "inactive-membership"
+      : code === "unauthenticated" || code === "invalid_session"
+        ? "unauthenticated"
+        : code === "cross_account"
+          ? "forbidden"
+          : code === "malformed_request"
+            ? "malformed"
+            : response.status === 403
+              ? "forbidden"
+              : "unavailable";
+  return new MemberPreferencesRequestError(kind, message);
+}
+
+function invalidResponseError() {
   return new MemberPreferencesRequestError(
-    response.status === 403 ? "denied" : "unavailable",
-    message
+    "unavailable",
+    "The Approved Member preference response was invalid."
   );
 }
 
@@ -46,35 +82,26 @@ export const loadMemberPreferencesFromApi: LoadMemberPreferences = async (
     signal
   });
   if (!response.ok) {
-    throw responseError(
+    throw await responseError(
       response,
-      "Active member preferences are unavailable."
+      "Approved Member preferences are unavailable."
     );
   }
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    throw new MemberPreferencesRequestError(
-      "unavailable",
-      "The member preference response was invalid."
-    );
+    throw invalidResponseError();
   }
   if (!payload || typeof payload !== "object" || !("preferences" in payload)) {
-    throw new MemberPreferencesRequestError(
-      "unavailable",
-      "The member preference response was invalid."
-    );
+    throw invalidResponseError();
   }
   const preferences = (payload as { preferences: unknown }).preferences;
   if (preferences === null) {
     return null;
   }
   if (!isMemberPreferences(preferences, userId)) {
-    throw new MemberPreferencesRequestError(
-      "unavailable",
-      "The member preference response was invalid."
-    );
+    throw invalidResponseError();
   }
   return preferences;
 };
@@ -94,7 +121,7 @@ export const saveMemberPreferencesToApi: SaveMemberPreferences = async (
     signal
   });
   if (!response.ok) {
-    throw responseError(
+    throw await responseError(
       response,
       "Member preferences could not be synchronized."
     );
@@ -105,10 +132,7 @@ export const saveMemberPreferencesToApi: SaveMemberPreferences = async (
       ? (payload as { preferences: unknown }).preferences
       : null;
   if (!isMemberPreferences(saved, preferences.ownerId)) {
-    throw new MemberPreferencesRequestError(
-      "unavailable",
-      "The saved member preference response was invalid."
-    );
+    throw invalidResponseError();
   }
   return saved;
 };
