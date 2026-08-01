@@ -8,3 +8,7 @@ node_modules/
 .DS_Store
 public/ocr/tesseract-7.0.0/
 public/ocr/tesseract-core-7.0.0/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

@@ -440,6 +440,29 @@ h1 em {
   gap: 8px 14px;
 }
 
+.recognition-focus,
+.recognition-note p,
+.detected-price-summary ul {
+  margin: 0;
+}
+
+.detected-price-summary {
+  margin: 5px 0;
+}
+
+.detected-price-summary summary {
+  color: var(--mint);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.detected-price-summary ul {
+  display: grid;
+  gap: 3px;
+  padding: 6px 0 0 18px;
+}
+
 .field {
   display: grid;
   gap: 8px;

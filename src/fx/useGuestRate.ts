@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CurrencyCode } from "../domain/currencies";
 import {
   GuestRateLoadError,
-  type GuestRateFailureReason
+  type ReferenceRateFailureReason
 } from "./browserRateSnapshot";
 import {
   isGuestReferenceRate,
@@ -23,7 +23,7 @@ type GuestRateState =
       phase: "error";
       rate: null;
       error: string;
-      reason: GuestRateFailureReason;
+      reason: ReferenceRateFailureReason;
     };
 
 export type GuestRateView = GuestRateState & { retry: () => void };

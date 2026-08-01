@@ -598,6 +598,11 @@ describe("Guest camera journey", () => {
     await waitFor(() => expect(focused).toHaveClass("focused-detection"));
     expect(other).not.toHaveClass("focused-detection");
     expect(document.querySelectorAll("[data-detected-price]")).toHaveLength(2);
+    const recognitionSummary = screen.getByRole("region", {
+      name: /recognition summary/i
+    });
+    expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
+    expect(recognitionSummary).toHaveTextContent(/Detected Price · JPY 980/i);
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
     expect(
       document.querySelector('[data-detected-price="JPY-980"]')
@@ -1082,5 +1087,51 @@ describe("Approved Member journey", () => {
     expect(
       loadGuestRate.mock.calls.filter((call) => call[1] === "USD")
     ).toHaveLength(usdCallsBeforeRetry);
+  });
+
+  it("lets an unauthorized member conversion continue immediately as a Guest", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input) =>
+        String(input).startsWith("/api/member-fx")
+          ? Response.json(
+              { error: { code: "inactive_membership" } },
+              { status: 403 }
+            )
+          : Response.json(DEFAULT_RATE)
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD", "TWD"]
+        })}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /no longer authorizes this Reference Rate/i
+    );
+    await user.click(screen.getByRole("button", { name: /continue as Guest/i }));
+
+    expect(await screen.findByText(/using Guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /target currencies: 1 selected · usd/i
+      })
+    ).toBeInTheDocument();
+    expect(await screen.findByText("USD 27.80")).toBeInTheDocument();
+    expect(
+      fetchSpy.mock.calls.some(([input]) => String(input).startsWith("/api/fx"))
+    ).toBe(true);
   });
 });

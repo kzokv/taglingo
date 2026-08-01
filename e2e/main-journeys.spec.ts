@@ -1,0 +1,78 @@
+import { expect, test } from "@playwright/test";
+
+test.beforeEach(async ({ context }) => {
+  await context.clearCookies();
+  await context.addInitScript(() => {
+    Object.defineProperty(window.navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          throw new DOMException("Deterministic denial", "NotAllowedError");
+        }
+      }
+    });
+  });
+});
+
+test("Guest recovers from deterministic camera denial and completes the demo", async ({
+  page
+}) => {
+  const apiRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/")) {
+      apiRequests.push(request.url());
+    }
+  });
+  await page.goto("/e2e/harness.html");
+
+  await expect(
+    page.getByText(/physical-iphone ocr accuracy and latency remain unvalidated/i)
+  ).toBeVisible();
+  const targetTrigger = page.getByRole("button", {
+    name: /target currencies: 1 selected · usd/i
+  });
+  await targetTrigger.click();
+  await page.keyboard.press("Escape");
+  await expect(targetTrigger).toBeFocused();
+
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Camera access was denied"
+  );
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await page.getByRole("button", { name: /try without camera/i }).click();
+
+  const recognitionSummary = page.getByRole("region", {
+    name: /recognition summary/i
+  });
+  await expect(recognitionSummary.locator("strong")).toHaveText(
+    "Focused Price · JPY 4,142"
+  );
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+  await page.getByText("View 1 Detected Price").click();
+  await expect(recognitionSummary.getByRole("listitem")).toHaveText(
+    "Focused detection · JPY 4,142"
+  );
+  expect(apiRequests).toEqual([]);
+});
+
+test("Approved Member completes a deterministic three-currency journey", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?mode=member");
+
+  await expect(page.getByText("Approved Member mode")).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: /target currencies: 3 selected · usd · twd · eur/i
+    })
+  ).toBeVisible();
+  await page.getByRole("button", { name: /try without camera/i }).click();
+
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+  await expect(page.getByText("TWD 911.24")).toBeVisible();
+  await expect(page.getByText("EUR 24.02")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: /approved member conversions/i })
+  ).toContainText("Reference estimate; your payment rate may differ.");
+});
