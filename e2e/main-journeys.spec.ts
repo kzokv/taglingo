@@ -28,6 +28,24 @@ async function installDeterministicCamera(page: Page) {
   });
 }
 
+function observeRequestsAfterStart(page: Page) {
+  const requests: string[] = [];
+  let observing = false;
+  page.on("request", (request) => {
+    if (observing) {
+      requests.push(
+        `${request.method()} ${request.url()} ${request.postData() ?? ""}`
+      );
+    }
+  });
+  return {
+    requests,
+    start: () => {
+      observing = true;
+    }
+  };
+}
+
 test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
@@ -36,6 +54,7 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
   page
 }) => {
   const recognitionAssetRequests: string[] = [];
+  const enteredPriceTraffic = observeRequestsAfterStart(page);
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.startsWith("/ocr/")) {
       recognitionAssetRequests.push(request.url());
@@ -53,6 +72,7 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
   await expect(
     page.getByText(/camera recognition is unavailable on this device/i)
   ).toBeVisible();
+  enteredPriceTraffic.start();
   await page.getByRole("textbox", { name: /brl amount/i }).fill("R$ 12,34");
   await page
     .getByRole("button", { name: /convert entered price/i })
@@ -63,6 +83,42 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
   await expect(enteredPrice).toContainText("not camera-derived");
   await expect(page.getByText("USD 0.08")).toBeVisible();
   expect(recognitionAssetRequests).toEqual([]);
+  expect(enteredPriceTraffic.requests).toEqual([]);
+  expect(
+    await page.evaluate(() => JSON.stringify(window.localStorage))
+  ).not.toContain("12,34");
+});
+
+test("Guest explicitly switches the camera-sheet price used for conversion", async ({
+  page
+}) => {
+  const enteredPriceTraffic = observeRequestsAfterStart(page);
+  await page.goto("/e2e/harness.html");
+  await page.getByRole("button", { name: /try without camera/i }).click();
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 4,142");
+
+  const composer = page.getByRole("region", { name: /manual price entry/i });
+  await composer
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  enteredPriceTraffic.start();
+  await composer.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
+  await composer.getByRole("textbox", { name: /jpy amount/i }).press("Enter");
+
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Entered Price in use");
+  await expect(page.getByText("USD 33.56")).toBeVisible();
+  await page
+    .getByRole("button", { name: /use focused price · jpy 4,142/i })
+    .press("Enter");
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Focused Price in use");
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+  expect(enteredPriceTraffic.requests).toEqual([]);
 });
 
 test("Guest recovers from deterministic camera denial and completes the demo", async ({

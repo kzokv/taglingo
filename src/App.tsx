@@ -95,6 +95,7 @@ type MemberAccessStatus =
   | "unavailable";
 type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
+const MANUAL_ENTRY_PROMOTION_DELAY_MS = 5_000;
 const resolveCatalogCameraSupport: ResolveCameraSupport = (
   sourceCurrency,
   platform
@@ -587,6 +588,141 @@ function StatusPanel({
   );
 }
 
+function ManualPriceComposer({
+  sourceCurrency,
+  enteredPrice,
+  expanded,
+  compact = false,
+  onEnteredPriceChange,
+  onExpandedChange
+}: {
+  sourceCurrency: SourceCurrencyCode;
+  enteredPrice: EnteredPrice | null;
+  expanded: boolean;
+  compact?: boolean;
+  onEnteredPriceChange: (enteredPrice: EnteredPrice | null) => void;
+  onExpandedChange?: (expanded: boolean) => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const composerContentId = useId();
+  const amountInputId = useId();
+  const enteredPriceHeadingId = useId();
+  const amountHelpId = useId();
+  const entryGuidance = getManualPriceEntryGuidance(sourceCurrency);
+
+  useEffect(() => {
+    setAmount("");
+    setError(null);
+  }, [sourceCurrency]);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const result = parseManualPriceEntry(sourceCurrency, amount);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setError(null);
+    onEnteredPriceChange(result.enteredPrice);
+  };
+
+  const reset = () => {
+    setAmount("");
+    setError(null);
+    onEnteredPriceChange(null);
+  };
+
+  return (
+    <section
+      className={`manual-price-composer ${compact ? "compact-composer" : ""}`}
+      aria-label="Manual Price Entry"
+    >
+      {onExpandedChange ? (
+        <button
+          className="manual-composer-toggle"
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={composerContentId}
+          aria-label={`${expanded ? "Close" : "Open"} Manual Price Entry`}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          <span aria-hidden="true">✎</span>
+          <span>
+            <strong>Manual Price Entry</strong>
+            <small>
+              {enteredPrice
+                ? `Entered Price · ${enteredPrice.currency} ${enteredPrice.displayAmount}`
+                : `${sourceCurrency} · Available anytime`}
+            </small>
+          </span>
+          <span aria-hidden="true">{expanded ? "−" : "+"}</span>
+        </button>
+      ) : null}
+
+      {expanded ? (
+        <div id={composerContentId} className="manual-composer-content">
+          <form className="manual-entry-form" onSubmit={submit}>
+            <label htmlFor={amountInputId}>
+              <span>{sourceCurrency} amount</span>
+            </label>
+            <div
+              className={
+                error ? "manual-amount-field has-error" : "manual-amount-field"
+              }
+            >
+              <span aria-hidden="true">{sourceCurrency}</span>
+              <input
+                id={amountInputId}
+                name="manualPriceAmount"
+                inputMode="decimal"
+                autoComplete="off"
+                maxLength={32}
+                value={amount}
+                aria-describedby={amountHelpId}
+                aria-invalid={Boolean(error)}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder={entryGuidance.placeholder}
+              />
+            </div>
+            <p
+              id={amountHelpId}
+              className={error ? "manual-entry-help error" : "manual-entry-help"}
+            >
+              {error ?? entryGuidance.message}
+            </p>
+            <button className="primary-button" type="submit">
+              Convert Entered Price <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          {enteredPrice ? (
+            <section
+              className="entered-price-card"
+              role="region"
+              aria-labelledby={enteredPriceHeadingId}
+            >
+              <div>
+                <span aria-hidden="true">✎</span>
+                <div>
+                  <h2 id={enteredPriceHeadingId}>Entered Price</h2>
+                  <p>Entered manually · not camera-derived</p>
+                </div>
+              </div>
+              <strong>
+                {enteredPrice.currency} {enteredPrice.displayAmount}
+              </strong>
+              <button className="text-button" type="button" onClick={reset}>
+                Enter another price
+              </button>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ManualPriceEntrySurface({
   preferences,
   isApprovedMember,
@@ -608,38 +744,11 @@ function ManualPriceEntrySurface({
   memberStatus: ReactNode;
   onContinueAsGuest: () => void;
 }) {
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
-  const enteredPriceHeadingId = useId();
-  const amountHelpId = useId();
-  const entryGuidance = getManualPriceEntryGuidance(
-    preferences.sourceCurrency
-  );
 
   useEffect(() => {
-    setAmount("");
-    setError(null);
     setEnteredPrice(null);
   }, [preferences.sourceCurrency]);
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const result = parseManualPriceEntry(preferences.sourceCurrency, amount);
-    if (!result.ok) {
-      setEnteredPrice(null);
-      setError(result.message);
-      return;
-    }
-    setError(null);
-    setEnteredPrice(result.enteredPrice);
-  };
-
-  const reset = () => {
-    setAmount("");
-    setError(null);
-    setEnteredPrice(null);
-  };
 
   return (
     <main className="manual-entry-shell">
@@ -679,61 +788,12 @@ function ManualPriceEntrySurface({
           </p>
         </div>
 
-        <form className="manual-entry-form" onSubmit={submit}>
-          <label htmlFor="manual-price-amount">
-            <span>{preferences.sourceCurrency} amount</span>
-          </label>
-          <div
-            className={
-              error ? "manual-amount-field has-error" : "manual-amount-field"
-            }
-          >
-            <span aria-hidden="true">{preferences.sourceCurrency}</span>
-            <input
-              id="manual-price-amount"
-              name="manualPriceAmount"
-              inputMode="decimal"
-              autoComplete="off"
-              maxLength={32}
-              value={amount}
-              aria-describedby={amountHelpId}
-              aria-invalid={Boolean(error)}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder={entryGuidance.placeholder}
-            />
-          </div>
-          <p
-            id={amountHelpId}
-            className={error ? "manual-entry-help error" : "manual-entry-help"}
-          >
-            {error ?? entryGuidance.message}
-          </p>
-          <button className="primary-button" type="submit">
-            Convert Entered Price <span aria-hidden="true">→</span>
-          </button>
-        </form>
-
-        {enteredPrice ? (
-          <section
-            className="entered-price-card"
-            role="region"
-            aria-labelledby={enteredPriceHeadingId}
-          >
-            <div>
-              <span aria-hidden="true">✎</span>
-              <div>
-                <h2 id={enteredPriceHeadingId}>Entered Price</h2>
-                <p>Entered manually · not camera-derived</p>
-              </div>
-            </div>
-            <strong>
-              {enteredPrice.currency} {enteredPrice.displayAmount}
-            </strong>
-            <button className="text-button" type="button" onClick={reset}>
-              Enter another price
-            </button>
-          </section>
-        ) : null}
+        <ManualPriceComposer
+          sourceCurrency={preferences.sourceCurrency}
+          enteredPrice={enteredPrice}
+          expanded
+          onEnteredPriceChange={setEnteredPrice}
+        />
 
         <ConversionLedger
           price={enteredPrice}
@@ -785,6 +845,10 @@ function CameraSurface({
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
   const [recognitionRestartKey, setRecognitionRestartKey] = useState(0);
+  const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
+  const [manualEntryExpanded, setManualEntryExpanded] = useState(false);
+  const [enteredPriceInUse, setEnteredPriceInUse] = useState(false);
+  const manualPromotionHandledRef = useRef(false);
   const demoRecognition = useDemoRecognition(
     demo && preferences.sourceCurrency === "JPY"
   );
@@ -797,6 +861,83 @@ function CameraSurface({
     recognitionRestartKey
   });
   const recognition = demo ? demoRecognition : cameraRecognition;
+
+  useEffect(() => {
+    setEnteredPrice(null);
+    setManualEntryExpanded(false);
+    setEnteredPriceInUse(false);
+    manualPromotionHandledRef.current = false;
+  }, [preferences.sourceCurrency]);
+
+  useEffect(() => {
+    if (recognition.focusedPrice) {
+      manualPromotionHandledRef.current = false;
+      return;
+    }
+    if (manualEntryExpanded || manualPromotionHandledRef.current) {
+      return;
+    }
+    const promotion = window.setTimeout(() => {
+      manualPromotionHandledRef.current = true;
+      setManualEntryExpanded(true);
+    }, MANUAL_ENTRY_PROMOTION_DELAY_MS);
+    return () => window.clearTimeout(promotion);
+  }, [manualEntryExpanded, recognition.focusedPrice]);
+
+  const updateEnteredPrice = (nextEnteredPrice: EnteredPrice | null) => {
+    setEnteredPrice(nextEnteredPrice);
+    setEnteredPriceInUse(Boolean(nextEnteredPrice));
+  };
+
+  const updateManualEntryExpanded = (expanded: boolean) => {
+    if (!recognition.focusedPrice) {
+      manualPromotionHandledRef.current = true;
+    }
+    setManualEntryExpanded(expanded);
+  };
+
+  const enteredPriceLabel = enteredPrice
+    ? `${enteredPrice.currency} ${enteredPrice.displayAmount}`
+    : null;
+  const focusedPriceLabel = recognition.focusedPrice
+    ? `${recognition.focusedPrice.currency} ${formatCurrencyMinorUnits(
+        recognition.focusedPrice.minorUnits,
+        recognition.focusedPrice.currency
+      )}`
+    : null;
+  const priceInUse = (() => {
+    if (enteredPriceInUse && enteredPrice) {
+      return {
+        price: enteredPrice,
+        title: "Entered Price in use",
+        detail: "Entered manually · not camera-derived",
+        switchLabel: recognition.focusedPrice
+          ? `Use Focused Price · ${focusedPriceLabel}`
+          : null,
+        switchToEnteredPrice: false
+      };
+    }
+    if (recognition.focusedPrice) {
+      return {
+        price: recognition.focusedPrice,
+        title: "Focused Price in use",
+        detail: "Camera-derived evidence",
+        switchLabel: enteredPrice
+          ? `Use Entered Price · ${enteredPriceLabel}`
+          : null,
+        switchToEnteredPrice: true
+      };
+    }
+    return {
+      price: null,
+      title: "Waiting for a Focused Price",
+      detail: "Manual Price Entry remains available.",
+      switchLabel: enteredPrice
+        ? `Use Entered Price · ${enteredPriceLabel}`
+        : null,
+      switchToEnteredPrice: true
+    };
+  })();
 
   return (
     <main className="camera-shell">
@@ -844,8 +985,37 @@ function CameraSurface({
           onUseDemo={onUseDemo}
         />
         <RecognitionSummary recognition={recognition} demo={demo} />
+        <ManualPriceComposer
+          sourceCurrency={preferences.sourceCurrency}
+          enteredPrice={enteredPrice}
+          expanded={manualEntryExpanded}
+          compact
+          onEnteredPriceChange={updateEnteredPrice}
+          onExpandedChange={updateManualEntryExpanded}
+        />
+        <section
+          className="conversion-price-source"
+          role="status"
+          aria-label="Price used for conversion"
+        >
+          <div>
+            <strong>{priceInUse.title}</strong>
+            <p>{priceInUse.detail}</p>
+          </div>
+          {priceInUse.switchLabel ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={() =>
+                setEnteredPriceInUse(priceInUse.switchToEnteredPrice)
+              }
+            >
+              {priceInUse.switchLabel}
+            </button>
+          ) : null}
+        </section>
         <ConversionLedger
-          price={recognition.focusedPrice}
+          price={priceInUse.price}
           sourceCurrency={preferences.sourceCurrency}
           targetCurrencies={preferences.targetCurrencies}
           isApprovedMember={isApprovedMember}
