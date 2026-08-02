@@ -4,7 +4,7 @@ import {
   mapSampleBoxToPreview,
   type Size
 } from "../camera/previewGeometry";
-import type { RecognizerAdapterCurrencyCode } from "../domain/currencies";
+import { hasRecognizerAdapter } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 import {
   areDetectedPricesAssociated,
@@ -20,6 +20,7 @@ import {
 } from "./priceLocalization";
 import { createNewestOnlyPipeline } from "./newestOnlyPipeline";
 import { nextRecognitionDelay } from "./recognitionCadence";
+import type { RecognitionProfile } from "./recognitionProfile";
 
 export type RecognitionPhase =
   | "waiting"
@@ -43,14 +44,14 @@ export const EMPTY_RECOGNITION: RecognitionView = {
 };
 
 export type CreateRecognizer = (
-  sourceCurrency: RecognizerAdapterCurrencyCode,
+  profile: RecognitionProfile,
   onProgress: (progress: number, status: string) => void
 ) => OcrRecognizer;
 
 export const createBrowserRecognizer: CreateRecognizer = (
-  sourceCurrency,
+  profile,
   onProgress
-) => createOcrRecognizer(sourceCurrency, { onProgress });
+) => createOcrRecognizer(profile, { onProgress });
 
 function centralSample(camera: Size): Rectangle | null {
   if (camera.width <= 0 || camera.height <= 0) {
@@ -72,14 +73,14 @@ function centralSample(camera: Size): Rectangle | null {
 
 export function useCameraRecognition({
   enabled,
-  sourceCurrency,
+  profile,
   video,
   preview,
   createRecognizer,
   recognitionRestartKey = 0
 }: {
   enabled: boolean;
-  sourceCurrency: RecognizerAdapterCurrencyCode;
+  profile: RecognitionProfile;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
   createRecognizer: CreateRecognizer;
@@ -89,10 +90,12 @@ export function useCameraRecognition({
     useState<RecognitionView>(EMPTY_RECOGNITION);
 
   useEffect(() => {
+    const sourceCurrency = profile.sourceCurrency;
     if (
       !enabled ||
       !video ||
-      !preview
+      !preview ||
+      !hasRecognizerAdapter(sourceCurrency)
     ) {
       setRecognition(EMPTY_RECOGNITION);
       return;
@@ -114,7 +117,7 @@ export function useCameraRecognition({
       reticle: { x: previewRect.width / 2, y: previewRect.height * 0.45 }
     });
     const recognizer = createRecognizer(
-      sourceCurrency,
+      profile,
       (progress) => {
         if (active && !prepared) {
           setRecognition((current) => ({
@@ -138,8 +141,8 @@ export function useCameraRecognition({
       async recognize() {
         const startedAt = performance.now();
         completedPasses += 1;
-        const pass =
-          completedPasses % 4 === 0 ? "discovery" : "focused";
+        const passKind =
+          completedPasses % 4 === 0 ? "discovery" : "guide";
         const cameraSize = {
           width: video.videoWidth,
           height: video.videoHeight
@@ -150,7 +153,7 @@ export function useCameraRecognition({
           height: previewBounds.height
         };
         const sample =
-          pass === "discovery"
+          passKind === "discovery"
             ? {
                 x: 0,
                 y: 0,
@@ -183,9 +186,20 @@ export function useCameraRecognition({
           sample.height
         );
 
-        const tokens = await recognizer.recognize(canvas, pass);
-        const currentPassDetectedPrices = localizePrices(sourceCurrency, tokens)
-          .filter(({ confidence }) => confidence >= 60)
+        const frameIdentity = `${profile.id}:frame-${completedPasses}`;
+        const tokens = await recognizer.recognize(canvas, {
+          kind: passKind,
+          frameIdentity,
+          preprocessingIdentity: profile.preprocessing[0].id
+        });
+        const currentPassDetectedPrices = localizePrices(
+          sourceCurrency,
+          tokens
+        )
+          .filter(
+            ({ confidence }) =>
+              confidence >= profile.thresholds.candidateConfidence
+          )
           .map((price) => ({
             ...price,
             box: mapSampleBoxToPreview(
@@ -195,7 +209,7 @@ export function useCameraRecognition({
               previewSize
             )
           }));
-        if (pass === "discovery") {
+        if (passKind === "discovery") {
           discoveryDetectedPrices = currentPassDetectedPrices;
         }
 
@@ -299,7 +313,7 @@ export function useCameraRecognition({
     enabled,
     preview,
     recognitionRestartKey,
-    sourceCurrency,
+    profile,
     video
   ]);
 

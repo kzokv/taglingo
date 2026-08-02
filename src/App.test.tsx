@@ -27,12 +27,32 @@ vi.mock("./domain/currencyCapabilities", async (importOriginal) => {
   };
 });
 
+vi.mock("./recognition/recognitionProfile", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./recognition/recognitionProfile")>();
+  const { createTestRecognitionProfile } = await import(
+    "./test/recognitionProfile"
+  );
+  const testProfile = createTestRecognitionProfile({
+    id: "desktop-test-jpy"
+  });
+  return {
+    ...actual,
+    resolveQualifiedRecognitionProfile: (sourceCurrency: CurrencyCode) =>
+      sourceCurrency === "JPY" ? testProfile : null
+  };
+});
+
 import App from "./App";
 import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
-import type { OcrRecognizer } from "./recognition/ocrRecognizer";
+import { createTestRecognitionProfile } from "./test/recognitionProfile";
+import type {
+  OcrRecognizer,
+  RecognitionPassIdentity
+} from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
   source: "JPY",
@@ -255,7 +275,7 @@ describe("Manual Price Entry journey", () => {
     render(
       <App
         createRecognizer={createRecognizer}
-        resolveCameraSupport={() => false}
+        resolveRecognitionProfile={() => null}
       />
     );
 
@@ -656,6 +676,58 @@ describe("Guest camera journey", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("keeps Manual Price Entry usable while recognition initializes", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    const preparation = createDeferred<void>();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockReturnValue(preparation.promise),
+      recognize: vi.fn().mockResolvedValue([]),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+
+    render(<App createRecognizer={() => recognizer} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    fireEvent.loadedMetadata(video);
+
+    expect(
+      await screen.findByRole("progressbar", {
+        name: /preparing jpy recognition/i
+      })
+    ).toBeInTheDocument();
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    await user.click(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    );
+    await user.type(
+      within(composer).getByRole("textbox", { name: /jpy amount/i }),
+      "5,000"
+    );
+    await user.click(
+      within(composer).getByRole("button", {
+        name: /convert entered price/i
+      })
+    );
+
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/entered price in use/i);
+    await act(async () => preparation.resolve());
+  });
+
   it("offers deterministic recovery when local recognition preparation fails", async () => {
     const user = userEvent.setup();
     const { stream } = createMediaStream();
@@ -702,6 +774,10 @@ describe("Guest camera journey", () => {
       /recognition could not start/i
     );
     expect(
+      await screen.findByRole("textbox", { name: /jpy amount/i })
+    ).toBeInTheDocument();
+    expect(createRecognizer).toHaveBeenCalledOnce();
+    expect(
       screen.getByRole("button", { name: /use no-camera demo/i })
     ).toBeInTheDocument();
     await user.click(
@@ -712,6 +788,101 @@ describe("Guest camera journey", () => {
     expect(createRecognizer).toHaveBeenCalledTimes(2);
   });
 
+  it("moves an active camera session to Manual Price Entry when its profile is demoted", async () => {
+    const user = userEvent.setup();
+    const { stream, track } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn()
+    } as unknown as CanvasRenderingContext2D);
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize: vi.fn().mockResolvedValue([]),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    const profile = createTestRecognitionProfile({
+      id: "demotion-test-jpy"
+    });
+    let qualified = true;
+    const resolveRecognitionProfile = () =>
+      qualified ? profile : null;
+    const app = () => (
+      <App
+        createRecognizer={() => recognizer}
+        resolveRecognitionProfile={resolveRecognitionProfile}
+      />
+    );
+    const view = render(app());
+
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    fireEvent.loadedMetadata(video);
+    await waitFor(() => expect(recognizer.prepare).toHaveBeenCalledOnce());
+
+    qualified = false;
+    view.rerender(app());
+
+    expect(
+      await screen.findByRole("textbox", { name: /jpy amount/i })
+    ).toBeInTheDocument();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(recognizer.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("stops an idle active camera session when its profile evidence expires", async () => {
+    const { stream, track } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize: vi.fn().mockResolvedValue([]),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    const expiresAt = "2027-01-01T00:00:00.000Z";
+    const profile = createTestRecognitionProfile({
+      id: "expiry-test-jpy",
+      expiresAt
+    });
+    let expired = false;
+    let expireProfile!: () => void;
+    const resolveRecognitionProfile = () => (expired ? null : profile);
+    const scheduleProfileExpiry = vi.fn(
+      (_expiresAt: string, onExpire: () => void) => {
+        expireProfile = onExpire;
+        return vi.fn();
+      }
+    );
+
+    render(
+      <App
+        createRecognizer={() => recognizer}
+        resolveRecognitionProfile={resolveRecognitionProfile}
+        scheduleProfileExpiry={scheduleProfileExpiry}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText(/rear camera preview/i)).toBeInTheDocument();
+    expect(scheduleProfileExpiry).toHaveBeenCalledWith(
+      expiresAt,
+      expect.any(Function)
+    );
+
+    expired = true;
+    act(() => expireProfile());
+
+    expect(
+      screen.getByRole("textbox", { name: /jpy amount/i })
+    ).toBeInTheDocument();
+    expect(track.stop).toHaveBeenCalledOnce();
+  });
+
   it("stabilizes browser-local camera observations without uploading them", async () => {
     const user = userEvent.setup();
     const { stream } = createMediaStream();
@@ -719,12 +890,12 @@ describe("Guest camera journey", () => {
     const recognize = vi
       .fn()
       .mockImplementation(
-        async (_image: unknown, pass: "focused" | "discovery" = "focused") => [
+        async (_image: unknown, pass: RecognitionPassIdentity) => [
           {
             text: "4,142円",
             confidence: 96,
             box:
-              pass === "discovery"
+              pass.kind === "discovery"
                 ? { x: 880, y: 446, width: 160, height: 80 }
                 : { x: 592, y: 111, width: 160, height: 80 }
           }
@@ -792,7 +963,7 @@ describe("Guest camera journey", () => {
     );
     expect(recognize).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
-      "discovery"
+      expect.objectContaining({ kind: "discovery" })
     );
 
     const composer = screen.getByRole("region", {
@@ -848,8 +1019,8 @@ describe("Guest camera journey", () => {
     const { stream } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
     const recognize = vi.fn().mockImplementation(
-      async (_image: unknown, pass: "focused" | "discovery" = "focused") =>
-        pass === "discovery"
+      async (_image: unknown, pass: RecognitionPassIdentity) =>
+        pass.kind === "discovery"
           ? [
               {
                 text: "4,142円",

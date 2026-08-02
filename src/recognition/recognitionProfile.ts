@@ -1,0 +1,249 @@
+import type { SourceCurrencyCode } from "../domain/currencies";
+import type { PhysicalPlatform } from "../domain/currencyCapabilities";
+import { TESSERACT_LSTM_RUNTIME_FILE_NAMES } from "./tesseractRuntime";
+
+export type RecognitionQualificationState =
+  | "pending"
+  | "qualified"
+  | "failed"
+  | "demoted";
+
+export type RecognitionPlatform = Exclude<PhysicalPlatform, "other">;
+
+export type Sha256Hash = `sha256:${string}`;
+
+export interface RecognitionAsset {
+  readonly path: `/${string}`;
+  readonly hash: Sha256Hash;
+}
+
+export interface RecognizerConfiguration {
+  readonly engine: "tesseract.js";
+  readonly engineVersion: "7.0.0";
+  readonly engineMode: "lstm-only";
+  readonly runtime: "tesseract.js-core";
+  readonly runtimeVersion: "7.0.0";
+  readonly delivery: {
+    readonly gzipModels: true;
+    readonly workerBlobUrl: false;
+    readonly cacheMethod: "none";
+  };
+  readonly languages: readonly string[];
+  readonly assets: {
+    readonly worker: RecognitionAsset;
+    readonly runtime: {
+      readonly basePath: `/${string}`;
+      readonly files: readonly RecognitionAsset[];
+    };
+    readonly models: readonly RecognitionAsset[];
+  };
+  readonly parameters: {
+    readonly guidePageSegmentationMode: string;
+    readonly discoveryPageSegmentationMode: string;
+    readonly preserveInterwordSpaces: string;
+  };
+}
+
+export type PreprocessingOperation =
+  | "raw"
+  | "grayscale-contrast"
+  | "adaptive-threshold";
+
+// The profile freezes every recognition-affecting input here. The scheduler,
+// evidence-fusion, and tracking work in issues #50–#52 consume the relevant
+// portfolios and rule values without changing this qualification contract.
+export interface RecognitionProfile {
+  readonly id: string;
+  readonly version: "recognition-profile.v1";
+  readonly sourceCurrency: SourceCurrencyCode;
+  readonly platform: RecognitionPlatform;
+  readonly recognizer: RecognizerConfiguration;
+  readonly preprocessing: readonly {
+    readonly id: string;
+    readonly operation: PreprocessingOperation;
+    readonly scale?: number;
+  }[];
+  readonly notation: {
+    readonly fractionDigits: number;
+    readonly decimalSeparator?: "." | ",";
+    readonly markers: readonly string[];
+    readonly groupingSeparators: readonly string[];
+  };
+  readonly thresholds: {
+    readonly textConfidence: number;
+    readonly markerConfidence: number;
+    readonly candidateConfidence: number;
+  };
+  readonly fusion: {
+    readonly rulesVersion: string;
+    readonly maximumGapInTextHeights: number;
+    readonly minimumVerticalOverlapRatio: number;
+  };
+  readonly geometry: {
+    readonly rulesVersion: string;
+    readonly maximumDisplacementInTextHeights: number;
+    readonly smoothingFactor: number;
+  };
+  readonly stabilization: {
+    readonly rulesVersion: string;
+    readonly requiredDistinctFrames: number;
+    readonly coveredMissesBeforeRemoval: number;
+  };
+  readonly evidence: {
+    readonly version: string;
+    readonly qualifiedAt: string;
+    readonly expiresAt: string;
+  };
+  readonly qualificationState: RecognitionQualificationState;
+}
+
+export interface RecognitionProfileRegistry {
+  resolve(
+    sourceCurrency: SourceCurrencyCode,
+    platform: PhysicalPlatform
+  ): RecognitionProfile | null;
+}
+
+export type ResolveRecognitionProfile = RecognitionProfileRegistry["resolve"];
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+  }
+  return value;
+}
+
+export function recognitionAssets(
+  profile: RecognitionProfile
+): readonly RecognitionAsset[] {
+  return [
+    profile.recognizer.assets.worker,
+    ...profile.recognizer.assets.runtime.files,
+    ...profile.recognizer.assets.models
+  ];
+}
+
+function assertValidRecognitionProfile(profile: RecognitionProfile) {
+  const assets = recognitionAssets(profile);
+  const isSelfHostedPath = (path: string) =>
+    /^\/(?!\/)[^\\?#]+$/u.test(path);
+  if (
+    !isSelfHostedPath(profile.recognizer.assets.runtime.basePath) ||
+    assets.some(({ path }) => !isSelfHostedPath(path))
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id || "<unknown>"} must use self-hosted assets.`
+    );
+  }
+  if (
+    !profile.id ||
+    profile.recognizer.languages.length === 0 ||
+    profile.recognizer.assets.runtime.files.length === 0 ||
+    profile.recognizer.assets.models.length === 0 ||
+    profile.preprocessing.length === 0 ||
+    profile.notation.markers.length === 0 ||
+    assets.some(({ hash }) => !/^sha256:[a-f\d]{64}$/u.test(hash))
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id || "<unknown>"} is incomplete.`
+    );
+  }
+
+  const modelPathsMatchLanguages =
+    profile.recognizer.languages.length ===
+      profile.recognizer.assets.models.length &&
+    profile.recognizer.languages.every((language, index) =>
+      profile.recognizer.assets.models[index].path.endsWith(
+        `/${language}.traineddata.gz`
+      )
+    );
+  const modelDirectories = new Set(
+    profile.recognizer.assets.models.map(({ path }) =>
+      path.slice(0, path.lastIndexOf("/"))
+    )
+  );
+  const runtimeFilesMatchBasePath =
+    profile.recognizer.assets.runtime.files.every(({ path }) =>
+      path.startsWith(`${profile.recognizer.assets.runtime.basePath}/`)
+    );
+  const runtimeFileNames = profile.recognizer.assets.runtime.files
+    .map(({ path }) => path.slice(path.lastIndexOf("/") + 1))
+    .sort();
+  if (
+    !modelPathsMatchLanguages ||
+    modelDirectories.size !== 1 ||
+    !runtimeFilesMatchBasePath ||
+    runtimeFileNames.join("\n") !==
+      TESSERACT_LSTM_RUNTIME_FILE_NAMES.join("\n")
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id} model assets do not match its loaded configuration.`
+    );
+  }
+
+  const qualifiedAt = Date.parse(profile.evidence.qualifiedAt);
+  const expiresAt = Date.parse(profile.evidence.expiresAt);
+  if (
+    !Number.isFinite(qualifiedAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= qualifiedAt
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id} has invalid evidence dates.`
+    );
+  }
+}
+
+export function createRecognitionProfileRegistry(
+  profiles: readonly RecognitionProfile[],
+  { now = () => new Date() }: { now?: () => Date } = {}
+): RecognitionProfileRegistry {
+  const byCurrencyAndPlatform = new Map<string, RecognitionProfile>();
+
+  for (const profile of profiles) {
+    assertValidRecognitionProfile(profile);
+    const key = `${profile.sourceCurrency}:${profile.platform}`;
+    if (byCurrencyAndPlatform.has(key)) {
+      throw new Error(
+        `Exactly one recognition profile may be registered for ${key}.`
+      );
+    }
+    byCurrencyAndPlatform.set(key, deepFreeze(profile));
+  }
+
+  return {
+    resolve(sourceCurrency, platform) {
+      if (platform === "other") {
+        return null;
+      }
+      const profile = byCurrencyAndPlatform.get(
+        `${sourceCurrency}:${platform}`
+      );
+      if (
+        !profile ||
+        profile.qualificationState !== "qualified" ||
+        Date.parse(profile.evidence.expiresAt) <= now().getTime()
+      ) {
+        return null;
+      }
+      return profile;
+    }
+  };
+}
+
+// Qualification evidence is intentionally empty until a physical-device
+// report passes the product gate. Desktop tests inject frozen profiles without
+// making a production Camera-supported claim.
+export const PRODUCTION_RECOGNITION_PROFILES: readonly RecognitionProfile[] =
+  deepFreeze([]);
+
+const productionRegistry = createRecognitionProfileRegistry(
+  PRODUCTION_RECOGNITION_PROFILES
+);
+
+export const resolveQualifiedRecognitionProfile: ResolveRecognitionProfile =
+  (sourceCurrency, platform) =>
+    productionRegistry.resolve(sourceCurrency, platform);
