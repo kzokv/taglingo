@@ -1019,6 +1019,102 @@ h1 em {
   font-size: 0.72rem;
 }
 
+.manual-price-composer {
+  margin-top: 20px;
+}
+
+.manual-composer-toggle {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  width: 100%;
+  gap: 11px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 195, 107, 0.32);
+  border-radius: 14px;
+  align-items: center;
+  background: rgba(255, 195, 107, 0.055);
+  color: var(--paper);
+  text-align: left;
+}
+
+.manual-composer-toggle > span:first-child {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  place-items: center;
+  background: rgba(255, 195, 107, 0.14);
+  color: #ffc36b;
+}
+
+.manual-composer-toggle > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+}
+
+.manual-composer-toggle strong {
+  color: #ffd59a;
+  font-size: 0.75rem;
+}
+
+.manual-composer-toggle small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.manual-composer-toggle > span:last-child {
+  color: var(--mint);
+  font-size: 1.1rem;
+}
+
+.compact-composer .manual-composer-content {
+  padding: 0 14px 14px;
+  border: 1px solid rgba(255, 195, 107, 0.22);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: rgba(246, 244, 237, 0.025);
+}
+
+.manual-composer-toggle[aria-expanded="true"] {
+  border-radius: 14px 14px 0 0;
+}
+
+.compact-composer .manual-entry-form {
+  margin-top: 0;
+  padding-top: 14px;
+}
+
+.compact-composer .entered-price-card {
+  margin-top: 14px;
+}
+
+.conversion-price-source {
+  display: flex;
+  gap: 12px;
+  margin-top: 13px;
+  padding: 12px 14px;
+  border-left: 3px solid #ffc36b;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 195, 107, 0.045);
+}
+
+.conversion-price-source strong {
+  color: #ffd59a;
+  font-size: 0.72rem;
+}
+
+.conversion-price-source p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.conversion-price-source .text-button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
 .conversion-card {
   margin-top: 15px;
   padding: 15px;

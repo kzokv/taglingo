@@ -89,6 +89,161 @@ beforeEach(() => {
 });
 
 describe("Manual Price Entry journey", () => {
+  it("promotes the camera-sheet composer after five seconds without moving focus", async () => {
+    vi.useFakeTimers();
+    useMediaDevices(
+      vi
+        .fn()
+        .mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
+
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    expect(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      within(composer).queryByRole("textbox", { name: /jpy amount/i })
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(4_999);
+    });
+    expect(
+      within(composer).queryByRole("textbox", { name: /jpy amount/i })
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    const amountInput = within(composer).getByRole("textbox", {
+      name: /jpy amount/i
+    });
+    expect(amountInput).toBeInTheDocument();
+    expect(amountInput).not.toHaveFocus();
+
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /close manual price entry/i
+      })
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps the Entered Price in use until the shopper explicitly switches", async () => {
+    vi.useFakeTimers();
+    useMediaDevices(vi.fn());
+
+    render(<App />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /try without camera/i })
+    );
+
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    expect(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    );
+    fireEvent.change(
+      within(composer).getByRole("textbox", { name: /jpy amount/i }),
+      { target: { value: "5,000" } }
+    );
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /convert entered price/i
+      })
+    );
+
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/entered price in use/i);
+    expect(screen.getByText("USD 33.56")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(160);
+    });
+    expect(
+      within(
+        screen.getByRole("region", { name: /recognition summary/i })
+      ).getByText(/focused price · jpy 4,142/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/entered price in use/i);
+    expect(screen.getByText("USD 33.56")).toBeInTheDocument();
+
+    fireEvent.change(
+      within(composer).getByRole("textbox", { name: /jpy amount/i }),
+      { target: { value: "1e3" } }
+    );
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /convert entered price/i
+      })
+    );
+    expect(
+      within(composer).getByText(/decimal and grouping separators/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/entered price in use/i);
+    expect(screen.getByText("USD 33.56")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /use focused price · jpy 4,142/i
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /use focused price · jpy 4,142/i
+      })
+    );
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/focused price in use/i);
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /use entered price · jpy 5,000/i
+      })
+    );
+    expect(screen.getByText("USD 33.56")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(composer).getByRole("button", { name: /enter another price/i })
+    );
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/focused price in use/i);
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+  });
+
   it("keeps an unqualified camera candidate on Manual Price Entry", async () => {
     const user = userEvent.setup();
     const getUserMedia = vi.fn();
@@ -449,19 +604,24 @@ describe("Guest camera journey", () => {
   });
 
   it("turns the recorded Japanese observation into an accessible stable Focused Price", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers();
     const getUserMedia = vi.fn();
     useMediaDevices(getUserMedia);
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /try without camera/i })
+    );
 
     expect(screen.getByText("4,142円")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
       /preparing jpy recognition/i
     );
+    await act(async () => {
+      vi.advanceTimersByTime(160);
+    });
     expect(
-      await screen.findByText(/focused price · jpy 4,142/i)
+      screen.getByText(/focused price · jpy 4,142/i)
     ).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: /recognition summary/i })
@@ -634,11 +794,50 @@ describe("Guest camera journey", () => {
       expect.any(HTMLCanvasElement),
       "discovery"
     );
+
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    await user.click(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    );
+    await user.type(
+      within(composer).getByRole("textbox", { name: /jpy amount/i }),
+      "5,000"
+    );
+    await user.click(
+      within(composer).getByRole("button", {
+        name: /convert entered price/i
+      })
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /use focused price · jpy 4,142/i
+      })
+    );
+
     recognize.mockResolvedValue([]);
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
     expect(
       document.querySelector('[data-detected-price="JPY-4142"]')
     ).toHaveClass("focused-detection");
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", {
+            name: /use entered price · jpy 5,000/i
+          })
+        ).toBeInTheDocument(),
+      { timeout: 1_800 }
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /use entered price · jpy 5,000/i
+      })
+    );
+    expect(screen.getByText("USD 33.56")).toBeInTheDocument();
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
