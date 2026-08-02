@@ -37,7 +37,8 @@ import {
   type GuestPreferences
 } from "./domain/guestPreferences";
 import {
-  parseAmountOnlyEntry,
+  getManualPriceEntryGuidance,
+  parseManualPriceEntry,
   type EnteredPrice
 } from "./domain/manualPriceEntry";
 import {
@@ -612,6 +613,9 @@ function ManualPriceEntrySurface({
   const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
   const enteredPriceHeadingId = useId();
   const amountHelpId = useId();
+  const entryGuidance = getManualPriceEntryGuidance(
+    preferences.sourceCurrency
+  );
 
   useEffect(() => {
     setAmount("");
@@ -621,7 +625,7 @@ function ManualPriceEntrySurface({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = parseAmountOnlyEntry(preferences.sourceCurrency, amount);
+    const result = parseManualPriceEntry(preferences.sourceCurrency, amount);
     if (!result.ok) {
       setEnteredPrice(null);
       setError(result.message);
@@ -695,14 +699,14 @@ function ManualPriceEntrySurface({
               aria-describedby={amountHelpId}
               aria-invalid={Boolean(error)}
               onChange={(event) => setAmount(event.target.value)}
-              placeholder="12.34"
+              placeholder={entryGuidance.placeholder}
             />
           </div>
           <p
             id={amountHelpId}
             className={error ? "manual-entry-help error" : "manual-entry-help"}
           >
-            {error ?? "Enter digits with an optional decimal point."}
+            {error ?? entryGuidance.message}
           </p>
           <button className="primary-button" type="submit">
             Convert Entered Price <span aria-hidden="true">→</span>

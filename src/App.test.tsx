@@ -161,10 +161,13 @@ describe("Manual Price Entry journey", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(createRecognizer).not.toHaveBeenCalled();
 
-    await user.type(
-      screen.getByRole("textbox", { name: /brl amount/i }),
-      "12.34"
-    );
+    const amountInput = screen.getByRole("textbox", { name: /brl amount/i });
+    expect(amountInput).toHaveAttribute("placeholder", "1.234,56");
+    expect(
+      screen.getByText("Use 1.234,56 or R$ 1.234,56.")
+    ).toBeInTheDocument();
+
+    await user.type(amountInput, "R$ 12,34");
     await user.click(
       screen.getByRole("button", { name: /convert entered price/i })
     );
@@ -173,14 +176,14 @@ describe("Manual Price Entry journey", () => {
       name: /entered price/i
     });
     expect(enteredPrice).toHaveTextContent(/entered manually/i);
-    expect(enteredPrice).toHaveTextContent("BRL 12.34");
+    expect(enteredPrice).toHaveTextContent("BRL 12,34");
     expect(await screen.findByText("USD 24.68")).toBeInTheDocument();
     expect(window.localStorage.getItem("taglingo.guest-preferences.v1")).toBe(
       JSON.stringify({ sourceCurrency: "BRL", targetCurrency: "USD" })
     );
     expect(
       window.localStorage.getItem("taglingo.guest-preferences.v1")
-    ).not.toContain("12.34");
+    ).not.toContain("12,34");
   });
 });
 

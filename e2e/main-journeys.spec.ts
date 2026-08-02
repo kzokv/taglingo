@@ -53,13 +53,13 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
   await expect(
     page.getByText(/camera recognition is unavailable on this device/i)
   ).toBeVisible();
-  await page.getByRole("textbox", { name: /brl amount/i }).fill("12.34");
+  await page.getByRole("textbox", { name: /brl amount/i }).fill("R$ 12,34");
   await page
     .getByRole("button", { name: /convert entered price/i })
     .click();
 
   const enteredPrice = page.getByRole("region", { name: /entered price/i });
-  await expect(enteredPrice).toContainText("BRL 12.34");
+  await expect(enteredPrice).toContainText("BRL 12,34");
   await expect(enteredPrice).toContainText("not camera-derived");
   await expect(page.getByText("USD 0.08")).toBeVisible();
   expect(recognitionAssetRequests).toEqual([]);
