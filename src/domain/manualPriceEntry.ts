@@ -1,5 +1,6 @@
 import {
   currencyFractionDigits,
+  formatCurrencyMinorUnits,
   type CurrencyAmount,
   type SourceCurrencyCode
 } from "./currencies";
@@ -17,17 +18,6 @@ export type ManualPriceEntryResult =
       reason: "empty" | "invalid-format" | "precision" | "out-of-range";
       message: string;
     };
-
-function formatMinorUnits(minorUnits: bigint, fractionDigits: number): string {
-  const digits = minorUnits.toString().padStart(fractionDigits + 1, "0");
-  const integer =
-    fractionDigits === 0 ? digits : digits.slice(0, -fractionDigits);
-  const groupedInteger = BigInt(integer).toLocaleString("en-US");
-
-  return fractionDigits === 0
-    ? groupedInteger
-    : `${groupedInteger}.${digits.slice(-fractionDigits)}`;
-}
 
 export function parseAmountOnlyEntry(
   currency: SourceCurrencyCode,
@@ -76,7 +66,7 @@ export function parseAmountOnlyEntry(
   }
 
   const exactMinorUnits = Number(minorUnits);
-  const displayAmount = formatMinorUnits(minorUnits, fractionDigits);
+  const displayAmount = formatCurrencyMinorUnits(minorUnits, currency);
 
   return {
     ok: true,

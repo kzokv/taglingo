@@ -111,6 +111,23 @@ export function currencyFractionDigits(currency: CurrencyCode): number {
   );
 }
 
+export function formatCurrencyMinorUnits(
+  minorUnits: number | bigint,
+  currency: CurrencyCode
+): string {
+  const fractionDigits = currencyFractionDigits(currency);
+  const digits = BigInt(minorUnits)
+    .toString()
+    .padStart(fractionDigits + 1, "0");
+  const integer =
+    fractionDigits === 0 ? digits : digits.slice(0, -fractionDigits);
+  const groupedInteger = BigInt(integer).toLocaleString("en-US");
+
+  return fractionDigits === 0
+    ? groupedInteger
+    : `${groupedInteger}.${digits.slice(-fractionDigits)}`;
+}
+
 const normalizeSearchText = (value: string) =>
   value
     .normalize("NFKD")

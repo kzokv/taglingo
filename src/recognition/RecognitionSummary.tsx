@@ -1,5 +1,5 @@
 import {
-  currencyFractionDigits,
+  formatCurrencyMinorUnits,
   type CurrencyCode
 } from "../domain/currencies";
 import type { RecognitionView } from "./useCameraRecognition";
@@ -8,11 +8,7 @@ function formatDetectedAmount(
   minorUnits: number,
   currency: CurrencyCode
 ): string {
-  const fractionDigits = currencyFractionDigits(currency);
-  return (minorUnits / 10 ** fractionDigits).toLocaleString("en-US", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits
-  });
+  return formatCurrencyMinorUnits(minorUnits, currency);
 }
 
 export function RecognitionSummary({

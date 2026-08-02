@@ -18,7 +18,7 @@ import {
   type CameraStatus
 } from "./camera/cameraSession";
 import {
-  currencyFractionDigits,
+  formatCurrencyMinorUnits,
   hasRecognizerAdapter,
   searchTargetCurrencies,
   SOURCE_CURRENCIES,
@@ -51,6 +51,7 @@ import {
   type GuestRateView,
   type LoadGuestRate
 } from "./fx/useGuestRate";
+import { convertWithReferenceRate } from "./fx/referenceRate";
 import { createMemberRateLoader } from "./fx/memberRateClient";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import {
@@ -903,13 +904,15 @@ function ConversionRow({
     );
   }
 
-  const sourceAmount =
-    price.minorUnits / 10 ** currencyFractionDigits(sourceCurrency);
-  const converted = sourceAmount * Number(guestRate.rate.value);
-  const formatted = converted.toLocaleString("en-US", {
-    minimumFractionDigits: currencyFractionDigits(targetCurrency),
-    maximumFractionDigits: currencyFractionDigits(targetCurrency)
-  });
+  const convertedMinorUnits = convertWithReferenceRate(
+    price,
+    targetCurrency,
+    guestRate.rate.value
+  );
+  const formatted = formatCurrencyMinorUnits(
+    convertedMinorUnits,
+    targetCurrency
+  );
 
   return (
     <section

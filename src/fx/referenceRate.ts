@@ -1,4 +1,8 @@
-import type { CurrencyCode } from "../domain/currencies";
+import {
+  currencyFractionDigits,
+  type CurrencyAmount,
+  type CurrencyCode
+} from "../domain/currencies";
 import { hasExactKeys } from "../domain/exactObject";
 
 export interface RateRecord {
@@ -24,6 +28,31 @@ export interface GuestReferenceRate {
   fetchedAt: string;
   state: "fresh" | "cached" | "last-known-good" | "offline";
   attribution: string;
+}
+
+export function convertWithReferenceRate(
+  amount: CurrencyAmount,
+  targetCurrency: CurrencyCode,
+  rate: string
+): bigint {
+  if (!Number.isSafeInteger(amount.minorUnits) || amount.minorUnits < 0) {
+    throw new RangeError("Currency minor units must be a non-negative safe integer.");
+  }
+  if (!isPositiveDecimalString(rate)) {
+    throw new TypeError("Reference Rate must be a positive decimal string.");
+  }
+
+  const [rateInteger, rateFraction = ""] = rate.split(".");
+  const rateNumerator = BigInt(`${rateInteger}${rateFraction}`);
+  const targetScale = 10n ** BigInt(currencyFractionDigits(targetCurrency));
+  const denominator =
+    10n **
+    BigInt(currencyFractionDigits(amount.currency) + rateFraction.length);
+  const numerator = BigInt(amount.minorUnits) * rateNumerator * targetScale;
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+
+  return remainder * 2n >= denominator ? quotient + 1n : quotient;
 }
 
 export function isGuestReferenceRate(
