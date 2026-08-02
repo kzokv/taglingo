@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import { GuidedCameraPrototype } from "./recognition/prototype-guided-camera/GuidedCameraPrototype";
+import { ManualPriceEntryPrototype } from "./recognition/prototype-manual-entry/ManualPriceEntryPrototype";
 import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
 import type { MemberSession } from "./member/sessionToken";
 import {
@@ -53,8 +54,13 @@ function ClerkTagLingo() {
 const guidedCameraPrototype =
   import.meta.env.DEV &&
   new URLSearchParams(window.location.search).has("guidedCameraPrototype");
+const manualEntryPrototype =
+  import.meta.env.DEV &&
+  new URLSearchParams(window.location.search).has("manualEntryPrototype");
 
-const application = guidedCameraPrototype ? (
+const application = manualEntryPrototype ? (
+  <ManualPriceEntryPrototype />
+) : guidedCameraPrototype ? (
   <GuidedCameraPrototype />
 ) : publishableKey ? (
   <ClerkProvider
