@@ -4,6 +4,7 @@ import App from "../src/App";
 import type { CurrencyCode } from "../src/domain/currencies";
 import type { GuestReferenceRate } from "../src/fx/referenceRate";
 import type { MemberPreferences } from "../src/member/memberPreferencesApi";
+import { createTestRecognitionProfile } from "../src/test/recognitionProfile";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 
 function fixtureRate(
@@ -27,19 +28,29 @@ function fixtureRate(
 
 const loadRate = async (source: CurrencyCode, target: CurrencyCode) =>
   fixtureRate(source, target);
-const createFixtureRecognizer: CreateRecognizer = (_source, onProgress) => ({
+const createFixtureRecognizer: CreateRecognizer = (_profile, onProgress) => ({
   async prepare() {
     onProgress(1, "deterministic browser fixture ready");
   },
-  async recognize(_image, pass = "focused") {
+  async recognize(_image, passIdentity) {
+    const box =
+      passIdentity.kind === "discovery"
+        ? { x: 880, y: 446, width: 160, height: 80 }
+        : { x: 592, y: 111, width: 160, height: 80 };
     return [
       {
         text: "4,142円",
+        evidenceKind: "text",
         confidence: 96,
-        box:
-          pass === "discovery"
-            ? { x: 880, y: 446, width: 160, height: 80 }
-            : { x: 592, y: 111, width: 160, height: 80 }
+        box,
+        polygon: [
+          { x: box.x, y: box.y },
+          { x: box.x + box.width, y: box.y },
+          { x: box.x + box.width, y: box.y + box.height },
+          { x: box.x, y: box.y + box.height }
+        ],
+        timing: { startedAtMs: 1, completedAtMs: 2, durationMs: 1 },
+        passIdentity
       }
     ];
   },
@@ -52,8 +63,11 @@ const memberPreferences: MemberPreferences = {
 };
 const memberMode =
   new URLSearchParams(window.location.search).get("mode") === "member";
-const resolveFixtureCameraSupport = (sourceCurrency: CurrencyCode) =>
-  sourceCurrency === "JPY";
+const fixtureRecognitionProfile = createTestRecognitionProfile({
+  id: "browser-fixture-jpy"
+});
+const resolveFixtureRecognitionProfile = (sourceCurrency: CurrencyCode) =>
+  sourceCurrency === "JPY" ? fixtureRecognitionProfile : null;
 
 createRoot(document.getElementById("root")!).render(
   memberMode ? (
@@ -66,7 +80,7 @@ createRoot(document.getElementById("root")!).render(
       saveMemberPreferences={async (preferences) => preferences}
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveCameraSupport={resolveFixtureCameraSupport}
+      resolveRecognitionProfile={resolveFixtureRecognitionProfile}
       admission={
         <section aria-label="Fixture account">
           <button type="button">Sign out fixture account</button>
@@ -77,7 +91,7 @@ createRoot(document.getElementById("root")!).render(
     <App
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveCameraSupport={resolveFixtureCameraSupport}
+      resolveRecognitionProfile={resolveFixtureRecognitionProfile}
       admission={
         <section aria-label="Fixture member admission">
           <button type="button">Request fixture member access</button>
