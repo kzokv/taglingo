@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type FormEvent,
   type ReactNode
 } from "react";
 
@@ -18,15 +19,25 @@ import {
 } from "./camera/cameraSession";
 import {
   searchTargetCurrencies,
+  isRecognitionCurrency,
   SOURCE_CURRENCIES,
-  TARGET_CURRENCIES,
   type CurrencyCode,
+  type RecognitionCurrencyCode,
   type SourceCurrencyCode
 } from "./domain/currencies";
+import {
+  detectPhysicalPlatform,
+  getCurrencyCapability,
+  type PhysicalPlatform
+} from "./domain/currencyCapabilities";
 import {
   createGuestPreferenceStore,
   type GuestPreferences
 } from "./domain/guestPreferences";
+import {
+  parseAmountOnlyEntry,
+  type EnteredPrice
+} from "./domain/manualPriceEntry";
 import {
   createBrowserRateSnapshotStore,
   createOfflineGuestRateLoader
@@ -59,12 +70,17 @@ import { RecognitionSummary } from "./recognition/RecognitionSummary";
 
 import "./styles.css";
 
-type ExperienceMode = "welcome" | "camera" | "demo";
+type ExperienceMode = "welcome" | "camera" | "demo" | "manual";
 
 interface ExperiencePreferences {
   sourceCurrency: SourceCurrencyCode;
   targetCurrencies: CurrencyCode[];
 }
+
+type ResolveCameraSupport = (
+  sourceCurrency: SourceCurrencyCode,
+  platform: PhysicalPlatform
+) => boolean;
 
 type MemberAccessStatus =
   | "guest"
@@ -75,6 +91,10 @@ type MemberAccessStatus =
   | "unavailable";
 type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
+const resolveCatalogCameraSupport: ResolveCameraSupport = (
+  sourceCurrency,
+  platform
+) => getCurrencyCapability(sourceCurrency, platform).cameraSupported;
 
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
@@ -563,6 +583,166 @@ function StatusPanel({
   );
 }
 
+function ManualPriceEntrySurface({
+  preferences,
+  isApprovedMember,
+  memberAccessStatus,
+  rates,
+  cameraCandidate,
+  onPreferencesChange,
+  onClose,
+  memberStatus,
+  onContinueAsGuest
+}: {
+  preferences: ExperiencePreferences;
+  isApprovedMember: boolean;
+  memberAccessStatus: MemberAccessStatus;
+  rates: GuestRateViews;
+  cameraCandidate: boolean;
+  onPreferencesChange: (preferences: ExperiencePreferences) => void;
+  onClose: () => void;
+  memberStatus: ReactNode;
+  onContinueAsGuest: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
+  const enteredPriceHeadingId = useId();
+  const amountHelpId = useId();
+
+  useEffect(() => {
+    setAmount("");
+    setError(null);
+    setEnteredPrice(null);
+  }, [preferences.sourceCurrency]);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const result = parseAmountOnlyEntry(preferences.sourceCurrency, amount);
+    if (!result.ok) {
+      setEnteredPrice(null);
+      setError(result.message);
+      return;
+    }
+    setError(null);
+    setEnteredPrice(result.enteredPrice);
+  };
+
+  const reset = () => {
+    setAmount("");
+    setError(null);
+    setEnteredPrice(null);
+  };
+
+  return (
+    <main className="manual-entry-shell">
+      <header className="manual-entry-header">
+        <TagLingoMark />
+        <button className="close-button" type="button" onClick={onClose}>
+          <span aria-hidden="true">×</span> Close Manual Price Entry
+        </button>
+      </header>
+
+      <section className="manual-entry-panel">
+        <div className="manual-entry-intro">
+          <span className="manual-entry-kicker">Available anytime</span>
+          <h1>Manual Price Entry</h1>
+          <p>
+            Type the amount shown on the price tag. Entered Prices stay on this
+            device and are not saved.
+          </p>
+        </div>
+
+        <CurrencySettings
+          preferences={preferences}
+          onChange={onPreferencesChange}
+          isApprovedMember={isApprovedMember}
+          memberAccessStatus={memberAccessStatus}
+          compact
+        />
+        {memberStatus}
+
+        <div className="camera-capability-note" role="status">
+          <strong>Camera recognition is unavailable on this device.</strong>
+          <p>
+            {cameraCandidate
+              ? `${preferences.sourceCurrency} is an initial camera qualification candidate; ` +
+                "Manual Price Entry remains available while evidence is pending."
+              : `${preferences.sourceCurrency} is currently Manual Price Entry only.`}
+          </p>
+        </div>
+
+        <form className="manual-entry-form" onSubmit={submit}>
+          <label htmlFor="manual-price-amount">
+            <span>{preferences.sourceCurrency} amount</span>
+          </label>
+          <div
+            className={
+              error ? "manual-amount-field has-error" : "manual-amount-field"
+            }
+          >
+            <span aria-hidden="true">{preferences.sourceCurrency}</span>
+            <input
+              id="manual-price-amount"
+              name="manualPriceAmount"
+              inputMode="decimal"
+              autoComplete="off"
+              maxLength={32}
+              value={amount}
+              aria-describedby={amountHelpId}
+              aria-invalid={Boolean(error)}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="12.34"
+            />
+          </div>
+          <p
+            id={amountHelpId}
+            className={error ? "manual-entry-help error" : "manual-entry-help"}
+          >
+            {error ?? "Enter digits with an optional decimal point."}
+          </p>
+          <button className="primary-button" type="submit">
+            Convert Entered Price <span aria-hidden="true">→</span>
+          </button>
+        </form>
+
+        {enteredPrice ? (
+          <section
+            className="entered-price-card"
+            role="region"
+            aria-labelledby={enteredPriceHeadingId}
+          >
+            <div>
+              <span aria-hidden="true">✎</span>
+              <div>
+                <h2 id={enteredPriceHeadingId}>Entered Price</h2>
+                <p>Entered manually · not camera-derived</p>
+              </div>
+            </div>
+            <strong>
+              {enteredPrice.currency} {enteredPrice.displayAmount}
+            </strong>
+            <button className="text-button" type="button" onClick={reset}>
+              Enter another price
+            </button>
+          </section>
+        ) : null}
+
+        <ConversionLedger
+          priceMinorUnits={enteredPrice?.minorUnits ?? null}
+          priceCurrency={enteredPrice?.currency ?? null}
+          sourceCurrency={preferences.sourceCurrency}
+          targetCurrencies={preferences.targetCurrencies}
+          isApprovedMember={isApprovedMember}
+          rates={rates}
+          emptyMessage="Enter a price to see the conversion."
+          onContinueAsGuest={onContinueAsGuest}
+        />
+      </section>
+    </main>
+  );
+}
+
 function CameraSurface({
   demo,
   snapshot,
@@ -581,7 +761,9 @@ function CameraSurface({
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
-  preferences: ExperiencePreferences;
+  preferences: ExperiencePreferences & {
+    sourceCurrency: RecognitionCurrencyCode;
+  };
   isApprovedMember: boolean;
   memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
@@ -657,8 +839,8 @@ function CameraSurface({
         />
         <RecognitionSummary recognition={recognition} demo={demo} />
         <ConversionLedger
-          focusedMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
-          focusedCurrency={recognition.focusedPrice?.currency ?? null}
+          priceMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
+          priceCurrency={recognition.focusedPrice?.currency ?? null}
           sourceCurrency={preferences.sourceCurrency}
           targetCurrencies={preferences.targetCurrencies}
           isApprovedMember={isApprovedMember}
@@ -678,17 +860,19 @@ function currencyFractionDigits(currency: CurrencyCode): number {
 }
 
 function ConversionRow({
-  focusedMinorUnits,
-  focusedCurrency,
+  priceMinorUnits,
+  priceCurrency,
   sourceCurrency,
   targetCurrency,
-  guestRate
+  guestRate,
+  emptyMessage
 }: {
-  focusedMinorUnits: number | null;
-  focusedCurrency: CurrencyCode | null;
+  priceMinorUnits: number | null;
+  priceCurrency: CurrencyCode | null;
   sourceCurrency: CurrencyCode;
   targetCurrency: CurrencyCode;
   guestRate: GuestRateView;
+  emptyMessage: string;
 }) {
   if (guestRate.phase === "loading") {
     return (
@@ -717,20 +901,20 @@ function ConversionRow({
     );
   }
   if (
-    focusedMinorUnits === null ||
-    focusedCurrency === null ||
-    focusedCurrency !== sourceCurrency
+    priceMinorUnits === null ||
+    priceCurrency === null ||
+    priceCurrency !== sourceCurrency
   ) {
     return (
       <div className="conversion-card" role="status">
         <strong>Reference Rate ready</strong>
-        <p>Point at a price to see the Guest conversion.</p>
+        <p>{emptyMessage}</p>
       </div>
     );
   }
 
   const sourceAmount =
-    focusedMinorUnits / 10 ** currencyFractionDigits(sourceCurrency);
+    priceMinorUnits / 10 ** currencyFractionDigits(sourceCurrency);
   const converted = sourceAmount * Number(guestRate.rate.value);
   const formatted = converted.toLocaleString("en-US", {
     minimumFractionDigits: currencyFractionDigits(targetCurrency),
@@ -774,20 +958,22 @@ function ConversionRow({
 }
 
 function ConversionLedger({
-  focusedMinorUnits,
-  focusedCurrency,
+  priceMinorUnits,
+  priceCurrency,
   sourceCurrency,
   targetCurrencies,
   isApprovedMember,
   rates,
+  emptyMessage = "Point at a price to see the conversion.",
   onContinueAsGuest
 }: {
-  focusedMinorUnits: number | null;
-  focusedCurrency: CurrencyCode | null;
+  priceMinorUnits: number | null;
+  priceCurrency: CurrencyCode | null;
   sourceCurrency: CurrencyCode;
   targetCurrencies: CurrencyCode[];
   isApprovedMember: boolean;
   rates: GuestRateViews;
+  emptyMessage?: string;
   onContinueAsGuest: () => void;
 }) {
   const accessFailure = targetCurrencies
@@ -823,8 +1009,8 @@ function ConversionLedger({
           rates[targetCurrency].reason === "unauthorized") ? null : (
           <ConversionRow
             key={targetCurrency}
-            focusedMinorUnits={focusedMinorUnits}
-            focusedCurrency={focusedCurrency}
+            priceMinorUnits={priceMinorUnits}
+            priceCurrency={priceCurrency}
             sourceCurrency={sourceCurrency}
             targetCurrency={targetCurrency}
             guestRate={
@@ -835,6 +1021,7 @@ function ConversionLedger({
                 retry: () => undefined
               }
             }
+            emptyMessage={emptyMessage}
           />
         )
       ))}
@@ -935,6 +1122,7 @@ function MemberStatusPanel({
 
 export default function App({
   createRecognizer = createBrowserRecognizer,
+  resolveCameraSupport = resolveCatalogCameraSupport,
   loadGuestRate,
   admission,
   memberSession = null,
@@ -942,6 +1130,7 @@ export default function App({
   saveMemberPreferences = saveMemberPreferencesToApi
 }: {
   createRecognizer?: CreateRecognizer;
+  resolveCameraSupport?: ResolveCameraSupport;
   loadGuestRate?: LoadGuestRate;
   admission?: ReactNode;
   memberSession?: MemberSession | null;
@@ -1050,6 +1239,14 @@ export default function App({
         sourceCurrency: guestPreferences.sourceCurrency,
         targetCurrencies: [guestPreferences.targetCurrency]
       };
+  const physicalPlatform = detectPhysicalPlatform(navigator.userAgent);
+  const currencyCapability = getCurrencyCapability(
+    preferences.sourceCurrency,
+    physicalPlatform
+  );
+  const cameraSupported =
+    isRecognitionCurrency(preferences.sourceCurrency) &&
+    resolveCameraSupport(preferences.sourceCurrency, physicalPlatform);
   const ratePreferences: ExperiencePreferences =
     isApprovedMember && synchronizedMemberPreferences
       ? {
@@ -1143,27 +1340,44 @@ export default function App({
       };
       setMemberPreferences(synchronized);
       persistMemberPreferences(synchronized);
-      return;
+    } else {
+      const guest: GuestPreferences = {
+        sourceCurrency: nextPreferences.sourceCurrency,
+        targetCurrency: nextPreferences.targetCurrencies[0]
+      };
+      setGuestPreferences(guest);
+      preferenceStoreRef.current.save(guest);
     }
-    const guest: GuestPreferences = {
-      sourceCurrency: nextPreferences.sourceCurrency,
-      targetCurrency: nextPreferences.targetCurrencies[0]
-    };
-    setGuestPreferences(guest);
-    preferenceStoreRef.current.save(guest);
+
+    if (
+      nextPreferences.sourceCurrency !== preferences.sourceCurrency &&
+      (!isRecognitionCurrency(nextPreferences.sourceCurrency) ||
+        !resolveCameraSupport(
+          nextPreferences.sourceCurrency,
+          physicalPlatform
+        ))
+    ) {
+      sessionRef.current?.stop();
+      setMode("manual");
+    }
   };
 
   const startCamera = async () => {
+    if (!cameraSupported) {
+      sessionRef.current?.stop();
+      setMode("manual");
+      return;
+    }
     setMode("camera");
     await sessionRef.current?.start();
   };
 
   const openDemo = () => {
     sessionRef.current?.stop();
-    setMode("demo");
+    setMode(cameraSupported ? "demo" : "manual");
   };
 
-  const closeCamera = () => {
+  const closeExperience = () => {
     sessionRef.current?.stop();
     setMode("welcome");
   };
@@ -1183,18 +1397,41 @@ export default function App({
     />
   );
 
-  if (mode !== "welcome") {
+  if (mode === "manual") {
+    return (
+      <ManualPriceEntrySurface
+        preferences={preferences}
+        isApprovedMember={isApprovedMember}
+        memberAccessStatus={memberAccessStatus}
+        rates={displayedRates}
+        cameraCandidate={currencyCapability.cameraCandidate}
+        onPreferencesChange={updatePreferences}
+        onClose={closeExperience}
+        memberStatus={memberStatus}
+        onContinueAsGuest={() => setUseGuestMode(true)}
+      />
+    );
+  }
+
+  if (
+    mode !== "welcome" &&
+    isRecognitionCurrency(preferences.sourceCurrency) &&
+    cameraSupported
+  ) {
     return (
       <CameraSurface
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
-        preferences={preferences}
+        preferences={{
+          ...preferences,
+          sourceCurrency: preferences.sourceCurrency
+        }}
         isApprovedMember={isApprovedMember}
         memberAccessStatus={memberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         createRecognizer={createRecognizer}
-        onClose={closeCamera}
+        onClose={closeExperience}
         onRetry={startCamera}
         onPlaybackError={handlePlaybackError}
         onUseDemo={openDemo}
@@ -1236,13 +1473,13 @@ export default function App({
           <span>Built for travel</span>
         </div>
         <h1>
-          Point at a price.
+          Understand any price.
           <br />
           <em>Keep it private.</em>
         </h1>
         <p className="hero-copy">
-          TagLingo will recognize a price in your camera view and translate it
-          into a currency you know—without sending the image anywhere.
+          Choose any provider-backed Source Currency, enter the amount, and
+          translate it into a currency you know with a Reference Rate.
         </p>
 
         <div className="permission-card">
@@ -1250,11 +1487,22 @@ export default function App({
             <span />
           </div>
           <div>
-            <h2>Before we ask for camera access</h2>
-            <p>
-              The rear camera helps you point naturally at retail price tags.
-              Camera frames stay on this device and are never uploaded.
-            </p>
+            <h2>
+              {cameraSupported
+                ? "Before we ask for camera access"
+                : "Manual Price Entry is ready"}
+            </h2>
+            {cameraSupported ? (
+              <p>
+                The rear camera helps you point naturally at retail price tags.
+                Camera frames stay on this device and are never uploaded.
+              </p>
+            ) : (
+              <p>
+                Camera recognition is unavailable on this device. You can
+                still enter a price without granting camera access.
+              </p>
+            )}
           </div>
         </div>
 
@@ -1275,13 +1523,18 @@ export default function App({
 
         <div className="primary-actions">
           <button className="primary-button" type="button" onClick={startCamera}>
-            <span className="button-camera" aria-hidden="true" />
-            Open camera
+            <span
+              className={cameraSupported ? "button-camera" : "button-manual"}
+              aria-hidden="true"
+            />
+            {cameraSupported ? "Open camera" : "Enter price manually"}
             <span aria-hidden="true">→</span>
           </button>
-          <button className="secondary-button" type="button" onClick={openDemo}>
-            Try without camera
-          </button>
+          {cameraSupported ? (
+            <button className="secondary-button" type="button" onClick={openDemo}>
+              Try without camera
+            </button>
+          ) : null}
           {failure ? (
             <button className="retry-button" type="button" onClick={startCamera}>
               Try camera again
@@ -1312,9 +1565,12 @@ export default function App({
 
       <footer>
         <p>
-          Recognition setup begins only after you choose a camera or demo path.
+          Manual Price Entry is universal. Camera availability is qualified
+          separately for each Source Currency and physical platform.
         </p>
-        <p>Physical-iPhone OCR accuracy and latency remain unvalidated.</p>
+        {cameraSupported ? (
+          <p>Physical-device qualification applies to this camera path.</p>
+        ) : null}
       </footer>
     </main>
   );

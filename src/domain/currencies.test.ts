@@ -6,21 +6,41 @@ import {
 } from "./currencies";
 
 describe("Currency Catalog", () => {
-  it("offers exactly the twelve optimized Source Currencies", () => {
+  it("offers every provider-backed currency for Manual Price Entry", () => {
     expect(SOURCE_CURRENCIES.map(({ code }) => code)).toEqual([
-      "USD",
-      "EUR",
-      "JPY",
-      "GBP",
-      "CNY",
-      "KRW",
-      "TWD",
-      "HKD",
       "AUD",
+      "BRL",
       "CAD",
+      "CHF",
+      "CNY",
+      "CZK",
+      "DKK",
+      "EUR",
+      "GBP",
+      "HKD",
+      "HUF",
+      "IDR",
+      "ILS",
+      "INR",
+      "ISK",
+      "JPY",
+      "KRW",
+      "MXN",
+      "MYR",
+      "NOK",
+      "NZD",
+      "PHP",
+      "PLN",
+      "RON",
+      "SEK",
       "SGD",
-      "CHF"
+      "THB",
+      "TRY",
+      "TWD",
+      "USD",
+      "ZAR"
     ]);
+    expect(SOURCE_CURRENCIES).toHaveLength(31);
   });
 
   it.each([

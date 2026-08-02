@@ -37,7 +37,7 @@ export interface Currency {
   aliases: readonly string[];
 }
 
-export const SOURCE_CURRENCIES = [
+const CAMERA_RECOGNITION_CURRENCIES = [
   { code: "USD", name: "US Dollar", aliases: ["dollar", "dólar", "美元"] },
   { code: "EUR", name: "Euro", aliases: ["euro", "歐元", "欧元"] },
   { code: "JPY", name: "Japanese Yen", aliases: ["yen", "円", "日圓", "日元"] },
@@ -52,11 +52,12 @@ export const SOURCE_CURRENCIES = [
   { code: "CHF", name: "Swiss Franc", aliases: ["franc", "瑞士法郎"] }
 ] as const satisfies readonly Currency[];
 
-export type SourceCurrencyCode = (typeof SOURCE_CURRENCIES)[number]["code"];
+export type RecognitionCurrencyCode =
+  (typeof CAMERA_RECOGNITION_CURRENCIES)[number]["code"];
 
 // Wayfinder verified these searchable prototype targets with Frankfurter v2
 // on 2026-07-30. The FX Gateway remains authoritative for pair availability.
-const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [
+const ADDITIONAL_FRANKFURTER_CURRENCIES = [
   { code: "BRL", name: "Brazilian Real", aliases: ["real", "real brasileiro"] },
   { code: "CZK", name: "Czech Koruna", aliases: ["koruna", "česká koruna"] },
   { code: "DKK", name: "Danish Krone", aliases: ["krone", "dansk krone"] },
@@ -78,10 +79,21 @@ const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [
   { code: "ZAR", name: "South African Rand", aliases: ["rand"] }
 ] as const satisfies readonly Currency[];
 
-export const TARGET_CURRENCIES: readonly Currency[] = [
-  ...SOURCE_CURRENCIES,
-  ...ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES
+const PROVIDER_CURRENCIES: readonly Currency[] = [
+  ...CAMERA_RECOGNITION_CURRENCIES,
+  ...ADDITIONAL_FRANKFURTER_CURRENCIES
 ].sort((left, right) => left.code.localeCompare(right.code));
+
+export const SOURCE_CURRENCIES = PROVIDER_CURRENCIES;
+export const TARGET_CURRENCIES = PROVIDER_CURRENCIES;
+
+export type SourceCurrencyCode = CurrencyCode;
+
+export function isRecognitionCurrency(
+  value: SourceCurrencyCode
+): value is RecognitionCurrencyCode {
+  return CAMERA_RECOGNITION_CURRENCIES.some(({ code }) => code === value);
+}
 
 const normalizeSearchText = (value: string) =>
   value
