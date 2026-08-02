@@ -17,7 +17,8 @@
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "prototype:performance-budgets": "node src/recognition/prototype-performance-budgets/prototype.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.14.0",
