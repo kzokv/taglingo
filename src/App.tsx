@@ -415,12 +415,14 @@ function VideoPreview({
   );
 }
 
-function FocusReticle({
+function RecognitionOverlay({
   demo,
-  recognition
+  recognition,
+  onCaptureGuideReady
 }: {
   demo: boolean;
   recognition: RecognitionView;
+  onCaptureGuideReady: (element: HTMLDivElement | null) => void;
 }) {
   const displayedPrices =
     recognition.focusedPrice &&
@@ -466,7 +468,12 @@ function FocusReticle({
           </span>
         </div>
       ))}
-      <div className="reticle" aria-hidden="true">
+      <div
+        ref={onCaptureGuideReady}
+        className="capture-guide"
+        aria-hidden="true"
+        data-recognition-phase={recognition.phase}
+      >
         <i />
         <i />
         <i />
@@ -871,6 +878,7 @@ function CameraSurface({
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
+  const [captureGuide, setCaptureGuide] = useState<HTMLElement | null>(null);
   const [recognitionRestartKey, setRecognitionRestartKey] = useState(0);
   const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
   const [manualEntryExpanded, setManualEntryExpanded] = useState(false);
@@ -884,6 +892,7 @@ function CameraSurface({
     profile: recognitionProfile,
     video,
     preview,
+    captureGuide,
     createRecognizer,
     recognitionRestartKey
   });
@@ -991,7 +1000,11 @@ function CameraSurface({
           />
         ) : null}
         <div className={`preview-fallback ${demo ? "demo-preview" : ""}`} />
-        <FocusReticle demo={demo} recognition={recognition} />
+        <RecognitionOverlay
+          demo={demo}
+          recognition={recognition}
+          onCaptureGuideReady={setCaptureGuide}
+        />
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
         </div>

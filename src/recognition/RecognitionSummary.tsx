@@ -20,9 +20,9 @@ export function RecognitionSummary({
       : "No Detected Price yet";
   const guidance = recognition.focusedPrice
     ? "Two compatible observations matched the exact price-token rectangle."
-    : demo
-      ? "The recorded observation is being checked twice for stability."
-      : "Hold steady, improve the lighting, or move closer to the price tag.";
+    : demo || recognition.phase === "stabilizing"
+      ? "Hold steady while the current observation is checked for stability."
+      : "Place one price inside the Capture Guide, improve the lighting, or move closer.";
 
   return (
     <section className="recognition-note" aria-label="Recognition summary">

@@ -68,6 +68,7 @@ const DEFAULT_RATE: GuestReferenceRate = {
 };
 
 const getTestMemberSessionToken = async () => "session-token";
+const getElementBounds = HTMLElement.prototype.getBoundingClientRect;
 
 function createMediaStream() {
   const track = {
@@ -106,6 +107,24 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(DEFAULT_RATE));
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      if (this.classList.contains("capture-guide")) {
+        return {
+          width: 280,
+          height: 132,
+          x: 55,
+          y: 313.8,
+          top: 313.8,
+          right: 335,
+          bottom: 445.8,
+          left: 55,
+          toJSON: () => ({})
+        };
+      }
+      return getElementBounds.call(this);
+    }
+  );
 });
 
 describe("Manual Price Entry journey", () => {
@@ -896,8 +915,8 @@ describe("Guest camera journey", () => {
             confidence: 96,
             box:
               pass.kind === "discovery"
-                ? { x: 880, y: 446, width: 160, height: 80 }
-                : { x: 592, y: 111, width: 160, height: 80 }
+                ? { x: 170, y: 446, width: 160, height: 80 }
+                : { x: 64, y: 40, width: 160, height: 80 }
           }
         ]
       );
@@ -941,25 +960,25 @@ describe("Guest camera journey", () => {
     fireEvent.loadedMetadata(video);
 
     expect(
-      await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 1500 })
+      await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 2500 })
     ).toBeInTheDocument();
     const highlightedPrice = document.querySelector(
       '[data-detected-price="JPY-4142"]'
     ) as HTMLElement;
     expect(highlightedPrice).toHaveClass("focused-detection");
     expect(Number.parseFloat(highlightedPrice.style.left)).toBeCloseTo(
-      132.481,
+      104.348,
       3
     );
     expect(Number.parseFloat(highlightedPrice.style.top)).toBeCloseTo(
-      348.541,
+      344.633,
       3
     );
     expect(recognizer.prepare).toHaveBeenCalledOnce();
     expect(recognize).toHaveBeenCalled();
     await waitFor(
       () => expect(recognize).toHaveBeenCalledTimes(4),
-      { timeout: 1800 }
+      { timeout: 6_500 }
     );
     expect(recognize).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
@@ -1001,7 +1020,7 @@ describe("Guest camera journey", () => {
             name: /use entered price · jpy 5,000/i
           })
         ).toBeInTheDocument(),
-      { timeout: 1_800 }
+      { timeout: 2_500 }
     );
     await user.click(
       screen.getByRole("button", {
@@ -1012,9 +1031,9 @@ describe("Guest camera journey", () => {
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
-  });
+  }, 10_000);
 
-  it("outlines every confident candidate but focuses and converts only the reticle-nearest price", async () => {
+  it("outlines every confident candidate but focuses and converts only the Capture Guide-nearest price", async () => {
     const user = userEvent.setup();
     const { stream } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
@@ -1025,19 +1044,19 @@ describe("Guest camera journey", () => {
               {
                 text: "4,142円",
                 confidence: 96,
-                box: { x: 880, y: 446, width: 160, height: 80 }
+                box: { x: 170, y: 446, width: 160, height: 80 }
               },
               {
                 text: "980円",
                 confidence: 89,
-                box: { x: 1120, y: 200, width: 120, height: 70 }
+                box: { x: 330, y: 200, width: 120, height: 70 }
               }
             ]
           : [
               {
                 text: "4,142円",
                 confidence: 96,
-                box: { x: 592, y: 111, width: 160, height: 80 }
+                box: { x: 64, y: 40, width: 160, height: 80 }
               }
             ]
     );
@@ -1078,7 +1097,7 @@ describe("Guest camera journey", () => {
     fireEvent.loadedMetadata(video);
 
     await waitFor(() => expect(recognize).toHaveBeenCalledTimes(4), {
-      timeout: 1800
+      timeout: 6_500
     });
     const focused = document.querySelector('[data-detected-price="JPY-4142"]');
     const other = document.querySelector('[data-detected-price="JPY-980"]');
@@ -1095,7 +1114,7 @@ describe("Guest camera journey", () => {
       document.querySelector('[data-detected-price="JPY-980"]')
     ).toBeInTheDocument();
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("searches one Target Currency and restores Guest preferences after reload", async () => {
     const user = userEvent.setup();

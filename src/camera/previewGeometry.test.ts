@@ -2,10 +2,31 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateCoverGeometry,
+  mapPreviewRegionToCamera,
   mapSampleBoxToPreview
 } from "./previewGeometry";
 
 describe("camera preview geometry", () => {
+  it("maps the visible Capture Guide and full preview to their exact camera crops", () => {
+    const camera = { width: 200, height: 100 };
+    const preview = { width: 100, height: 100 };
+
+    expect(
+      mapPreviewRegionToCamera(
+        { x: 25, y: 20, width: 50, height: 40 },
+        camera,
+        preview
+      )
+    ).toEqual({ x: 75, y: 20, width: 50, height: 40 });
+    expect(
+      mapPreviewRegionToCamera(
+        { x: 0, y: 0, width: 100, height: 100 },
+        camera,
+        preview
+      )
+    ).toEqual({ x: 50, y: 0, width: 100, height: 100 });
+  });
+
   it("centers a landscape camera inside a portrait cover preview", () => {
     expect(
       calculateCoverGeometry(
