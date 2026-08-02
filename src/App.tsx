@@ -18,11 +18,13 @@ import {
   type CameraStatus
 } from "./camera/cameraSession";
 import {
+  currencyFractionDigits,
+  hasRecognizerAdapter,
   searchTargetCurrencies,
-  isRecognitionCurrency,
   SOURCE_CURRENCIES,
+  type CurrencyAmount,
   type CurrencyCode,
-  type RecognitionCurrencyCode,
+  type RecognizerAdapterCurrencyCode,
   type SourceCurrencyCode
 } from "./domain/currencies";
 import {
@@ -588,7 +590,7 @@ function ManualPriceEntrySurface({
   isApprovedMember,
   memberAccessStatus,
   rates,
-  cameraCandidate,
+  cameraQualificationCandidate,
   onPreferencesChange,
   onClose,
   memberStatus,
@@ -598,7 +600,7 @@ function ManualPriceEntrySurface({
   isApprovedMember: boolean;
   memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
-  cameraCandidate: boolean;
+  cameraQualificationCandidate: boolean;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   onClose: () => void;
   memberStatus: ReactNode;
@@ -665,7 +667,7 @@ function ManualPriceEntrySurface({
         <div className="camera-capability-note" role="status">
           <strong>Camera recognition is unavailable on this device.</strong>
           <p>
-            {cameraCandidate
+            {cameraQualificationCandidate
               ? `${preferences.sourceCurrency} is an initial camera qualification candidate; ` +
                 "Manual Price Entry remains available while evidence is pending."
               : `${preferences.sourceCurrency} is currently Manual Price Entry only.`}
@@ -729,8 +731,7 @@ function ManualPriceEntrySurface({
         ) : null}
 
         <ConversionLedger
-          priceMinorUnits={enteredPrice?.minorUnits ?? null}
-          priceCurrency={enteredPrice?.currency ?? null}
+          price={enteredPrice}
           sourceCurrency={preferences.sourceCurrency}
           targetCurrencies={preferences.targetCurrencies}
           isApprovedMember={isApprovedMember}
@@ -762,7 +763,7 @@ function CameraSurface({
   demo: boolean;
   snapshot: CameraSnapshot;
   preferences: ExperiencePreferences & {
-    sourceCurrency: RecognitionCurrencyCode;
+    sourceCurrency: RecognizerAdapterCurrencyCode;
   };
   isApprovedMember: boolean;
   memberAccessStatus: MemberAccessStatus;
@@ -839,8 +840,7 @@ function CameraSurface({
         />
         <RecognitionSummary recognition={recognition} demo={demo} />
         <ConversionLedger
-          priceMinorUnits={recognition.focusedPrice?.minorUnits ?? null}
-          priceCurrency={recognition.focusedPrice?.currency ?? null}
+          price={recognition.focusedPrice}
           sourceCurrency={preferences.sourceCurrency}
           targetCurrencies={preferences.targetCurrencies}
           isApprovedMember={isApprovedMember}
@@ -852,23 +852,14 @@ function CameraSurface({
   );
 }
 
-function currencyFractionDigits(currency: CurrencyCode): number {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency
-  }).resolvedOptions().maximumFractionDigits ?? 2;
-}
-
 function ConversionRow({
-  priceMinorUnits,
-  priceCurrency,
+  price,
   sourceCurrency,
   targetCurrency,
   guestRate,
   emptyMessage
 }: {
-  priceMinorUnits: number | null;
-  priceCurrency: CurrencyCode | null;
+  price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
   targetCurrency: CurrencyCode;
   guestRate: GuestRateView;
@@ -901,9 +892,8 @@ function ConversionRow({
     );
   }
   if (
-    priceMinorUnits === null ||
-    priceCurrency === null ||
-    priceCurrency !== sourceCurrency
+    price === null ||
+    price.currency !== sourceCurrency
   ) {
     return (
       <div className="conversion-card" role="status">
@@ -914,7 +904,7 @@ function ConversionRow({
   }
 
   const sourceAmount =
-    priceMinorUnits / 10 ** currencyFractionDigits(sourceCurrency);
+    price.minorUnits / 10 ** currencyFractionDigits(sourceCurrency);
   const converted = sourceAmount * Number(guestRate.rate.value);
   const formatted = converted.toLocaleString("en-US", {
     minimumFractionDigits: currencyFractionDigits(targetCurrency),
@@ -958,8 +948,7 @@ function ConversionRow({
 }
 
 function ConversionLedger({
-  priceMinorUnits,
-  priceCurrency,
+  price,
   sourceCurrency,
   targetCurrencies,
   isApprovedMember,
@@ -967,8 +956,7 @@ function ConversionLedger({
   emptyMessage = "Point at a price to see the conversion.",
   onContinueAsGuest
 }: {
-  priceMinorUnits: number | null;
-  priceCurrency: CurrencyCode | null;
+  price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
   targetCurrencies: CurrencyCode[];
   isApprovedMember: boolean;
@@ -1009,8 +997,7 @@ function ConversionLedger({
           rates[targetCurrency].reason === "unauthorized") ? null : (
           <ConversionRow
             key={targetCurrency}
-            priceMinorUnits={priceMinorUnits}
-            priceCurrency={priceCurrency}
+            price={price}
             sourceCurrency={sourceCurrency}
             targetCurrency={targetCurrency}
             guestRate={
@@ -1245,7 +1232,7 @@ export default function App({
     physicalPlatform
   );
   const cameraSupported =
-    isRecognitionCurrency(preferences.sourceCurrency) &&
+    hasRecognizerAdapter(preferences.sourceCurrency) &&
     resolveCameraSupport(preferences.sourceCurrency, physicalPlatform);
   const ratePreferences: ExperiencePreferences =
     isApprovedMember && synchronizedMemberPreferences
@@ -1351,7 +1338,7 @@ export default function App({
 
     if (
       nextPreferences.sourceCurrency !== preferences.sourceCurrency &&
-      (!isRecognitionCurrency(nextPreferences.sourceCurrency) ||
+      (!hasRecognizerAdapter(nextPreferences.sourceCurrency) ||
         !resolveCameraSupport(
           nextPreferences.sourceCurrency,
           physicalPlatform
@@ -1404,7 +1391,9 @@ export default function App({
         isApprovedMember={isApprovedMember}
         memberAccessStatus={memberAccessStatus}
         rates={displayedRates}
-        cameraCandidate={currencyCapability.cameraCandidate}
+        cameraQualificationCandidate={
+          currencyCapability.cameraQualificationCandidate
+        }
         onPreferencesChange={updatePreferences}
         onClose={closeExperience}
         memberStatus={memberStatus}
@@ -1415,7 +1404,7 @@ export default function App({
 
   if (
     mode !== "welcome" &&
-    isRecognitionCurrency(preferences.sourceCurrency) &&
+    hasRecognizerAdapter(preferences.sourceCurrency) &&
     cameraSupported
   ) {
     return (

@@ -37,7 +37,14 @@ export interface Currency {
   aliases: readonly string[];
 }
 
-const CAMERA_RECOGNITION_CURRENCIES = [
+export interface CurrencyAmount {
+  currency: CurrencyCode;
+  minorUnits: number;
+}
+
+// Technical boundary for the existing deterministic recognizer adapter. This
+// list does not grant Camera-supported status to any Source Currency.
+const RECOGNIZER_ADAPTER_CURRENCIES = [
   { code: "USD", name: "US Dollar", aliases: ["dollar", "dólar", "美元"] },
   { code: "EUR", name: "Euro", aliases: ["euro", "歐元", "欧元"] },
   { code: "JPY", name: "Japanese Yen", aliases: ["yen", "円", "日圓", "日元"] },
@@ -52,8 +59,8 @@ const CAMERA_RECOGNITION_CURRENCIES = [
   { code: "CHF", name: "Swiss Franc", aliases: ["franc", "瑞士法郎"] }
 ] as const satisfies readonly Currency[];
 
-export type RecognitionCurrencyCode =
-  (typeof CAMERA_RECOGNITION_CURRENCIES)[number]["code"];
+export type RecognizerAdapterCurrencyCode =
+  (typeof RECOGNIZER_ADAPTER_CURRENCIES)[number]["code"];
 
 // Wayfinder verified these searchable prototype targets with Frankfurter v2
 // on 2026-07-30. The FX Gateway remains authoritative for pair availability.
@@ -80,7 +87,7 @@ const ADDITIONAL_FRANKFURTER_CURRENCIES = [
 ] as const satisfies readonly Currency[];
 
 const PROVIDER_CURRENCIES: readonly Currency[] = [
-  ...CAMERA_RECOGNITION_CURRENCIES,
+  ...RECOGNIZER_ADAPTER_CURRENCIES,
   ...ADDITIONAL_FRANKFURTER_CURRENCIES
 ].sort((left, right) => left.code.localeCompare(right.code));
 
@@ -89,10 +96,19 @@ export const TARGET_CURRENCIES = PROVIDER_CURRENCIES;
 
 export type SourceCurrencyCode = CurrencyCode;
 
-export function isRecognitionCurrency(
+export function hasRecognizerAdapter(
   value: SourceCurrencyCode
-): value is RecognitionCurrencyCode {
-  return CAMERA_RECOGNITION_CURRENCIES.some(({ code }) => code === value);
+): value is RecognizerAdapterCurrencyCode {
+  return RECOGNIZER_ADAPTER_CURRENCIES.some(({ code }) => code === value);
+}
+
+export function currencyFractionDigits(currency: CurrencyCode): number {
+  return (
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency
+    }).resolvedOptions().maximumFractionDigits ?? 2
+  );
 }
 
 const normalizeSearchText = (value: string) =>

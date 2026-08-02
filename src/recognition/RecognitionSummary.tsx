@@ -1,14 +1,8 @@
-import type { CurrencyCode } from "../domain/currencies";
+import {
+  currencyFractionDigits,
+  type CurrencyCode
+} from "../domain/currencies";
 import type { RecognitionView } from "./useCameraRecognition";
-
-function currencyFractionDigits(currency: CurrencyCode): number {
-  return (
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  );
-}
 
 function formatDetectedAmount(
   minorUnits: number,

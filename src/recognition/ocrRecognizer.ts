@@ -1,6 +1,6 @@
 import Tesseract from "tesseract.js";
 
-import type { RecognitionCurrencyCode } from "../domain/currencies";
+import type { RecognizerAdapterCurrencyCode } from "../domain/currencies";
 import type { OcrToken } from "./priceLocalization";
 
 export const OCR_ASSET_PATHS = {
@@ -10,7 +10,7 @@ export const OCR_ASSET_PATHS = {
 } as const;
 
 export const OCR_LANGUAGE_PROFILES: Record<
-  RecognitionCurrencyCode,
+  RecognizerAdapterCurrencyCode,
   readonly string[]
 > = {
   USD: ["eng"],
@@ -90,7 +90,7 @@ function defaultWorkerFactory(
 }
 
 export function createOcrRecognizer(
-  sourceCurrency: RecognitionCurrencyCode,
+  sourceCurrency: RecognizerAdapterCurrencyCode,
   {
     onProgress = () => undefined,
     workerFactory = defaultWorkerFactory

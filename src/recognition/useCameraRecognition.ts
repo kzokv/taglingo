@@ -4,7 +4,7 @@ import {
   mapSampleBoxToPreview,
   type Size
 } from "../camera/previewGeometry";
-import type { RecognitionCurrencyCode } from "../domain/currencies";
+import type { RecognizerAdapterCurrencyCode } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 import {
   areDetectedPricesAssociated,
@@ -43,7 +43,7 @@ export const EMPTY_RECOGNITION: RecognitionView = {
 };
 
 export type CreateRecognizer = (
-  sourceCurrency: RecognitionCurrencyCode,
+  sourceCurrency: RecognizerAdapterCurrencyCode,
   onProgress: (progress: number, status: string) => void
 ) => OcrRecognizer;
 
@@ -79,7 +79,7 @@ export function useCameraRecognition({
   recognitionRestartKey = 0
 }: {
   enabled: boolean;
-  sourceCurrency: RecognitionCurrencyCode;
+  sourceCurrency: RecognizerAdapterCurrencyCode;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
   createRecognizer: CreateRecognizer;

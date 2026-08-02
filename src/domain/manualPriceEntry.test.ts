@@ -46,4 +46,16 @@ describe("Manual Price Entry", () => {
       parseAmountOnlyEntry("USD", "9007199254740991")
     ).toMatchObject({ ok: false });
   });
+
+  it("displays the largest accepted minor-unit value without rounding", () => {
+    expect(parseAmountOnlyEntry("USD", "90071992547409.91")).toEqual({
+      ok: true,
+      enteredPrice: {
+        provenance: "entered",
+        currency: "USD",
+        minorUnits: Number.MAX_SAFE_INTEGER,
+        displayAmount: "90,071,992,547,409.91"
+      }
+    });
+  });
 });

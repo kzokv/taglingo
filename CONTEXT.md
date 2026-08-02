@@ -35,3 +35,7 @@ _Avoid_: Live rate, payment rate
 **Rate Snapshot**:
 A set of Reference Rates that share one effective date.
 _Avoid_: Cached rates, rate response
+
+**Camera Qualification Candidate**:
+A Source Currency included in the approved roadmap for earning Camera-supported status independently on each physical platform.
+_Avoid_: Camera-supported Source Currency, experimental currency

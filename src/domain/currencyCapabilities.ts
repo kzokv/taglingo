@@ -2,7 +2,7 @@ import type { SourceCurrencyCode } from "./currencies";
 
 export type PhysicalPlatform = "ios" | "android" | "other";
 
-export const CAMERA_CANDIDATE_CURRENCIES = [
+export const CAMERA_QUALIFICATION_CANDIDATE_CURRENCIES = [
   "USD",
   "EUR",
   "JPY",
@@ -23,12 +23,12 @@ export interface CurrencyCapability {
   sourceCurrency: SourceCurrencyCode;
   platform: PhysicalPlatform;
   manualPriceEntry: true;
-  cameraCandidate: boolean;
+  cameraQualificationCandidate: boolean;
   cameraSupported: boolean;
 }
 
-const CAMERA_CANDIDATE_SET = new Set<SourceCurrencyCode>(
-  CAMERA_CANDIDATE_CURRENCIES
+const CAMERA_QUALIFICATION_CANDIDATE_SET = new Set<SourceCurrencyCode>(
+  CAMERA_QUALIFICATION_CANDIDATE_CURRENCIES
 );
 
 // Camera support is earned independently per physical platform. No profile has
@@ -60,7 +60,8 @@ export function getCurrencyCapability(
     sourceCurrency,
     platform,
     manualPriceEntry: true,
-    cameraCandidate: CAMERA_CANDIDATE_SET.has(sourceCurrency),
+    cameraQualificationCandidate:
+      CAMERA_QUALIFICATION_CANDIDATE_SET.has(sourceCurrency),
     cameraSupported: CAMERA_SUPPORTED_CURRENCIES[platform].has(sourceCurrency)
   };
 }

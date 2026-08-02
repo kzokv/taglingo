@@ -1,9 +1,12 @@
-import type { SourceCurrencyCode } from "./currencies";
+import {
+  currencyFractionDigits,
+  type CurrencyAmount,
+  type SourceCurrencyCode
+} from "./currencies";
 
-export interface EnteredPrice {
+export interface EnteredPrice extends CurrencyAmount {
   provenance: "entered";
   currency: SourceCurrencyCode;
-  minorUnits: number;
   displayAmount: string;
 }
 
@@ -15,15 +18,15 @@ export type ManualPriceEntryResult =
       message: string;
     };
 
-export function currencyFractionDigits(
-  currency: SourceCurrencyCode
-): number {
-  return (
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  );
+function formatMinorUnits(minorUnits: bigint, fractionDigits: number): string {
+  const digits = minorUnits.toString().padStart(fractionDigits + 1, "0");
+  const integer =
+    fractionDigits === 0 ? digits : digits.slice(0, -fractionDigits);
+  const groupedInteger = BigInt(integer).toLocaleString("en-US");
+
+  return fractionDigits === 0
+    ? groupedInteger
+    : `${groupedInteger}.${digits.slice(-fractionDigits)}`;
 }
 
 export function parseAmountOnlyEntry(
@@ -73,12 +76,7 @@ export function parseAmountOnlyEntry(
   }
 
   const exactMinorUnits = Number(minorUnits);
-  const displayAmount = (
-    exactMinorUnits / Number(scale)
-  ).toLocaleString("en-US", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits
-  });
+  const displayAmount = formatMinorUnits(minorUnits, fractionDigits);
 
   return {
     ok: true,

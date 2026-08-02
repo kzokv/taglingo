@@ -1,4 +1,7 @@
-import type { RecognitionCurrencyCode } from "../domain/currencies";
+import type {
+  CurrencyAmount,
+  RecognizerAdapterCurrencyCode
+} from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 
 export interface OcrLineIdentity {
@@ -14,9 +17,8 @@ export interface OcrToken {
   box: Rectangle;
 }
 
-export interface DetectedPrice {
-  currency: RecognitionCurrencyCode;
-  minorUnits: number;
+export interface DetectedPrice extends CurrencyAmount {
+  currency: RecognizerAdapterCurrencyCode;
   confidence: number;
   box: Rectangle;
 }
@@ -28,7 +30,7 @@ interface PriceProfile {
   groupingSeparators: readonly string[];
 }
 
-const PRICE_PROFILES: Record<RecognitionCurrencyCode, PriceProfile> = {
+const PRICE_PROFILES: Record<RecognizerAdapterCurrencyCode, PriceProfile> = {
   USD: {
     fractionDigits: 2,
     markers: ["USD", "US$", "$"],
@@ -234,7 +236,7 @@ function parseMinorUnits(text: string, profile: PriceProfile): number | null {
 }
 
 export function localizePrices(
-  currency: RecognitionCurrencyCode,
+  currency: RecognizerAdapterCurrencyCode,
   tokens: OcrToken[]
 ): DetectedPrice[] {
   const normalizedTokens = tokens.map((token) => ({

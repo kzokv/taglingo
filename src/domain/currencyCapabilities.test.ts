@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SOURCE_CURRENCIES } from "./currencies";
 import {
-  CAMERA_CANDIDATE_CURRENCIES,
+  CAMERA_QUALIFICATION_CANDIDATE_CURRENCIES,
   detectPhysicalPlatform,
   getCurrencyCapability
 } from "./currencyCapabilities";
@@ -18,7 +18,7 @@ describe("Currency Capability Catalog", () => {
   });
 
   it("identifies exactly the fourteen initial camera candidates", () => {
-    expect(CAMERA_CANDIDATE_CURRENCIES).toEqual([
+    expect(CAMERA_QUALIFICATION_CANDIDATE_CURRENCIES).toEqual([
       "USD",
       "EUR",
       "JPY",
@@ -38,17 +38,17 @@ describe("Currency Capability Catalog", () => {
 
   it("keeps camera support platform-specific and unqualified by default", () => {
     expect(getCurrencyCapability("JPY", "ios")).toMatchObject({
-      cameraCandidate: true,
+      cameraQualificationCandidate: true,
       cameraSupported: false,
       platform: "ios"
     });
     expect(getCurrencyCapability("JPY", "android")).toMatchObject({
-      cameraCandidate: true,
+      cameraQualificationCandidate: true,
       cameraSupported: false,
       platform: "android"
     });
     expect(getCurrencyCapability("BRL", "ios")).toMatchObject({
-      cameraCandidate: false,
+      cameraQualificationCandidate: false,
       cameraSupported: false
     });
   });
