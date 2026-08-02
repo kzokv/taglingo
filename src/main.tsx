@@ -3,6 +3,7 @@ import { StrictMode, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import { GuidedCameraPrototype } from "./recognition/prototype-guided-camera/GuidedCameraPrototype";
 import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
 import type { MemberSession } from "./member/sessionToken";
 import {
@@ -49,7 +50,13 @@ function ClerkTagLingo() {
   );
 }
 
-const application = publishableKey ? (
+const guidedCameraPrototype =
+  import.meta.env.DEV &&
+  new URLSearchParams(window.location.search).has("guidedCameraPrototype");
+
+const application = guidedCameraPrototype ? (
+  <GuidedCameraPrototype />
+) : publishableKey ? (
   <ClerkProvider
     publishableKey={publishableKey}
     signInUrl={CLERK_ACCESS_ROUTES.signIn}
