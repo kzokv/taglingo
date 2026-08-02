@@ -906,8 +906,7 @@ function ConversionRow({
 
   const convertedMinorUnits = convertWithReferenceRate(
     price,
-    targetCurrency,
-    guestRate.rate.value
+    guestRate.rate
   );
   const formatted = formatCurrencyMinorUnits(
     convertedMinorUnits,

@@ -1,15 +1,7 @@
 import {
-  formatCurrencyMinorUnits,
-  type CurrencyCode
+  formatCurrencyMinorUnits
 } from "../domain/currencies";
 import type { RecognitionView } from "./useCameraRecognition";
-
-function formatDetectedAmount(
-  minorUnits: number,
-  currency: CurrencyCode
-): string {
-  return formatCurrencyMinorUnits(minorUnits, currency);
-}
 
 export function RecognitionSummary({
   recognition,
@@ -19,7 +11,7 @@ export function RecognitionSummary({
   demo: boolean;
 }) {
   const focusedLabel = recognition.focusedPrice
-    ? `Focused Price · ${recognition.focusedPrice.currency} ${formatDetectedAmount(
+    ? `Focused Price · ${recognition.focusedPrice.currency} ${formatCurrencyMinorUnits(
         recognition.focusedPrice.minorUnits,
         recognition.focusedPrice.currency
       )}`
@@ -56,7 +48,7 @@ export function RecognitionSummary({
                     ? "Focused detection"
                     : "Detected Price"}{" "}
                   · {price.currency}{" "}
-                  {formatDetectedAmount(price.minorUnits, price.currency)}
+                  {formatCurrencyMinorUnits(price.minorUnits, price.currency)}
                 </li>
               ))}
             </ul>

@@ -30,21 +30,28 @@ export interface GuestReferenceRate {
   attribution: string;
 }
 
+export type ReferenceRateQuote = Pick<
+  GuestReferenceRate,
+  "source" | "target" | "value"
+>;
+
 export function convertWithReferenceRate(
   amount: CurrencyAmount,
-  targetCurrency: CurrencyCode,
-  rate: string
+  rate: ReferenceRateQuote
 ): bigint {
   if (!Number.isSafeInteger(amount.minorUnits) || amount.minorUnits < 0) {
     throw new RangeError("Currency minor units must be a non-negative safe integer.");
   }
-  if (!isPositiveDecimalString(rate)) {
+  if (rate.source !== amount.currency) {
+    throw new RangeError("Reference Rate source must match the currency amount.");
+  }
+  if (!isPositiveDecimalString(rate.value)) {
     throw new TypeError("Reference Rate must be a positive decimal string.");
   }
 
-  const [rateInteger, rateFraction = ""] = rate.split(".");
+  const [rateInteger, rateFraction = ""] = rate.value.split(".");
   const rateNumerator = BigInt(`${rateInteger}${rateFraction}`);
-  const targetScale = 10n ** BigInt(currencyFractionDigits(targetCurrency));
+  const targetScale = 10n ** BigInt(currencyFractionDigits(rate.target));
   const denominator =
     10n **
     BigInt(currencyFractionDigits(amount.currency) + rateFraction.length);
