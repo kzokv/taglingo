@@ -1,25 +1,7 @@
-import type { CurrencyCode } from "../domain/currencies";
+import {
+  formatCurrencyMinorUnits
+} from "../domain/currencies";
 import type { RecognitionView } from "./useCameraRecognition";
-
-function currencyFractionDigits(currency: CurrencyCode): number {
-  return (
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  );
-}
-
-function formatDetectedAmount(
-  minorUnits: number,
-  currency: CurrencyCode
-): string {
-  const fractionDigits = currencyFractionDigits(currency);
-  return (minorUnits / 10 ** fractionDigits).toLocaleString("en-US", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits
-  });
-}
 
 export function RecognitionSummary({
   recognition,
@@ -29,7 +11,7 @@ export function RecognitionSummary({
   demo: boolean;
 }) {
   const focusedLabel = recognition.focusedPrice
-    ? `Focused Price · ${recognition.focusedPrice.currency} ${formatDetectedAmount(
+    ? `Focused Price · ${recognition.focusedPrice.currency} ${formatCurrencyMinorUnits(
         recognition.focusedPrice.minorUnits,
         recognition.focusedPrice.currency
       )}`
@@ -66,7 +48,7 @@ export function RecognitionSummary({
                     ? "Focused detection"
                     : "Detected Price"}{" "}
                   · {price.currency}{" "}
-                  {formatDetectedAmount(price.minorUnits, price.currency)}
+                  {formatCurrencyMinorUnits(price.minorUnits, price.currency)}
                 </li>
               ))}
             </ul>

@@ -37,7 +37,14 @@ export interface Currency {
   aliases: readonly string[];
 }
 
-export const SOURCE_CURRENCIES = [
+export interface CurrencyAmount {
+  currency: CurrencyCode;
+  minorUnits: number;
+}
+
+// Technical boundary for the existing deterministic recognizer adapter. This
+// list does not grant Camera-supported status to any Source Currency.
+const RECOGNIZER_ADAPTER_CURRENCIES = [
   { code: "USD", name: "US Dollar", aliases: ["dollar", "dólar", "美元"] },
   { code: "EUR", name: "Euro", aliases: ["euro", "歐元", "欧元"] },
   { code: "JPY", name: "Japanese Yen", aliases: ["yen", "円", "日圓", "日元"] },
@@ -52,11 +59,12 @@ export const SOURCE_CURRENCIES = [
   { code: "CHF", name: "Swiss Franc", aliases: ["franc", "瑞士法郎"] }
 ] as const satisfies readonly Currency[];
 
-export type SourceCurrencyCode = (typeof SOURCE_CURRENCIES)[number]["code"];
+export type RecognizerAdapterCurrencyCode =
+  (typeof RECOGNIZER_ADAPTER_CURRENCIES)[number]["code"];
 
 // Wayfinder verified these searchable prototype targets with Frankfurter v2
 // on 2026-07-30. The FX Gateway remains authoritative for pair availability.
-const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [
+const ADDITIONAL_FRANKFURTER_CURRENCIES = [
   { code: "BRL", name: "Brazilian Real", aliases: ["real", "real brasileiro"] },
   { code: "CZK", name: "Czech Koruna", aliases: ["koruna", "česká koruna"] },
   { code: "DKK", name: "Danish Krone", aliases: ["krone", "dansk krone"] },
@@ -78,10 +86,47 @@ const ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES = [
   { code: "ZAR", name: "South African Rand", aliases: ["rand"] }
 ] as const satisfies readonly Currency[];
 
-export const TARGET_CURRENCIES: readonly Currency[] = [
-  ...SOURCE_CURRENCIES,
-  ...ADDITIONAL_FRANKFURTER_TARGET_CURRENCIES
+const PROVIDER_CURRENCIES: readonly Currency[] = [
+  ...RECOGNIZER_ADAPTER_CURRENCIES,
+  ...ADDITIONAL_FRANKFURTER_CURRENCIES
 ].sort((left, right) => left.code.localeCompare(right.code));
+
+export const SOURCE_CURRENCIES = PROVIDER_CURRENCIES;
+export const TARGET_CURRENCIES = PROVIDER_CURRENCIES;
+
+export type SourceCurrencyCode = CurrencyCode;
+
+export function hasRecognizerAdapter(
+  value: SourceCurrencyCode
+): value is RecognizerAdapterCurrencyCode {
+  return RECOGNIZER_ADAPTER_CURRENCIES.some(({ code }) => code === value);
+}
+
+export function currencyFractionDigits(currency: CurrencyCode): number {
+  return (
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency
+    }).resolvedOptions().maximumFractionDigits ?? 2
+  );
+}
+
+export function formatCurrencyMinorUnits(
+  minorUnits: number | bigint,
+  currency: CurrencyCode
+): string {
+  const fractionDigits = currencyFractionDigits(currency);
+  const digits = BigInt(minorUnits)
+    .toString()
+    .padStart(fractionDigits + 1, "0");
+  const integer =
+    fractionDigits === 0 ? digits : digits.slice(0, -fractionDigits);
+  const groupedInteger = BigInt(integer).toLocaleString("en-US");
+
+  return fractionDigits === 0
+    ? groupedInteger
+    : `${groupedInteger}.${digits.slice(-fractionDigits)}`;
+}
 
 const normalizeSearchText = (value: string) =>
   value

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { SOURCE_CURRENCIES } from "../domain/currencies";
 import {
   createMemberPreferencesHandler,
   type MemberPreferenceStore,
@@ -33,6 +34,37 @@ function dependencies() {
 }
 
 describe("member preference API", () => {
+  it("accepts every Source Currency without changing Target limits", async () => {
+    for (const { code } of SOURCE_CURRENCIES) {
+      const { memberships, preferences } = dependencies();
+      const handle = createMemberPreferencesHandler({
+        authenticate: vi.fn().mockResolvedValue({
+          kind: "authenticated",
+          userId: "user_member",
+          sessionId: "sess_member"
+        }),
+        memberships,
+        preferences
+      });
+      const targets = code === "USD" ? ["EUR"] : ["USD"];
+
+      const response = await handle(
+        request("PUT", {
+          ownerId: "user_member",
+          sourceCurrency: code,
+          targetCurrencies: targets
+        })
+      );
+
+      expect(response.status, code).toBe(200);
+      expect(preferences.save).toHaveBeenCalledWith({
+        ownerId: "user_member",
+        sourceCurrency: code,
+        targetCurrencies: targets
+      });
+    }
+  });
+
   it("rejects a missing Clerk session before reading membership or preferences", async () => {
     const { memberships, preferences } = dependencies();
     const handle = createMemberPreferencesHandler({

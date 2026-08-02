@@ -9,6 +9,24 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Existing deterministic camera tests exercise the legacy JPY adapter without
+// making a production Camera-supported claim. The real catalog remains fully
+// manual-only until physical qualification is recorded.
+vi.mock("./domain/currencyCapabilities", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./domain/currencyCapabilities")>();
+  return {
+    ...actual,
+    getCurrencyCapability: (
+      sourceCurrency: CurrencyCode,
+      platform: Parameters<typeof actual.getCurrencyCapability>[1]
+    ) => ({
+      ...actual.getCurrencyCapability(sourceCurrency, platform),
+      cameraSupported: sourceCurrency === "JPY"
+    })
+  };
+});
+
 import App from "./App";
 import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
@@ -68,6 +86,102 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(DEFAULT_RATE));
+});
+
+describe("Manual Price Entry journey", () => {
+  it("keeps an unqualified camera candidate on Manual Price Entry", async () => {
+    const user = userEvent.setup();
+    const getUserMedia = vi.fn();
+    const createRecognizer = vi.fn(() => {
+      throw new Error("recognition must remain unloaded");
+    });
+    useMediaDevices(getUserMedia);
+
+    render(
+      <App
+        createRecognizer={createRecognizer}
+        resolveCameraSupport={() => false}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: /enter price manually/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /open camera/i })
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /enter price manually/i })
+    );
+
+    expect(
+      screen.getByText(/initial camera qualification candidate/i)
+    ).toBeInTheDocument();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(createRecognizer).not.toHaveBeenCalled();
+  });
+
+  it("opens a manual-only currency without camera work and converts it", async () => {
+    const user = userEvent.setup();
+    const getUserMedia = vi.fn();
+    const createRecognizer = vi.fn(() => {
+      throw new Error("recognition must remain unloaded");
+    });
+    const loadGuestRate = vi.fn(
+      async (source: CurrencyCode, target: CurrencyCode) => ({
+        ...DEFAULT_RATE,
+        source,
+        target,
+        value: "2"
+      })
+    );
+    useMediaDevices(getUserMedia);
+
+    render(
+      <App
+        createRecognizer={createRecognizer}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+
+    const sourcePicker = screen.getByRole("combobox", {
+      name: /source currency/i
+    });
+    expect(within(sourcePicker).getAllByRole("option")).toHaveLength(31);
+
+    await user.selectOptions(sourcePicker, "BRL");
+
+    expect(
+      screen.getByRole("heading", { name: /manual price entry/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/camera recognition is unavailable/i)
+    ).toBeInTheDocument();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(createRecognizer).not.toHaveBeenCalled();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /brl amount/i }),
+      "12.34"
+    );
+    await user.click(
+      screen.getByRole("button", { name: /convert entered price/i })
+    );
+
+    const enteredPrice = screen.getByRole("region", {
+      name: /entered price/i
+    });
+    expect(enteredPrice).toHaveTextContent(/entered manually/i);
+    expect(enteredPrice).toHaveTextContent("BRL 12.34");
+    expect(await screen.findByText("USD 24.68")).toBeInTheDocument();
+    expect(window.localStorage.getItem("taglingo.guest-preferences.v1")).toBe(
+      JSON.stringify({ sourceCurrency: "BRL", targetCurrency: "USD" })
+    );
+    expect(
+      window.localStorage.getItem("taglingo.guest-preferences.v1")
+    ).not.toContain("12.34");
+  });
 });
 
 describe("Guest camera journey", () => {
@@ -224,14 +338,14 @@ describe("Guest camera journey", () => {
     render(<App />);
 
     expect(
-      screen.getByRole("heading", { name: /point at a price/i })
+      screen.getByRole("heading", { name: /understand any price/i })
     ).toBeInTheDocument();
     expect(
       screen.getByText(/camera frames stay on this device/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /physical-iphone ocr accuracy and latency remain unvalidated/i
+        /physical-device qualification applies to this camera path/i
       )
     ).toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
@@ -619,7 +733,7 @@ describe("Guest camera journey", () => {
       within(
         screen.getByRole("combobox", { name: /source currency/i })
       ).getAllByRole("option")
-    ).toHaveLength(12);
+    ).toHaveLength(31);
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: /source currency/i }),
@@ -664,7 +778,7 @@ describe("Guest camera journey", () => {
     render(<App />);
 
     expect(
-      screen.getByRole("heading", { name: /point at a price/i })
+      screen.getByRole("heading", { name: /understand any price/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("combobox", { name: /source currency/i })

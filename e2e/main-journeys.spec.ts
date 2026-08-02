@@ -32,6 +32,39 @@ test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
 
+test("Guest converts an Entered Price for a manual-only Source Currency", async ({
+  page
+}) => {
+  const recognitionAssetRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/ocr/")) {
+      recognitionAssetRequests.push(request.url());
+    }
+  });
+  await page.goto("/e2e/harness.html");
+
+  await page
+    .getByRole("combobox", { name: /source currency/i })
+    .selectOption("BRL");
+
+  await expect(
+    page.getByRole("heading", { name: /manual price entry/i })
+  ).toBeVisible();
+  await expect(
+    page.getByText(/camera recognition is unavailable on this device/i)
+  ).toBeVisible();
+  await page.getByRole("textbox", { name: /brl amount/i }).fill("12.34");
+  await page
+    .getByRole("button", { name: /convert entered price/i })
+    .click();
+
+  const enteredPrice = page.getByRole("region", { name: /entered price/i });
+  await expect(enteredPrice).toContainText("BRL 12.34");
+  await expect(enteredPrice).toContainText("not camera-derived");
+  await expect(page.getByText("USD 0.08")).toBeVisible();
+  expect(recognitionAssetRequests).toEqual([]);
+});
+
 test("Guest recovers from deterministic camera denial and completes the demo", async ({
   page
 }) => {
@@ -45,7 +78,7 @@ test("Guest recovers from deterministic camera denial and completes the demo", a
   await page.goto("/e2e/harness.html");
 
   await expect(
-    page.getByText(/physical-iphone ocr accuracy and latency remain unvalidated/i)
+    page.getByText(/physical-device qualification applies to this camera path/i)
   ).toBeVisible();
   const targetTrigger = page.getByRole("button", {
     name: /target currencies: 1 selected · usd/i

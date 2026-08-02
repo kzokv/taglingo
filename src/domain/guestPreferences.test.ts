@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
+import { SOURCE_CURRENCIES } from "./currencies";
 import { createGuestPreferenceStore } from "./guestPreferences";
 
 describe("Guest Preference Store", () => {
+  it("round-trips every provider-backed Source Currency", () => {
+    const store = createGuestPreferenceStore(window.localStorage);
+
+    for (const { code } of SOURCE_CURRENCIES) {
+      const targetCurrency = code === "USD" ? "EUR" : "USD";
+      store.save({ sourceCurrency: code, targetCurrency });
+      expect(store.load()).toEqual({ sourceCurrency: code, targetCurrency });
+    }
+  });
+
   it("restores the Guest's Source and single Target Currency", () => {
     const firstVisit = createGuestPreferenceStore(window.localStorage);
     firstVisit.save({ sourceCurrency: "JPY", targetCurrency: "TWD" });
