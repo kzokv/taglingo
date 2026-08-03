@@ -8,6 +8,11 @@ import {
   isPositiveStratum
 } from "./qualificationPolicy";
 import { validateQualificationManifest } from "./qualificationManifest";
+import {
+  scorePerformanceQualification,
+  type PerformanceQualificationEvidence,
+  type PerformanceQualificationReport
+} from "./qualificationPerformance";
 import { validateFrozenTrialRecord } from "./qualificationTrial";
 import type {
   FrozenTrialRecord,
@@ -18,6 +23,15 @@ import type {
   TrialFailureReason,
   TrialTerminalOutcome
 } from "./qualificationTypes";
+
+export interface ProfileQualificationReport {
+  readonly version: "profile-qualification-report.v1";
+  readonly qualified: boolean;
+  readonly manualPriceEntryAvailable: true;
+  readonly disposition: string;
+  readonly reliability: QualificationReport;
+  readonly performance: PerformanceQualificationReport;
+}
 
 function terminalFailure(
   outcome: TrialTerminalOutcome
@@ -269,4 +283,27 @@ export function scoreQualification(
     failures
   };
   return deepFreeze(report);
+}
+
+export function scoreProfileQualification(
+  manifest: QualificationManifest,
+  records: readonly FrozenTrialRecord[],
+  performanceEvidence: PerformanceQualificationEvidence | null = null
+): ProfileQualificationReport {
+  const reliability = scoreQualification(manifest, records);
+  const performance = scorePerformanceQualification(
+    manifest,
+    performanceEvidence
+  );
+  const qualified = reliability.qualified && performance.performanceEligible;
+  return deepFreeze({
+    version: "profile-qualification-report.v1",
+    qualified,
+    manualPriceEntryAvailable: true,
+    disposition: qualified
+      ? "Reliability and physical-device performance gates pass independently for this profile and platform."
+      : "Camera profile is ineligible on this platform; Manual Price Entry remains available.",
+    reliability,
+    performance
+  });
 }

@@ -4,6 +4,7 @@ import {
   createFrozenTrialRecord,
   createQualificationManifest,
   retireHeldOutFixture,
+  scoreProfileQualification,
   scoreQualification,
   type FixtureManifestEntry,
   type QualificationChallenge,
@@ -399,6 +400,21 @@ describe("privacy-safe frozen records", () => {
 });
 
 describe("qualification scorer", () => {
+  it("keeps the profile Manual-Entry-only when performance evidence is missing", () => {
+    const manifest = validManifest();
+    const report = scoreProfileQualification(
+      manifest,
+      recordsFor(manifest),
+      null
+    );
+
+    expect(report.reliability.qualified).toBe(true);
+    expect(report.performance.performanceEligible).toBe(false);
+    expect(report.qualified).toBe(false);
+    expect(report.manualPriceEntryAvailable).toBe(true);
+    expect(report.disposition).toMatch(/Manual Price Entry/i);
+  });
+
   it("passes exactly at aggregate thresholds and reports exact bounds and latencies", () => {
     const manifest = validManifest();
     const failuresUsed = new Map(POSITIVE_STRATA.map((stratum) => [stratum, 0]));
