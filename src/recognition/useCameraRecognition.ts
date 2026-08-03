@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   mapPreviewRegionToCamera,
@@ -8,18 +8,21 @@ import {
 import { hasRecognizerAdapter } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 import {
-  areDetectedPricesAssociated,
-  createFocusTracker
+  createCandidateTracker,
+  type CandidateTrackingSnapshot,
+  type CandidateTracker,
+  type DetectedPriceIdentity,
+  type TrackedDetectedPrice
 } from "./focusTracker";
 import {
   createOcrRecognizer,
   type OcrRecognizer
 } from "./ocrRecognizer";
-import type { DetectedPrice } from "./priceLocalization";
 import { recognizePriceEvidence } from "./recognitionPipeline";
 import {
   createRecognitionScheduler,
-  type RecognitionScheduler
+  type RecognitionScheduler,
+  type RecognitionSchedulerState
 } from "./recognitionScheduler";
 import type { RecognitionProfile } from "./recognitionProfile";
 
@@ -34,8 +37,22 @@ export type RecognitionPhase =
 export interface RecognitionView {
   phase: RecognitionPhase;
   progress: number;
-  detectedPrices: DetectedPrice[];
-  focusedPrice: DetectedPrice | null;
+  detectedPrices: TrackedDetectedPrice[];
+  focusedPrice: TrackedDetectedPrice | null;
+}
+
+export interface RecognitionController extends RecognitionView {
+  selectDetectedPrice(identity: DetectedPriceIdentity): void;
+}
+
+function phaseFor(
+  snapshot: CandidateTrackingSnapshot
+): RecognitionSchedulerState {
+  return snapshot.focusedPrice
+    ? "focused"
+    : snapshot.hasUnstableCandidates
+      ? "stabilizing"
+      : "searching";
 }
 
 export const EMPTY_RECOGNITION: RecognitionView = {
@@ -61,11 +78,15 @@ interface CapturedRecognitionPass {
   cameraSize: Size;
   previewSize: Size;
   guideCenter: { x: number; y: number };
+  coverage: Rectangle;
 }
 
 interface CompletedRecognitionPass {
-  detectedPrices: DetectedPrice[];
+  candidates: Array<
+    Pick<TrackedDetectedPrice, "box" | "confidence" | "currency" | "minorUnits">
+  >;
   guideCenter: { x: number; y: number };
+  coverage: Rectangle;
 }
 
 export function useCameraRecognition({
@@ -84,10 +105,23 @@ export function useCameraRecognition({
   captureGuide: HTMLElement | null;
   createRecognizer: CreateRecognizer;
   recognitionRestartKey?: number;
-}): RecognitionView {
+}): RecognitionController {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
   const recognizerRelease = useRef<Promise<void>>(Promise.resolve());
+  const candidateTracker = useRef<CandidateTracker | null>(null);
+  const selectDetectedPrice = useCallback((identity: DetectedPriceIdentity) => {
+    const snapshot = candidateTracker.current?.select(identity);
+    if (!snapshot) {
+      return;
+    }
+    setRecognition((current) => ({
+      ...current,
+      phase: phaseFor(snapshot),
+      detectedPrices: snapshot.detectedPrices,
+      focusedPrice: snapshot.focusedPrice
+    }));
+  }, []);
 
   useEffect(() => {
     const sourceCurrency = profile.sourceCurrency;
@@ -98,22 +132,25 @@ export function useCameraRecognition({
       !captureGuide ||
       !hasRecognizerAdapter(sourceCurrency)
     ) {
+      candidateTracker.current = null;
       setRecognition(EMPTY_RECOGNITION);
       return;
     }
 
     let active = true;
     let prepared = false;
-    let discoveryDetectedPrices: DetectedPrice[] = [];
     let recognizer: OcrRecognizer | null = null;
     const previousRecognizerRelease = recognizerRelease.current;
     const initialPreviewBounds = preview.getBoundingClientRect();
-    const tracker = createFocusTracker({
+    const tracker = createCandidateTracker({
       captureGuideCenter: {
         x: initialPreviewBounds.width / 2,
         y: initialPreviewBounds.height * 0.45
-      }
+      },
+      geometry: profile.geometry,
+      stabilization: profile.stabilization
     });
+    candidateTracker.current = tracker;
     let scheduler: RecognitionScheduler;
     scheduler = createRecognitionScheduler<
       CapturedRecognitionPass,
@@ -193,7 +230,13 @@ export function useCameraRecognition({
           guideCenter: {
             x: guideRegion.x + guideRegion.width / 2,
             y: guideRegion.y + guideRegion.height / 2
-          }
+          },
+          coverage: mapSampleBoxToPreview(
+            { x: 0, y: 0, width: sample.width, height: sample.height },
+            sample,
+            cameraSize,
+            previewSize
+          )
         };
       },
       async runPass(captured, request) {
@@ -209,8 +252,10 @@ export function useCameraRecognition({
             frameIdentity: request.frameIdentity
           }
         );
-        const detectedPrices = candidates.map((price) => ({
-          ...price,
+        const trackedCandidates = candidates.map((price) => ({
+          currency: price.currency,
+          minorUnits: price.minorUnits,
+          confidence: price.confidence,
           box: mapSampleBoxToPreview(
             price.box,
             captured.sample,
@@ -219,46 +264,30 @@ export function useCameraRecognition({
           )
         }));
         return {
-          detectedPrices,
-          guideCenter: captured.guideCenter
+          candidates: trackedCandidates,
+          guideCenter: captured.guideCenter,
+          coverage: captured.coverage
         };
       },
       onResult(completed, request) {
         if (!active) {
           return;
         }
-        if (request.kind === "discovery") {
-          discoveryDetectedPrices = completed.detectedPrices;
-        }
-        const displayedDetectedPrices =
-          discoveryDetectedPrices.length > 0
-            ? [...discoveryDetectedPrices]
-            : [...completed.detectedPrices];
-        const focusedPrice = tracker.observe(
-          completed.detectedPrices,
+        const snapshot = tracker.observe(
+          {
+            frameIdentity: request.frameIdentity,
+            candidates: completed.candidates,
+            coverage: completed.coverage
+          },
           completed.guideCenter
         );
-        const displayedWithFocus = focusedPrice
-          ? displayedDetectedPrices.map((price) =>
-              areDetectedPricesAssociated(price, focusedPrice)
-                ? focusedPrice
-                : price
-            )
-          : displayedDetectedPrices;
-        if (focusedPrice && !displayedWithFocus.includes(focusedPrice)) {
-          displayedWithFocus.push(focusedPrice);
-        }
-        const phase = focusedPrice
-          ? "focused"
-          : completed.detectedPrices.length > 0
-            ? "stabilizing"
-            : "searching";
+        const phase = phaseFor(snapshot);
         scheduler.setState(phase);
         setRecognition({
           phase,
           progress: 1,
-          detectedPrices: displayedWithFocus,
-          focusedPrice
+          detectedPrices: snapshot.detectedPrices,
+          focusedPrice: snapshot.focusedPrice
         });
       },
       onError() {
@@ -312,6 +341,9 @@ export function useCameraRecognition({
 
     return () => {
       active = false;
+      if (candidateTracker.current === tracker) {
+        candidateTracker.current = null;
+      }
       scheduler.dispose();
       const release = previousRecognizerRelease.then(async () => {
         await recognizer?.terminate();
@@ -328,5 +360,5 @@ export function useCameraRecognition({
     video
   ]);
 
-  return recognition;
+  return { ...recognition, selectDetectedPrice };
 }

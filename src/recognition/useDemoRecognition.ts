@@ -1,18 +1,36 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { createFocusTracker } from "./focusTracker";
+import {
+  createCandidateTracker,
+  type CandidateTracker,
+  type DetectedPriceIdentity
+} from "./focusTracker";
 import { localizePrices } from "./priceLocalization";
 import {
   EMPTY_RECOGNITION,
+  type RecognitionController,
   type RecognitionView
 } from "./useCameraRecognition";
 
-export function useDemoRecognition(enabled: boolean): RecognitionView {
+export function useDemoRecognition(enabled: boolean): RecognitionController {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
+  const candidateTracker = useRef<CandidateTracker | null>(null);
+  const selectDetectedPrice = useCallback((identity: DetectedPriceIdentity) => {
+    const snapshot = candidateTracker.current?.select(identity);
+    if (!snapshot) {
+      return;
+    }
+    setRecognition((current) => ({
+      ...current,
+      detectedPrices: snapshot.detectedPrices,
+      focusedPrice: snapshot.focusedPrice
+    }));
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
+      candidateTracker.current = null;
       setRecognition(EMPTY_RECOGNITION);
       return;
     }
@@ -24,9 +42,21 @@ export function useDemoRecognition(enabled: boolean): RecognitionView {
         box: { x: 280, y: 274, width: 440, height: 122 }
       }
     ]);
-    const tracker = createFocusTracker({
-      captureGuideCenter: { x: 500, y: 450 }
+    const tracker = createCandidateTracker({
+      captureGuideCenter: { x: 500, y: 450 },
+      geometry: {
+        rulesVersion: "demo-geometry.v1",
+        maximumDisplacementInTextHeights: 1.5,
+        smoothingFactor: 0.25
+      },
+      stabilization: {
+        rulesVersion: "demo-stabilization.v1",
+        requiredDistinctFrames: 2,
+        coveredMissesBeforeRemoval: 3
+      }
     });
+    candidateTracker.current = tracker;
+    const coverage = { x: 0, y: 0, width: 1000, height: 1000 };
     setRecognition({
       phase: "preparing",
       progress: 0,
@@ -35,27 +65,40 @@ export function useDemoRecognition(enabled: boolean): RecognitionView {
     });
 
     const prepared = window.setTimeout(() => {
+      const snapshot = tracker.observe({
+        frameIdentity: "demo-frame-1",
+        candidates: detectedPrices,
+        coverage
+      });
       setRecognition({
-        phase: "searching",
+        phase: "stabilizing",
         progress: 1,
-        detectedPrices,
-        focusedPrice: tracker.observe(detectedPrices)
+        detectedPrices: snapshot.detectedPrices,
+        focusedPrice: snapshot.focusedPrice
       });
     }, 80);
     const stabilized = window.setTimeout(() => {
+      const snapshot = tracker.observe({
+        frameIdentity: "demo-frame-2",
+        candidates: detectedPrices,
+        coverage
+      });
       setRecognition({
         phase: "focused",
         progress: 1,
-        detectedPrices,
-        focusedPrice: tracker.observe(detectedPrices)
+        detectedPrices: snapshot.detectedPrices,
+        focusedPrice: snapshot.focusedPrice
       });
     }, 160);
 
     return () => {
+      if (candidateTracker.current === tracker) {
+        candidateTracker.current = null;
+      }
       window.clearTimeout(prepared);
       window.clearTimeout(stabilized);
     };
   }, [enabled]);
 
-  return recognition;
+  return { ...recognition, selectDetectedPrice };
 }

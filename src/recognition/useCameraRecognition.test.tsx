@@ -165,6 +165,72 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
   unmount();
 });
 
+it("publishes only stable Detected Prices from distinct completed frames", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    canvasContext()
+  );
+  const recognizer: OcrRecognizer = {
+    prepare: vi.fn().mockResolvedValue(undefined),
+    recognize: vi.fn(async (_image, passIdentity) => {
+      const recognized = observation();
+      const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
+      return [
+        {
+          ...recognized,
+          box: {
+            x: recognized.box.x * scale,
+            y: recognized.box.y * scale,
+            width: recognized.box.width * scale,
+            height: recognized.box.height * scale
+          },
+          polygon: recognized.polygon.map(({ x, y }) => ({
+            x: x * scale,
+            y: y * scale
+          })) as unknown as RecognizerObservation["polygon"]
+        }
+      ];
+    }),
+    terminate: vi.fn().mockResolvedValue(undefined)
+  };
+  const cameraPreview = preview();
+  const cameraVideo = video();
+  const profile = createTestRecognitionProfile();
+  const createRecognizer = () => recognizer;
+
+  const { result, unmount } = renderHook(() =>
+    useCameraRecognition({
+      enabled: true,
+      profile,
+      video: cameraVideo,
+      preview: cameraPreview,
+      captureGuide: cameraPreview,
+      createRecognizer
+    })
+  );
+
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(result.current.phase).toBe("stabilizing");
+  expect(result.current.detectedPrices).toEqual([]);
+  expect(result.current.focusedPrice).toBeNull();
+
+  await act(async () => vi.advanceTimersByTimeAsync(1_500));
+  expect(result.current.phase).toBe("focused");
+  expect(result.current.detectedPrices).toEqual([
+    expect.objectContaining({
+      identity: "detected-price-1",
+      currency: "JPY",
+      minorUnits: 4142
+    })
+  ]);
+  expect(result.current.focusedPrice).toBe(
+    result.current.detectedPrices[0]
+  );
+
+  unmount();
+});
+
 function observation(): RecognizerObservation {
   return {
     text: "4,142円",
