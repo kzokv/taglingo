@@ -26,6 +26,7 @@ export interface CandidateTrackingPass {
 export interface CandidateTrackingSnapshot {
   readonly detectedPrices: TrackedDetectedPrice[];
   readonly focusedPrice: TrackedDetectedPrice | null;
+  readonly explicitlyFocusedPriceIdentity: DetectedPriceIdentity | null;
   readonly hasUnstableCandidates: boolean;
 }
 
@@ -156,6 +157,7 @@ export function createCandidateTracker(options: {
     return {
       detectedPrices,
       focusedPrice: focusedPrice ?? null,
+      explicitlyFocusedPriceIdentity: explicitFocusIdentity,
       hasUnstableCandidates: tracks.length > detectedPrices.length
     };
   };

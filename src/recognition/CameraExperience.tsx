@@ -1,4 +1,3 @@
-import { formatCurrencyMinorUnits } from "../domain/currencies";
 import type {
   RecognitionController,
   RecognitionPhase
@@ -116,7 +115,8 @@ export function CameraExperienceOverlay({
                   }
             }
             type="button"
-            aria-label={`${focused ? "Focused Price" : "Detected Price"} Detection Outline · ${price.currency} ${formatCurrencyMinorUnits(price.minorUnits, price.currency)}`}
+            aria-hidden="true"
+            tabIndex={-1}
             data-detected-price={`${price.currency}-${price.minorUnits}`}
             data-detected-price-identity={price.identity}
             onClick={() => recognition.selectDetectedPrice(price.identity)}
@@ -143,47 +143,5 @@ export function CameraExperienceOverlay({
         <p>{content.detail}</p>
       </div>
     </div>
-  );
-}
-
-export function DetectedPriceRail({
-  recognition
-}: {
-  recognition: RecognitionController;
-}) {
-  if (recognition.phase !== "focused" || recognition.detectedPrices.length < 2) {
-    return null;
-  }
-
-  return (
-    <section className="detected-price-rail" aria-label="Detected Price rail">
-      <div>
-        <strong>Detected Prices</strong>
-        <span>Select a price · your selection stays focused</span>
-      </div>
-      <ul className="detected-price-rail-list">
-        {recognition.detectedPrices.map((price, index) => {
-          const focused = isFocusedPrice(recognition, price.identity);
-          return (
-            <li key={price.identity}>
-              <button
-                className={focused ? "is-selected" : ""}
-                type="button"
-                aria-current={focused ? "true" : undefined}
-                aria-label={`Select Detected Price ${index + 1} of ${recognition.detectedPrices.length} · ${price.currency} ${formatCurrencyMinorUnits(price.minorUnits, price.currency)}`}
-                data-detected-price-rail-item={`${price.currency}-${price.minorUnits}`}
-                onClick={() => recognition.selectDetectedPrice(price.identity)}
-              >
-                <span>
-                  {price.currency}{" "}
-                  {formatCurrencyMinorUnits(price.minorUnits, price.currency)}
-                </span>
-                <small>{focused ? "Focused" : "Choose"}</small>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
   );
 }

@@ -6,10 +6,7 @@ import type {
   DetectedPriceIdentity,
   TrackedDetectedPrice
 } from "./focusTracker";
-import {
-  CameraExperienceOverlay,
-  DetectedPriceRail
-} from "./CameraExperience";
+import { CameraExperienceOverlay } from "./CameraExperience";
 import type { RecognitionController } from "./useCameraRecognition";
 
 function identity(value: string): DetectedPriceIdentity {
@@ -39,6 +36,7 @@ function recognition(
     progress: 1,
     detectedPrices: [],
     focusedPrice: null,
+    explicitlyFocusedPriceIdentity: null,
     selectDetectedPrice: vi.fn(),
     ...overrides
   };
@@ -81,7 +79,7 @@ describe("guided camera presenter", () => {
     expect(document.querySelector("[data-detected-price]")).toBeNull();
   });
 
-  it("makes outlines and the Detected Price rail independently operable", async () => {
+  it("keeps visual outlines pointer-operable but out of the accessibility tree", async () => {
     const user = userEvent.setup();
     const selectDetectedPrice = vi.fn();
     const controller = recognition({
@@ -91,14 +89,11 @@ describe("guided camera presenter", () => {
       selectDetectedPrice
     });
     render(
-      <>
-        <CameraExperienceOverlay
-          demo={false}
-          recognition={controller}
-          onCaptureGuideReady={() => undefined}
-        />
-        <DetectedPriceRail recognition={controller} />
-      </>
+      <CameraExperienceOverlay
+        demo={false}
+        recognition={controller}
+        onCaptureGuideReady={() => undefined}
+      />
     );
 
     const focusedOutline = document.querySelector(
@@ -111,37 +106,13 @@ describe("guided camera presenter", () => {
     expect(focusedOutline).toHaveTextContent("Focused");
     expect(otherOutline).not.toHaveClass("focused-detection");
     expect(otherOutline).toHaveTextContent("Detected");
-    expect(focusedOutline).toHaveAccessibleName(
-      "Focused Price Detection Outline · JPY 4,142"
-    );
-    expect(otherOutline).toHaveAccessibleName(
-      "Detected Price Detection Outline · JPY 980"
-    );
-
-    await user.tab();
-    expect(
-      screen.getByRole("button", {
-        name: "Focused Price Detection Outline · JPY 4,142"
-      })
-    ).toHaveFocus();
-    await user.tab();
-    expect(
-      screen.getByRole("button", {
-        name: "Detected Price Detection Outline · JPY 980"
-      })
-    ).toHaveFocus();
-    await user.keyboard("{Enter}");
-    expect(selectDetectedPrice).toHaveBeenLastCalledWith(secondPrice.identity);
+    expect(focusedOutline).toHaveAttribute("aria-hidden", "true");
+    expect(focusedOutline).toHaveAttribute("tabindex", "-1");
+    expect(otherOutline).toHaveAttribute("aria-hidden", "true");
+    expect(otherOutline).toHaveAttribute("tabindex", "-1");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
 
     await user.click(otherOutline);
-    expect(selectDetectedPrice).toHaveBeenLastCalledWith(secondPrice.identity);
-
-    const rail = screen.getByRole("region", { name: "Detected Price rail" });
-    expect(rail).toBeInTheDocument();
-    const railItem = screen.getByRole("button", {
-      name: "Select Detected Price 2 of 2 · JPY 980"
-    });
-    await user.click(railItem);
     expect(selectDetectedPrice).toHaveBeenLastCalledWith(secondPrice.identity);
   });
 });

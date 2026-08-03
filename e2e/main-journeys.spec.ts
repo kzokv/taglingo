@@ -184,10 +184,15 @@ test("Guest completes recognition with deterministic media and OCR", async ({
   );
   await expect(page.getByText("USD 27.80")).toBeVisible();
 
-  await expect(page.locator("[data-detected-price-rail-item]")).toHaveCount(2, {
+  const detectedPriceList = page.getByRole("list", {
+    name: /detected prices/i
+  });
+  await expect(detectedPriceList.getByRole("button")).toHaveCount(2, {
     timeout: 12_000
   });
-  await page.locator('[data-detected-price-rail-item="JPY-980"]').click();
+  await detectedPriceList
+    .getByRole("button", { name: /price 2 of 2, jpy 980/i })
+    .click();
   await expect(page.locator('[data-detected-price="JPY-980"]')).toHaveClass(
     /focused-detection/
   );
