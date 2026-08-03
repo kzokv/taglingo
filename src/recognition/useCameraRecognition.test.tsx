@@ -41,6 +41,32 @@ function preview() {
   return element;
 }
 
+function canvasContext(drawImage = vi.fn()): CanvasRenderingContext2D {
+  return {
+    drawImage,
+    getImageData: (
+      _x: number,
+      _y: number,
+      width: number,
+      height: number
+    ) =>
+      ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+        colorSpace: "srgb"
+      }) as ImageData,
+    createImageData: (width: number, height: number) =>
+      ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+        colorSpace: "srgb"
+      }) as ImageData,
+    putImageData: vi.fn()
+  } as unknown as CanvasRenderingContext2D;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -79,9 +105,9 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
     toJSON: () => ({})
   });
   const drawImage = vi.fn();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-    drawImage
-  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    canvasContext(drawImage)
+  );
   const recognizer: OcrRecognizer = {
     prepare: vi.fn().mockResolvedValue(undefined),
     recognize: vi.fn().mockResolvedValue([]),
@@ -162,9 +188,9 @@ function observation(): RecognizerObservation {
 }
 
 it("releases prior generations and discards their stale results", async () => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-    drawImage: vi.fn()
-  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    canvasContext()
+  );
   const staleRecognition = deferred<RecognizerObservation[]>();
   const firstRelease = deferred<void>();
   const firstRecognizer: OcrRecognizer = {

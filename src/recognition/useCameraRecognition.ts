@@ -15,10 +15,8 @@ import {
   createOcrRecognizer,
   type OcrRecognizer
 } from "./ocrRecognizer";
-import {
-  localizePrices,
-  type DetectedPrice
-} from "./priceLocalization";
+import type { DetectedPrice } from "./priceLocalization";
+import { recognizePriceEvidence } from "./recognitionPipeline";
 import {
   createRecognitionScheduler,
   type RecognitionScheduler
@@ -202,25 +200,24 @@ export function useCameraRecognition({
         if (!recognizer) {
           throw new Error("Recognition pass started before profile preparation.");
         }
-        const observations = await recognizer.recognize(captured.canvas, {
-          kind: request.kind,
-          frameIdentity: request.frameIdentity,
-          preprocessingIdentity: profile.preprocessing[0].id
-        });
-        const detectedPrices = localizePrices(sourceCurrency, observations)
-          .filter(
-            ({ confidence }) =>
-              confidence >= profile.thresholds.candidateConfidence
+        const candidates = await recognizePriceEvidence(
+          profile,
+          recognizer,
+          captured.canvas,
+          {
+            kind: request.kind,
+            frameIdentity: request.frameIdentity
+          }
+        );
+        const detectedPrices = candidates.map((price) => ({
+          ...price,
+          box: mapSampleBoxToPreview(
+            price.box,
+            captured.sample,
+            captured.cameraSize,
+            captured.previewSize
           )
-          .map((price) => ({
-            ...price,
-            box: mapSampleBoxToPreview(
-              price.box,
-              captured.sample,
-              captured.cameraSize,
-              captured.previewSize
-            )
-          }));
+        }));
         return {
           detectedPrices,
           guideCenter: captured.guideCenter

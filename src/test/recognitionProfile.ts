@@ -67,8 +67,19 @@ export function createTestRecognitionProfile({
     },
     preprocessing: [
       { id: "raw", operation: "raw" },
-      { id: "contrast", operation: "grayscale-contrast", scale: 2 },
-      { id: "threshold", operation: "adaptive-threshold", scale: 2 }
+      {
+        id: "contrast",
+        operation: "grayscale-contrast",
+        scale: 2,
+        contrast: 1.5
+      },
+      {
+        id: "threshold",
+        operation: "adaptive-threshold",
+        scale: 2,
+        windowSize: 3,
+        bias: 5
+      }
     ],
     notation: {
       fractionDigits: 0,
@@ -83,7 +94,8 @@ export function createTestRecognitionProfile({
     fusion: {
       rulesVersion: "jpy-fusion.v1",
       maximumGapInTextHeights: 1.5,
-      minimumVerticalOverlapRatio: 0.25
+      minimumVerticalOverlapRatio: 0.25,
+      maximumBaselineDeltaInTextHeights: 0.75
     },
     geometry: {
       rulesVersion: "bounded-geometry.v1",

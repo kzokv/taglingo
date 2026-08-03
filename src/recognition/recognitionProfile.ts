@@ -44,10 +44,27 @@ export interface RecognizerConfiguration {
   };
 }
 
+export type RecognitionPreprocessingStep =
+  | {
+      readonly id: string;
+      readonly operation: "raw";
+    }
+  | {
+      readonly id: string;
+      readonly operation: "grayscale-contrast";
+      readonly scale: number;
+      readonly contrast: number;
+    }
+  | {
+      readonly id: string;
+      readonly operation: "adaptive-threshold";
+      readonly scale: number;
+      readonly windowSize: number;
+      readonly bias: number;
+    };
+
 export type PreprocessingOperation =
-  | "raw"
-  | "grayscale-contrast"
-  | "adaptive-threshold";
+  RecognitionPreprocessingStep["operation"];
 
 // The profile freezes every recognition-affecting input here. The scheduler,
 // evidence-fusion, and tracking work in issues #50–#52 consume the relevant
@@ -58,11 +75,7 @@ export interface RecognitionProfile {
   readonly sourceCurrency: SourceCurrencyCode;
   readonly platform: RecognitionPlatform;
   readonly recognizer: RecognizerConfiguration;
-  readonly preprocessing: readonly {
-    readonly id: string;
-    readonly operation: PreprocessingOperation;
-    readonly scale?: number;
-  }[];
+  readonly preprocessing: readonly RecognitionPreprocessingStep[];
   readonly notation: {
     readonly fractionDigits: number;
     readonly decimalSeparator?: "." | ",";
@@ -78,6 +91,7 @@ export interface RecognitionProfile {
     readonly rulesVersion: string;
     readonly maximumGapInTextHeights: number;
     readonly minimumVerticalOverlapRatio: number;
+    readonly maximumBaselineDeltaInTextHeights: number;
   };
   readonly geometry: {
     readonly rulesVersion: string;
@@ -139,6 +153,16 @@ function assertValidRecognitionProfile(profile: RecognitionProfile) {
     );
   }
   if (
+    profile.fusion.maximumGapInTextHeights < 0 ||
+    profile.fusion.minimumVerticalOverlapRatio < 0 ||
+    profile.fusion.minimumVerticalOverlapRatio > 1 ||
+    profile.fusion.maximumBaselineDeltaInTextHeights < 0
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id} has invalid fusion geometry rules.`
+    );
+  }
+  if (
     !profile.id ||
     profile.recognizer.languages.length === 0 ||
     profile.recognizer.assets.runtime.files.length === 0 ||
@@ -149,6 +173,37 @@ function assertValidRecognitionProfile(profile: RecognitionProfile) {
   ) {
     throw new Error(
       `Recognition profile ${profile.id || "<unknown>"} is incomplete.`
+    );
+  }
+
+  const preprocessingIds = new Set(
+    profile.preprocessing.map(({ id }) => id)
+  );
+  if (
+    preprocessingIds.size !== profile.preprocessing.length ||
+    profile.preprocessing.some((step) => {
+      if (!step.id) {
+        return true;
+      }
+      if (step.operation === "raw") {
+        return false;
+      }
+      if (!Number.isFinite(step.scale) || step.scale < 1) {
+        return true;
+      }
+      if (step.operation === "grayscale-contrast") {
+        return !Number.isFinite(step.contrast) || step.contrast <= 0;
+      }
+      return (
+        !Number.isInteger(step.windowSize) ||
+        step.windowSize < 3 ||
+        step.windowSize % 2 === 0 ||
+        !Number.isFinite(step.bias)
+      );
+    })
+  ) {
+    throw new Error(
+      `Recognition profile ${profile.id} has invalid preprocessing rules.`
     );
   }
 
