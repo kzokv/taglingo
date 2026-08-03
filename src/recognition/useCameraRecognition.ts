@@ -40,6 +40,10 @@ export interface RecognitionView {
   detectedPrices: TrackedDetectedPrice[];
   focusedPrice: TrackedDetectedPrice | null;
   explicitlyFocusedPriceIdentity: DetectedPriceIdentity | null;
+  completedPassCount: number;
+  missCount: number;
+  focusChangeCount: number;
+  stableDetectionCount: number;
 }
 
 export interface RecognitionController extends RecognitionView {
@@ -61,7 +65,11 @@ export const EMPTY_RECOGNITION: RecognitionView = {
   progress: 0,
   detectedPrices: [],
   focusedPrice: null,
-  explicitlyFocusedPriceIdentity: null
+  explicitlyFocusedPriceIdentity: null,
+  completedPassCount: 0,
+  missCount: 0,
+  focusChangeCount: 0,
+  stableDetectionCount: 0
 };
 
 export function applyCandidateTrackingSnapshot(
@@ -129,12 +137,20 @@ export function useCameraRecognition({
     if (!snapshot) {
       return;
     }
-    setRecognition((current) =>
-      applyCandidateTrackingSnapshot(
-        { ...current, phase: phaseFor(snapshot) },
+    setRecognition((current) => {
+      const focusChanged =
+        snapshot.focusedPrice !== null &&
+        snapshot.focusedPrice.identity !== current.focusedPrice?.identity;
+      return applyCandidateTrackingSnapshot(
+        {
+          ...current,
+          phase: phaseFor(snapshot),
+          focusChangeCount:
+            current.focusChangeCount + (focusChanged ? 1 : 0)
+        },
         snapshot
-      )
-    );
+      );
+    });
   }, []);
 
   useEffect(() => {
@@ -297,12 +313,32 @@ export function useCameraRecognition({
         );
         const phase = phaseFor(snapshot);
         scheduler.setState(phase);
-        setRecognition((current) =>
-          applyCandidateTrackingSnapshot(
-            { ...current, phase, progress: 1 },
+        setRecognition((current) => {
+          const knownIdentities = new Set(
+            current.detectedPrices.map(({ identity }) => identity)
+          );
+          const newlyStable = snapshot.detectedPrices.filter(
+            ({ identity }) => !knownIdentities.has(identity)
+          ).length;
+          const focusChanged =
+            snapshot.focusedPrice !== null &&
+            snapshot.focusedPrice.identity !== current.focusedPrice?.identity;
+          return applyCandidateTrackingSnapshot(
+            {
+              ...current,
+              phase,
+              progress: 1,
+              completedPassCount: current.completedPassCount + 1,
+              missCount:
+                current.missCount + (completed.candidates.length === 0 ? 1 : 0),
+              focusChangeCount:
+                current.focusChangeCount + (focusChanged ? 1 : 0),
+              stableDetectionCount:
+                current.stableDetectionCount + newlyStable
+            },
             snapshot
-          )
-        );
+          );
+        });
       },
       onError() {
         if (active) {
@@ -316,7 +352,11 @@ export function useCameraRecognition({
       progress: 0,
       detectedPrices: [],
       focusedPrice: null,
-      explicitlyFocusedPriceIdentity: null
+      explicitlyFocusedPriceIdentity: null,
+      completedPassCount: 0,
+      missCount: 0,
+      focusChangeCount: 0,
+      stableDetectionCount: 0
     });
     void previousRecognizerRelease
       .then(async () => {

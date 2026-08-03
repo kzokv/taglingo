@@ -438,6 +438,165 @@ describe("Manual Price Entry journey", () => {
   });
 });
 
+describe("anonymous recognition-health consent", () => {
+  it("keeps the first session silent and applies opt-in only to a future camera session", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(
+      vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+    const submitRecognitionHealth = vi.fn().mockResolvedValue(undefined);
+
+    render(<App submitRecognitionHealth={submitRecognitionHealth} />);
+    expect(
+      screen.queryByRole("region", {
+        name: /anonymous recognition health invitation/i
+      })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+
+    const invitation = screen.getByRole("region", {
+      name: /anonymous recognition health invitation/i
+    });
+    expect(invitation).toHaveTextContent(/app release and summary schema/i);
+    expect(invitation).toHaveTextContent(/coarse platform family and source currency/i);
+    expect(invitation).toHaveTextContent(/bucketed recognition pass, miss, focus-change/i);
+    expect(invitation).toHaveTextContent(/no account or stable identifier/i);
+    expect(submitRecognitionHealth).not.toHaveBeenCalled();
+
+    await user.click(
+      within(invitation).getByRole("button", {
+        name: /share future summaries/i
+      })
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+
+    expect(submitRecognitionHealth).toHaveBeenCalledOnce();
+    const summary = submitRecognitionHealth.mock.calls[0][0];
+    expect(summary).toMatchObject({
+      schemaVersion: 1,
+      release: "0.1.0",
+      sourceCurrency: "JPY",
+      terminalOutcome: "camera-permission-denied",
+      errorFamily: "camera-permission"
+    });
+    expect(Object.keys(summary).sort()).toEqual(
+      [
+        "schemaVersion",
+        "release",
+        "platform",
+        "sourceCurrency",
+        "timeToReady",
+        "timeToFirstDetectedPrice",
+        "timeToFirstFocusedPrice",
+        "recognitionPassCount",
+        "missCount",
+        "focusChangeCount",
+        "stableDetectionCount",
+        "terminalOutcome",
+        "errorFamily"
+      ].sort()
+    );
+  });
+
+  it("keeps Not now dismissed and lets Privacy settings stop future summaries", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(
+      vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+    const submitRecognitionHealth = vi.fn().mockResolvedValue(undefined);
+
+    render(<App submitRecognitionHealth={submitRecognitionHealth} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    await user.click(screen.getByRole("button", { name: /not now/i }));
+
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    expect(
+      screen.queryByRole("region", {
+        name: /anonymous recognition health invitation/i
+      })
+    ).not.toBeInTheDocument();
+    expect(submitRecognitionHealth).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /privacy settings/i }));
+    const settings = screen.getByRole("region", { name: /privacy settings/i });
+    const toggle = within(settings).getByRole("checkbox", {
+      name: /share for future camera sessions/i
+    });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+    await user.click(
+      within(settings).getByRole("button", { name: /close settings/i })
+    );
+
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    expect(submitRecognitionHealth).not.toHaveBeenCalled();
+  });
+
+  it("does not report recognition readiness when initialization fails", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "taglingo.recognition-health.v1",
+      JSON.stringify({
+        version: 1,
+        sharingEnabled: true,
+        invitationShown: true
+      })
+    );
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockRejectedValue(new Error("unavailable")),
+      recognize: vi.fn(),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+    const submitRecognitionHealth = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <App
+        createRecognizer={() => recognizer}
+        submitRecognitionHealth={submitRecognitionHealth}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    fireEvent.loadedMetadata(video);
+    await screen.findByText(/recognition could not start/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+
+    expect(submitRecognitionHealth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeToReady: "not-reached",
+        terminalOutcome: "recognition-initialization-failed",
+        errorFamily: "recognition-initialization"
+      })
+    );
+  });
+});
+
 describe("Guest camera journey", () => {
   it("keeps the Clerk admission surface alongside the public Guest scanner", () => {
     useMediaDevices(vi.fn());
