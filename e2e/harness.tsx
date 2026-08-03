@@ -33,26 +33,42 @@ const createFixtureRecognizer: CreateRecognizer = (_profile, onProgress) => ({
     onProgress(1, "deterministic browser fixture ready");
   },
   async recognize(_image, passIdentity) {
-    const box =
+    const primaryBox = { x: 592, y: 111, width: 160, height: 80 };
+    const observations =
       passIdentity.kind === "discovery"
-        ? { x: 880, y: 446, width: 160, height: 80 }
-        : { x: 592, y: 111, width: 160, height: 80 };
-    return [
-      {
-        text: "4,142円",
+        ? [
+            {
+              text: "980円",
+              box: { x: 220, y: 720, width: 140, height: 72 }
+            }
+          ]
+        : [{ text: "4,142円", box: primaryBox }];
+    const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
+    return observations.map(({ text, box }) => {
+      const scaledBox = {
+        x: box.x * scale,
+        y: box.y * scale,
+        width: box.width * scale,
+        height: box.height * scale
+      };
+      return {
+        text,
         evidenceKind: "text",
         confidence: 96,
-        box,
+        box: scaledBox,
         polygon: [
-          { x: box.x, y: box.y },
-          { x: box.x + box.width, y: box.y },
-          { x: box.x + box.width, y: box.y + box.height },
-          { x: box.x, y: box.y + box.height }
+          { x: scaledBox.x, y: scaledBox.y },
+          { x: scaledBox.x + scaledBox.width, y: scaledBox.y },
+          {
+            x: scaledBox.x + scaledBox.width,
+            y: scaledBox.y + scaledBox.height
+          },
+          { x: scaledBox.x, y: scaledBox.y + scaledBox.height }
         ],
         timing: { startedAtMs: 1, completedAtMs: 2, durationMs: 1 },
         passIdentity
-      }
-    ];
+      };
+    });
   },
   async terminate() {}
 });

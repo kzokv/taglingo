@@ -69,6 +69,10 @@ import {
   type RecognitionView
 } from "./recognition/useCameraRecognition";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
+import {
+  CameraExperienceOverlay,
+  DetectedPriceRail
+} from "./recognition/CameraExperience";
 import { RecognitionSummary } from "./recognition/RecognitionSummary";
 import {
   resolveQualifiedRecognitionProfile,
@@ -415,74 +419,6 @@ function VideoPreview({
   );
 }
 
-function RecognitionOverlay({
-  demo,
-  recognition,
-  onCaptureGuideReady
-}: {
-  demo: boolean;
-  recognition: RecognitionView;
-  onCaptureGuideReady: (element: HTMLDivElement | null) => void;
-}) {
-  const displayedPrices =
-    recognition.focusedPrice &&
-    !recognition.detectedPrices.includes(recognition.focusedPrice)
-      ? [...recognition.detectedPrices, recognition.focusedPrice]
-      : recognition.detectedPrices;
-
-  return (
-    <div className="focus-stage">
-      {demo ? (
-        <div className="demo-tag">
-          <span className="demo-kicker">税込価格</span>
-          <strong>4,142円</strong>
-          <small>travel notebook</small>
-        </div>
-      ) : null}
-      {displayedPrices.map((price) => (
-        <div
-          key={`${price.minorUnits}-${price.box.x}-${price.box.y}`}
-          className={`detected-price ${
-            recognition.focusedPrice === price ? "focused-detection" : ""
-          }`}
-          style={
-            demo
-              ? {
-                  left: `${price.box.x / 10}%`,
-                  top: `${price.box.y / 10}%`,
-                  width: `${price.box.width / 10}%`,
-                  height: `${price.box.height / 10}%`
-                }
-              : {
-                  left: price.box.x,
-                  top: price.box.y,
-                  width: price.box.width,
-                  height: price.box.height
-                }
-          }
-          aria-hidden="true"
-          data-detected-price={`${price.currency}-${price.minorUnits}`}
-        >
-          <span aria-hidden="true">
-            {recognition.focusedPrice === price ? "Focused" : "Detected"}
-          </span>
-        </div>
-      ))}
-      <div
-        ref={onCaptureGuideReady}
-        className="capture-guide"
-        aria-hidden="true"
-        data-recognition-phase={recognition.phase}
-      >
-        <i />
-        <i />
-        <i />
-        <i />
-      </div>
-    </div>
-  );
-}
-
 function PreparationStatus({
   detail,
   progress,
@@ -514,8 +450,7 @@ function StatusPanel({
   recognition,
   sourceCurrency,
   onRetry,
-  onRecognitionRetry,
-  onUseDemo
+  onRecognitionRetry
 }: {
   status: CameraStatus;
   demo: boolean;
@@ -523,7 +458,6 @@ function StatusPanel({
   sourceCurrency: SourceCurrencyCode;
   onRetry: () => void;
   onRecognitionRetry: () => void;
-  onUseDemo: () => void;
 }) {
   if (demo) {
     if (recognition.phase === "preparing") {
@@ -567,7 +501,10 @@ function StatusPanel({
         <span className="status-dot" />
         <div>
           <strong>Recognition could not start</strong>
-          <p>Try preparing the local model again or continue without a camera.</p>
+          <p>
+            Try preparing the local model again. Manual Price Entry is ready
+            below.
+          </p>
           <div className="status-actions">
             <button
               className="text-button"
@@ -575,9 +512,6 @@ function StatusPanel({
               onClick={onRecognitionRetry}
             >
               Try recognition again
-            </button>
-            <button className="text-button" type="button" onClick={onUseDemo}>
-              Use no-camera demo
             </button>
           </div>
         </div>
@@ -854,7 +788,6 @@ function CameraSurface({
   onClose,
   onRetry,
   onPlaybackError,
-  onUseDemo,
   memberStatus,
   onContinueAsGuest
 }: {
@@ -872,7 +805,6 @@ function CameraSurface({
   onClose: () => void;
   onRetry: () => void;
   onPlaybackError: () => void;
-  onUseDemo: () => void;
   memberStatus: ReactNode;
   onContinueAsGuest: () => void;
 }) {
@@ -906,11 +838,14 @@ function CameraSurface({
   }, [preferences.sourceCurrency]);
 
   useEffect(() => {
-    if (recognition.phase === "error") {
+    if (
+      recognition.phase === "error" ||
+      isCameraFailureStatus(snapshot.status)
+    ) {
       manualPromotionHandledRef.current = true;
       setManualEntryExpanded(true);
     }
-  }, [recognition.phase]);
+  }, [recognition.phase, snapshot.status]);
 
   useEffect(() => {
     if (recognition.focusedPrice) {
@@ -1000,7 +935,7 @@ function CameraSurface({
           />
         ) : null}
         <div className={`preview-fallback ${demo ? "demo-preview" : ""}`} />
-        <RecognitionOverlay
+        <CameraExperienceOverlay
           demo={demo}
           recognition={recognition}
           onCaptureGuideReady={setCaptureGuide}
@@ -1029,9 +964,9 @@ function CameraSurface({
           onRecognitionRetry={() =>
             setRecognitionRestartKey((restartKey) => restartKey + 1)
           }
-          onUseDemo={onUseDemo}
         />
         <RecognitionSummary recognition={recognition} demo={demo} />
+        <DetectedPriceRail recognition={recognition} />
         <ManualPriceComposer
           sourceCurrency={preferences.sourceCurrency}
           enteredPrice={enteredPrice}
@@ -1673,7 +1608,6 @@ export default function App({
         onClose={closeExperience}
         onRetry={startCamera}
         onPlaybackError={handlePlaybackError}
-        onUseDemo={openDemo}
         memberStatus={memberStatus}
         onContinueAsGuest={() => setUseGuestMode(true)}
       />
