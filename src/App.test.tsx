@@ -190,11 +190,8 @@ beforeEach(() => {
 describe("Manual Price Entry journey", () => {
   it("promotes the camera-sheet composer after five seconds without moving focus", async () => {
     vi.useFakeTimers();
-    useMediaDevices(
-      vi
-        .fn()
-        .mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
-    );
+    const cameraPermission = createDeferred<MediaStream>();
+    useMediaDevices(vi.fn().mockReturnValue(cameraPermission.promise));
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
@@ -644,6 +641,11 @@ describe("Guest camera journey", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /camera access was denied/i
     );
+    const promotedInput = await screen.findByRole("textbox", {
+      name: /jpy amount/i
+    });
+    expect(promotedInput).toBeInTheDocument();
+    expect(promotedInput).not.toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: /try camera again/i }));
     expect(
@@ -731,9 +733,15 @@ describe("Guest camera journey", () => {
         name: /price 1 of 1, jpy 4,142/i
       })
     ).toHaveAttribute("aria-current", "true");
+    expect(document.querySelector(".detected-price")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
     expect(
-      document.querySelector(".detected-price")
-    ).toHaveAttribute("aria-hidden", "true");
+      screen.queryByRole("button", {
+        name: /focused price detection outline · jpy 4,142/i
+      })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("img", { name: /detected price/i })
     ).not.toBeInTheDocument();
@@ -863,8 +871,8 @@ describe("Guest camera journey", () => {
     ).toBeInTheDocument();
     expect(createRecognizer).toHaveBeenCalledOnce();
     expect(
-      screen.getByRole("button", { name: /use no-camera demo/i })
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /use no-camera demo/i })
+    ).not.toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: /try recognition again/i })
     );
@@ -1193,7 +1201,7 @@ describe("Guest camera journey", () => {
         button.getAttribute("aria-label")?.includes("JPY 980")
       )!
     );
-    expect(other).toHaveClass("focused-detection");
+    await waitFor(() => expect(other).toHaveClass("focused-detection"));
     expect(focused).not.toHaveClass("focused-detection");
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 980/i);
     expect(screen.getByText("USD 6.58")).toBeInTheDocument();
@@ -1207,7 +1215,7 @@ describe("Guest camera journey", () => {
     );
     expect(
       document.querySelector('[data-detected-price="JPY-980"]')
-    ).toBeInTheDocument();
+    ).toHaveClass("focused-detection");
     expect(screen.getByText("USD 6.58")).toBeInTheDocument();
   }, 10_000);
 

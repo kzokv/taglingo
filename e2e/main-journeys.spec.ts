@@ -121,7 +121,7 @@ test("Guest explicitly switches the camera-sheet price used for conversion", asy
   expect(enteredPriceTraffic.requests).toEqual([]);
 });
 
-test("Guest recovers from deterministic camera denial and completes the demo", async ({
+test("Guest recovers from deterministic camera denial with Manual Price Entry", async ({
   page
 }) => {
   await installDeniedCamera(page);
@@ -147,20 +147,24 @@ test("Guest recovers from deterministic camera denial and completes the demo", a
   await expect(page.getByRole("alert")).toContainText(
     "Camera access was denied"
   );
-  await page.getByRole("button", { name: /close camera/i }).click();
-  await page.getByRole("button", { name: /try without camera/i }).click();
+  await expect(
+    page.getByRole("button", { name: /use no-camera demo/i })
+  ).toHaveCount(0);
+  const composer = page.getByRole("region", { name: /manual price entry/i });
+  await expect(
+    composer.getByRole("textbox", { name: /jpy amount/i })
+  ).toBeVisible();
+  await composer.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
+  await composer.getByRole("textbox", { name: /jpy amount/i }).press("Enter");
 
-  const recognitionSummary = page.getByRole("region", {
-    name: /recognition summary/i
-  });
-  await expect(recognitionSummary.locator("strong")).toHaveText(
-    "Focused Price · JPY 4,142"
-  );
-  await expect(page.getByText("USD 27.80")).toBeVisible();
-  await page.getByText("View 1 Detected Price").click();
-  await expect(recognitionSummary.getByRole("listitem")).toHaveText(
-    "Focused detection · JPY 4,142"
-  );
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Entered Price in use");
+  await expect(page.getByText("USD 33.56")).toBeVisible();
+  await expect(page.locator("[data-detected-price]")).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("No Detected Price yet");
   expect(apiRequests).toEqual([]);
 });
 
@@ -179,6 +183,23 @@ test("Guest completes recognition with deterministic media and OCR", async ({
     /focused-detection/
   );
   await expect(page.getByText("USD 27.80")).toBeVisible();
+
+  const detectedPriceList = page.getByRole("list", {
+    name: /detected prices/i
+  });
+  await expect(detectedPriceList.getByRole("button")).toHaveCount(2, {
+    timeout: 12_000
+  });
+  await detectedPriceList
+    .getByRole("button", { name: /price 2 of 2, jpy 980/i })
+    .click();
+  await expect(page.locator('[data-detected-price="JPY-980"]')).toHaveClass(
+    /focused-detection/
+  );
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 980");
+  await expect(page.getByText("USD 6.58")).toBeVisible();
 });
 
 test("Approved Member completes a deterministic three-currency journey", async ({
