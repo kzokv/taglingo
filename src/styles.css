@@ -781,6 +781,63 @@ h1 em {
   transform: translate(-50%, -50%);
 }
 
+.capture-guide-label {
+  position: absolute;
+  bottom: calc(100% + 13px);
+  left: 50%;
+  display: grid;
+  width: min(78vw, 360px);
+  gap: 3px;
+  color: var(--paper);
+  text-shadow: 0 2px 12px #000;
+  transform: translateX(-50%);
+}
+
+.capture-guide-label span {
+  color: var(--mint);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.capture-guide-label strong {
+  font-size: 0.82rem;
+}
+
+.capture-guide-label small {
+  color: rgba(246, 244, 237, 0.72);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.48rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.capture-guide > p {
+  position: absolute;
+  top: calc(100% + 13px);
+  left: 50%;
+  width: min(78vw, 360px);
+  margin: 0;
+  color: rgba(246, 244, 237, 0.88);
+  font-size: 0.67rem;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow: 0 2px 12px #000;
+  transform: translateX(-50%);
+}
+
+.capture-guide[data-recognition-phase="stabilizing"] i {
+  border-color: #85c8ff;
+  border-width: 2px;
+}
+
+.capture-guide[data-recognition-phase="focused"] i {
+  border-color: var(--mint);
+  border-width: 2px;
+}
+
 .capture-guide::after {
   position: absolute;
   top: 50%;
@@ -877,8 +934,10 @@ h1 em {
   z-index: 4;
   border: 2px solid var(--mint);
   border-radius: 4px;
+  padding: 0;
+  background: rgba(152, 224, 192, 0.06);
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.08);
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .detected-price span {
@@ -894,9 +953,11 @@ h1 em {
 }
 
 .focused-detection {
-  border-color: var(--coral);
+  z-index: 5;
+  border: 3px solid var(--coral);
+  background: rgba(255, 129, 95, 0.08);
   box-shadow:
-    0 0 0 2px rgba(255, 129, 95, 0.2),
+    0 0 0 3px rgba(255, 129, 95, 0.2),
     0 0 0 999px rgba(0, 0, 0, 0.08);
 }
 
@@ -1017,6 +1078,67 @@ h1 em {
 .recognition-note strong {
   color: #c9cfce;
   font-size: 0.72rem;
+}
+
+.detected-price-rail {
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(246, 244, 237, 0.11);
+}
+
+.detected-price-rail > div:first-child {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.detected-price-rail > div > strong {
+  font-size: 0.72rem;
+}
+
+.detected-price-rail > div > span {
+  color: #929c9b;
+  font-size: 0.58rem;
+}
+
+.detected-price-rail-list {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.detected-price-rail-list button {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 118px;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid rgba(246, 244, 237, 0.13);
+  border-radius: 11px;
+  background: rgba(246, 244, 237, 0.04);
+  color: var(--paper);
+  text-align: left;
+}
+
+.detected-price-rail-list button.is-selected {
+  border: 2px solid var(--coral);
+  background: rgba(255, 129, 95, 0.09);
+}
+
+.detected-price-rail-list button span {
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.detected-price-rail-list button small {
+  color: var(--mint);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.5rem;
+  text-transform: uppercase;
 }
 
 .manual-price-composer {

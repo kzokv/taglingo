@@ -190,11 +190,8 @@ beforeEach(() => {
 describe("Manual Price Entry journey", () => {
   it("promotes the camera-sheet composer after five seconds without moving focus", async () => {
     vi.useFakeTimers();
-    useMediaDevices(
-      vi
-        .fn()
-        .mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
-    );
+    const cameraPermission = createDeferred<MediaStream>();
+    useMediaDevices(vi.fn().mockReturnValue(cameraPermission.promise));
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
@@ -644,6 +641,11 @@ describe("Guest camera journey", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /camera access was denied/i
     );
+    const promotedInput = screen.getByRole("textbox", {
+      name: /jpy amount/i
+    });
+    expect(promotedInput).toBeInTheDocument();
+    expect(promotedInput).not.toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: /try camera again/i }));
     expect(
@@ -726,8 +728,10 @@ describe("Guest camera journey", () => {
       screen.getByRole("region", { name: /recognition summary/i })
     ).toHaveTextContent(/1 Detected Price/i);
     expect(
-      document.querySelector(".detected-price")
-    ).toHaveAttribute("aria-hidden", "true");
+      screen.getByRole("button", {
+        name: /focused price detection outline · jpy 4,142/i
+      })
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("img", { name: /detected price/i })
     ).not.toBeInTheDocument();
@@ -857,8 +861,8 @@ describe("Guest camera journey", () => {
     ).toBeInTheDocument();
     expect(createRecognizer).toHaveBeenCalledOnce();
     expect(
-      screen.getByRole("button", { name: /use no-camera demo/i })
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /use no-camera demo/i })
+    ).not.toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: /try recognition again/i })
     );
@@ -1169,6 +1173,22 @@ describe("Guest camera journey", () => {
     });
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
     expect(recognitionSummary).toHaveTextContent(/Detected Price · JPY 980/i);
+    expect(
+      document.querySelectorAll("[data-detected-price-rail-item]")
+    ).toHaveLength(2);
+
+    fireEvent.click(other!);
+    await waitFor(() => expect(other).toHaveClass("focused-detection"));
+    expect(focused).not.toHaveClass("focused-detection");
+    expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 980/i);
+    expect(screen.getByText("USD 6.58")).toBeInTheDocument();
+
+    fireEvent.click(focused!);
+    await waitFor(() => expect(focused).toHaveClass("focused-detection"));
+    fireEvent.click(
+      document.querySelector('[data-detected-price-rail-item="JPY-980"]')!
+    );
+    await waitFor(() => expect(other).toHaveClass("focused-detection"));
     const callsBeforeNextPass = recognize.mock.calls.length;
     await waitFor(
       () =>
@@ -1179,8 +1199,8 @@ describe("Guest camera journey", () => {
     );
     expect(
       document.querySelector('[data-detected-price="JPY-980"]')
-    ).toBeInTheDocument();
-    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+    ).toHaveClass("focused-detection");
+    expect(screen.getByText("USD 6.58")).toBeInTheDocument();
   }, 10_000);
 
   it("searches one Target Currency and restores Guest preferences after reload", async () => {
