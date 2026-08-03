@@ -12,6 +12,9 @@ import type {
 
 const CAPTURE_KEYS = [
   "fixtureId",
+  "trialId",
+  "captureArtifactHash",
+  "capturedAt",
   "stratum",
   "configuration",
   "device",
@@ -76,6 +79,15 @@ function assertCommonTrialValues(
   const fixture = manifest.fixtures.find(({ id }) => id === value.fixtureId);
   if (!fixture) {
     throw new Error(`Fixture ${value.fixtureId} is not declared by the manifest.`);
+  }
+  if (
+    !value.trialId.trim() ||
+    !/^sha256:[a-f\d]{64}$/u.test(value.captureArtifactHash) ||
+    !Number.isFinite(Date.parse(value.capturedAt))
+  ) {
+    throw new Error(
+      "Qualification trials require a trial identity, SHA-256 capture artifact hash, and capture timestamp."
+    );
   }
   if (fixture.stratum !== value.stratum) {
     throw new Error(`Fixture ${value.fixtureId} has a mismatched declared stratum.`);
@@ -207,6 +219,9 @@ export function createFrozenTrialRecord(
 
   const record: FrozenTrialRecord = {
     fixtureId: input.fixtureId,
+    trialId: input.trialId,
+    captureArtifactHash: input.captureArtifactHash,
+    capturedAt: input.capturedAt,
     stratum: input.stratum,
     configuration: structuredClone(input.configuration),
     device: structuredClone(input.device),

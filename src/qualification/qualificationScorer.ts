@@ -133,16 +133,29 @@ export function scoreQualification(
 ): QualificationReport {
   validateQualificationManifest(manifest);
   const byFixture = new Map<string, FrozenTrialRecord>();
+  const trialIds = new Set<string>();
+  const captureArtifactHashes = new Set<string>();
+  const captureTimestamps = new Set<string>();
   for (const record of records) {
     if (byFixture.has(record.fixtureId)) {
       throw new Error(
         `One independent trial is allowed for fixture ${record.fixtureId}; replays do not increase the denominator.`
       );
     }
-    byFixture.set(
-      record.fixtureId,
-      validateFrozenTrialRecord(manifest, record)
-    );
+    const validated = validateFrozenTrialRecord(manifest, record);
+    if (
+      trialIds.has(validated.trialId) ||
+      captureArtifactHashes.has(validated.captureArtifactHash) ||
+      captureTimestamps.has(validated.capturedAt)
+    ) {
+      throw new Error(
+        "Qualification requires a unique content-free capture identity for every fixture trial."
+      );
+    }
+    trialIds.add(validated.trialId);
+    captureArtifactHashes.add(validated.captureArtifactHash);
+    captureTimestamps.add(validated.capturedAt);
+    byFixture.set(record.fixtureId, validated);
   }
 
   const positiveByStratum = Object.fromEntries(
@@ -296,9 +309,6 @@ export function scoreProfileQualification(
     manifest,
     performanceEvidence
   );
-  const reliabilityFailures = new Set(
-    reliability.failures.map(({ fixtureId }) => fixtureId)
-  );
   const performanceByFixture = new Map(
     performanceEvidence?.sceneRun.trials.map((trial) => [
       trial.fixtureId,
@@ -311,21 +321,22 @@ export function scoreProfileQualification(
   const evidenceAligned =
     performanceEvidence !== null &&
     manifest.fixtures.every((fixture) => {
-      if (!isPositiveStratum(fixture.stratum)) return true;
-      const reliabilitySucceeded = !reliabilityFailures.has(fixture.id);
-      if (!reliabilitySucceeded) return true;
       const trial = performanceByFixture.get(fixture.id);
       const record = recordsByFixture.get(fixture.id);
-      const firstExpectedFocusMs = record?.focusTransitions
-        .filter(({ classification }) => classification === "expected")
+      if (!trial || !record) return false;
+      const firstObservedFocusMs = record.focusTransitions
         .reduce<number | null>(
           (earliest, { atMs }) =>
             earliest === null || atMs < earliest ? atMs : earliest,
           null
         );
       return (
-        trial?.focusOutcome === "focused" &&
-        trial.focusedPriceLatencyMs === firstExpectedFocusMs
+        trial.trialId === record.trialId &&
+        trial.captureArtifactHash === record.captureArtifactHash &&
+        trial.capturedAt === record.capturedAt &&
+        trial.focusOutcome ===
+          (firstObservedFocusMs === null ? "not-focused" : "focused") &&
+        trial.focusedPriceLatencyMs === firstObservedFocusMs
       );
     });
   const qualified =

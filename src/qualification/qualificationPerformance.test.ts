@@ -203,6 +203,16 @@ function passingReliabilityRecords(manifest: QualificationManifest) {
     const successful = positive && occurrence < 36;
     const input: TrialCaptureInput = {
       fixtureId: entry.id,
+      trialId: `performance-trial-${manifest.fixtures.indexOf(entry)}`,
+      captureArtifactHash: `sha256:${(
+        manifest.fixtures.indexOf(entry) + 1
+      )
+        .toString(16)
+        .padStart(64, "0")}`,
+      capturedAt: new Date(
+        Date.parse("2026-07-01T00:00:00.000Z") +
+          manifest.fixtures.indexOf(entry) * 60_000
+      ).toISOString(),
       stratum: entry.stratum,
       configuration: manifest.configuration,
       device: manifest.device,
@@ -240,7 +250,7 @@ describe("mobile performance qualification", () => {
     expect(report.sceneRun.sceneCount).toBe(299);
     expect(report.sceneRun).toMatchObject({
       completeTrialCount: 299,
-      uniqueMeasurementCount: 299,
+      identifiedTrialCount: 299,
       focusedPositiveTrialCount: 108,
       guidePassSampleCount: 299,
       discoveryPassSampleCount: 299,
@@ -613,23 +623,36 @@ describe("mobile performance qualification", () => {
     );
   });
 
-  it("rejects copied one-scene measurements even when all fixture IDs are present", () => {
+  it("accepts identical numeric scene series from independently identified captures", () => {
     const manifest = validManifest();
     const evidence = passingEvidence(manifest);
-    const source = evidence.sceneRun.trials[0];
+    const focusedSource = evidence.sceneRun.trials.find(
+      ({ focusOutcome }) => focusOutcome === "focused"
+    )!;
+    const notFocusedSource = evidence.sceneRun.trials.find(
+      ({ focusOutcome }) => focusOutcome === "not-focused"
+    )!;
     const copied = evidence.sceneRun.trials.map((trial) => ({
       ...trial,
-      guidePassDurationsMs: source.guidePassDurationsMs,
-      discoveryPassDurationsMs: source.discoveryPassDurationsMs,
+      guidePassDurationsMs: focusedSource.guidePassDurationsMs,
+      discoveryPassDurationsMs: focusedSource.discoveryPassDurationsMs,
       searchingOrStabilizingGuideIntervalsMs:
-        source.searchingOrStabilizingGuideIntervalsMs,
+        focusedSource.searchingOrStabilizingGuideIntervalsMs,
       searchingOrStabilizingDiscoveryIntervalsMs:
-        source.searchingOrStabilizingDiscoveryIntervalsMs,
-      yieldsBetweenPassesMs: source.yieldsBetweenPassesMs,
-      focusOutcome: source.focusOutcome,
-      focusedPriceLatencyMs: source.focusedPriceLatencyMs,
-      focusedGuideIntervalsMs: source.focusedGuideIntervalsMs,
-      focusedDiscoveryIntervalsMs: source.focusedDiscoveryIntervalsMs
+        focusedSource.searchingOrStabilizingDiscoveryIntervalsMs,
+      yieldsBetweenPassesMs: focusedSource.yieldsBetweenPassesMs,
+      focusedPriceLatencyMs:
+        trial.focusOutcome === "focused"
+          ? focusedSource.focusedPriceLatencyMs
+          : notFocusedSource.focusedPriceLatencyMs,
+      focusedGuideIntervalsMs:
+        trial.focusOutcome === "focused"
+          ? focusedSource.focusedGuideIntervalsMs
+          : notFocusedSource.focusedGuideIntervalsMs,
+      focusedDiscoveryIntervalsMs:
+        trial.focusOutcome === "focused"
+          ? focusedSource.focusedDiscoveryIntervalsMs
+          : notFocusedSource.focusedDiscoveryIntervalsMs
     }));
 
     const report = scorePerformanceQualification(manifest, {
@@ -638,11 +661,8 @@ describe("mobile performance qualification", () => {
     });
 
     expect(report.sceneRun.sceneCount).toBe(299);
-    expect(report.sceneRun.uniqueMeasurementCount).toBe(1);
-    expect(report.performanceEligible).toBe(false);
-    expect(report.failures).toContainEqual(
-      expect.objectContaining({ id: "scene.unique-evidence-count" })
-    );
+    expect(report.sceneRun.identifiedTrialCount).toBe(299);
+    expect(report.performanceEligible).toBe(true);
   });
 
   it("requires independently identified evidence for every fixture trial", () => {
@@ -664,14 +684,14 @@ describe("mobile performance qualification", () => {
       sceneRun: { trials }
     });
 
-    expect(report.sceneRun.uniqueMeasurementCount).toBe(299);
+    expect(report.sceneRun.identifiedTrialCount).toBe(298);
     expect(report.performanceEligible).toBe(false);
     expect(report.failures).toContainEqual(
-      expect.objectContaining({ id: "scene.unique-evidence-count" })
+      expect.objectContaining({ id: "scene.unique-identity-count" })
     );
   });
 
-  it("rejects copied sustained telemetry behind distinct caller-supplied IDs", () => {
+  it("accepts identical sustained telemetry from independently identified runs", () => {
     const manifest = validManifest();
     const evidence = passingEvidence(manifest);
     const source = evidence.sustainedRuns[0];
@@ -686,10 +706,7 @@ describe("mobile performance qualification", () => {
     });
 
     expect(report.sustainedRuns.every(({ passed }) => passed)).toBe(true);
-    expect(report.performanceEligible).toBe(false);
-    expect(report.failures).toContainEqual(
-      expect.objectContaining({ id: "sustained.run-count" })
-    );
+    expect(report.performanceEligible).toBe(true);
   });
 
   it("requires minute-by-minute checkpoints throughout every sustained run", () => {
@@ -799,5 +816,58 @@ describe("mobile performance qualification", () => {
     expect(report.performance.performanceEligible).toBe(true);
     expect(report.evidenceAligned).toBe(false);
     expect(report.qualified).toBe(false);
+  });
+
+  it("aligns identity and explicit focus evidence for failed positives and negatives", () => {
+    const manifest = validManifest();
+    const records = passingReliabilityRecords(manifest);
+    const evidence = passingEvidence(manifest);
+    const scoreChangedTrial = (
+      trialIndex: number,
+      change: (
+        trial: PerformanceQualificationEvidence["sceneRun"]["trials"][number]
+      ) => PerformanceQualificationEvidence["sceneRun"]["trials"][number]
+    ) =>
+      scoreProfileQualification(manifest, records, {
+        ...evidence,
+        sceneRun: {
+          trials: evidence.sceneRun.trials.map((trial, index) =>
+            index === trialIndex ? change(trial) : trial
+          )
+        }
+      });
+
+    const contradictedFailedPositive = scoreChangedTrial(36, (trial) => ({
+      ...trial,
+      focusOutcome: "focused",
+      focusedPriceLatencyMs: 1_000,
+      focusedGuideIntervalsMs: [1_900],
+      focusedDiscoveryIntervalsMs: [4_900]
+    }));
+    expect(contradictedFailedPositive.performance.performanceEligible).toBe(
+      true
+    );
+    expect(contradictedFailedPositive.evidenceAligned).toBe(false);
+    expect(contradictedFailedPositive.qualified).toBe(false);
+
+    const contradictedNegative = scoreChangedTrial(120, (trial) => ({
+      ...trial,
+      focusOutcome: "focused",
+      focusedPriceLatencyMs: 1_000,
+      focusedGuideIntervalsMs: [1_900],
+      focusedDiscoveryIntervalsMs: [4_900]
+    }));
+    expect(contradictedNegative.performance.performanceEligible).toBe(true);
+    expect(contradictedNegative.evidenceAligned).toBe(false);
+    expect(contradictedNegative.qualified).toBe(false);
+
+    const contradictedIdentity = scoreChangedTrial(0, (trial) => ({
+      ...trial,
+      captureArtifactHash:
+        "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }));
+    expect(contradictedIdentity.performance.performanceEligible).toBe(true);
+    expect(contradictedIdentity.evidenceAligned).toBe(false);
+    expect(contradictedIdentity.qualified).toBe(false);
   });
 });

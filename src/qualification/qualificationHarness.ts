@@ -19,6 +19,8 @@ export type {
   FrozenTrialRecord,
   NegativeQualificationStratum,
   PositiveQualificationStratum,
+  QualificationCaptureArtifactHash,
+  QualificationCaptureIdentity,
   QualificationBrowser,
   QualificationChallenge,
   QualificationConfiguration,

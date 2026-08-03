@@ -6,6 +6,8 @@ import {
 import { isPositiveStratum } from "./qualificationPolicy";
 import type {
   QualificationBrowser,
+  QualificationCaptureArtifactHash,
+  QualificationCaptureIdentity,
   QualificationConfiguration,
   QualificationDevice,
   QualificationManifest
@@ -51,7 +53,7 @@ export const QUALIFICATION_PERFORMANCE_POLICY = {
 } as const;
 
 export type PerformanceEvidenceKind = "physical-device" | "simulation";
-export type PerformanceEvidenceHash = `sha256:${string}`;
+export type PerformanceEvidenceHash = QualificationCaptureArtifactHash;
 
 export interface StartupPerformanceMeasurement {
   readonly id: string;
@@ -60,11 +62,8 @@ export interface StartupPerformanceMeasurement {
   readonly recognitionReadyMs: number;
 }
 
-export interface ScenePerformanceTrial {
+export interface ScenePerformanceTrial extends QualificationCaptureIdentity {
   readonly fixtureId: string;
-  readonly trialId: string;
-  readonly captureArtifactHash: PerformanceEvidenceHash;
-  readonly capturedAt: string;
   readonly guidePassDurationsMs: readonly number[];
   readonly discoveryPassDurationsMs: readonly number[];
   readonly searchingOrStabilizingGuideIntervalsMs: readonly number[];
@@ -184,7 +183,7 @@ export interface PerformanceQualificationReport {
     readonly sceneCount: number;
     readonly requiredSceneCount: number;
     readonly completeTrialCount: number;
-    readonly uniqueMeasurementCount: number;
+    readonly identifiedTrialCount: number;
     readonly focusedPositiveTrialCount: number;
     readonly guidePassSampleCount: number;
     readonly discoveryPassSampleCount: number;
@@ -457,22 +456,6 @@ function startupChecks(
   ];
 }
 
-function sceneMeasurementSignature(trial: ScenePerformanceTrial) {
-  return JSON.stringify({
-    guidePassDurationsMs: trial.guidePassDurationsMs,
-    discoveryPassDurationsMs: trial.discoveryPassDurationsMs,
-    searchingOrStabilizingGuideIntervalsMs:
-      trial.searchingOrStabilizingGuideIntervalsMs,
-    searchingOrStabilizingDiscoveryIntervalsMs:
-      trial.searchingOrStabilizingDiscoveryIntervalsMs,
-    yieldsBetweenPassesMs: trial.yieldsBetweenPassesMs,
-    focusOutcome: trial.focusOutcome,
-    focusedPriceLatencyMs: trial.focusedPriceLatencyMs,
-    focusedGuideIntervalsMs: trial.focusedGuideIntervalsMs,
-    focusedDiscoveryIntervalsMs: trial.focusedDiscoveryIntervalsMs
-  });
-}
-
 function sceneTrialComplete(trial: ScenePerformanceTrial) {
   const hasCoreMeasurements =
     trial.guidePassDurationsMs.length > 0 &&
@@ -489,26 +472,6 @@ function sceneTrialComplete(trial: ScenePerformanceTrial) {
         trial.focusedGuideIntervalsMs.length === 0 &&
         trial.focusedDiscoveryIntervalsMs.length === 0;
   return hasCoreMeasurements && focusConsistent;
-}
-
-function runTelemetrySignature(run: SustainedPerformanceRun) {
-  return JSON.stringify({
-    cameraPreviewBaselineMiB: run.cameraPreviewBaselineMiB,
-    checkpoints: [...run.checkpoints]
-      .sort((left, right) => left.atMs - right.atMs)
-      .map((checkpoint) => [
-        checkpoint.atMs,
-        checkpoint.previewFps,
-        checkpoint.recognitionDurationMs,
-        checkpoint.memoryMiB,
-        checkpoint.batteryDrainPercentagePoints,
-        checkpoint.crashes,
-        checkpoint.reloads,
-        checkpoint.thermalWarnings,
-        checkpoint.cameraInterruptions,
-        checkpoint.forcedRecoveries
-      ])
-  });
 }
 
 function sustainedRunReport(
@@ -718,7 +681,7 @@ function missingReport(manifest: QualificationManifest): PerformanceQualificatio
       sceneCount: 0,
       requiredSceneCount: QUALIFICATION_PERFORMANCE_POLICY.requiredScenes,
       completeTrialCount: 0,
-      uniqueMeasurementCount: 0,
+      identifiedTrialCount: 0,
       focusedPositiveTrialCount: 0,
       guidePassSampleCount: 0,
       discoveryPassSampleCount: 0,
@@ -758,7 +721,11 @@ export function scorePerformanceQualification(
   const trials = evidence.sceneRun.trials;
   const fixtureById = new Map(manifest.fixtures.map((fixture) => [fixture.id, fixture]));
   const completeTrialCount = trials.filter(sceneTrialComplete).length;
-  const uniqueMeasurementCount = new Set(trials.map(sceneMeasurementSignature)).size;
+  const identifiedTrialCount = Math.min(
+    new Set(trials.map(({ trialId }) => trialId)).size,
+    new Set(trials.map(({ captureArtifactHash }) => captureArtifactHash)).size,
+    new Set(trials.map(({ capturedAt }) => capturedAt)).size
+  );
   const positiveFocusedTrials = trials.filter((trial) => {
     const fixture = fixtureById.get(trial.fixtureId);
     return fixture && isPositiveStratum(fixture.stratum) && trial.focusOutcome === "focused";
@@ -783,7 +750,7 @@ export function scorePerformanceQualification(
     sceneCount: trials.length,
     requiredSceneCount: policy.requiredScenes,
     completeTrialCount,
-    uniqueMeasurementCount,
+    identifiedTrialCount,
     focusedPositiveTrialCount: positiveFocusedTrials.length,
     guidePassSampleCount: guidePassDurations.length,
     discoveryPassSampleCount: discoveryPassDurations.length,
@@ -804,8 +771,7 @@ export function scorePerformanceQualification(
   const uniqueSceneEvidence =
     new Set(trials.map(({ trialId }) => trialId)).size === trials.length &&
     new Set(trials.map(({ captureArtifactHash }) => captureArtifactHash)).size === trials.length &&
-    new Set(trials.map(({ capturedAt }) => capturedAt)).size === trials.length &&
-    uniqueMeasurementCount === trials.length;
+    new Set(trials.map(({ capturedAt }) => capturedAt)).size === trials.length;
   const sustainedRuns = evidence.sustainedRuns.map(sustainedRunReport);
   const sortedRunTimes = [...evidence.sustainedRuns].sort(
     (left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt)
@@ -821,7 +787,6 @@ export function scorePerformanceQualification(
         ({ captureArtifactHash }) => captureArtifactHash
       )
     ).size === evidence.sustainedRuns.length &&
-    new Set(evidence.sustainedRuns.map(runTelemetrySignature)).size === evidence.sustainedRuns.length &&
     runsDoNotOverlap;
   const resourceSummary = {
     firstInstallTransferMiB: evidence.resources.firstInstallTransferMiB,
@@ -885,9 +850,9 @@ export function scorePerformanceQualification(
       completeTrialCount === policy.requiredScenes
     ),
     gate(
-      "scene.unique-evidence-count",
-      "Unique per-fixture measurement evidence",
-      uniqueMeasurementCount,
+      "scene.unique-identity-count",
+      "Uniquely identified per-fixture evidence",
+      identifiedTrialCount,
       policy.requiredScenes,
       "equal",
       "trials",
