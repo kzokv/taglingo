@@ -1,6 +1,7 @@
 import type {
   CurrencyAmount,
-  RecognizerAdapterCurrencyCode
+  RecognizerAdapterCurrencyCode,
+  SourceCurrencyCode
 } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 
@@ -18,7 +19,7 @@ export interface OcrToken {
 }
 
 export interface DetectedPrice extends CurrencyAmount {
-  currency: RecognizerAdapterCurrencyCode;
+  currency: SourceCurrencyCode;
   confidence: number;
   box: Rectangle;
 }

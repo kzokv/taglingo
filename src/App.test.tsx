@@ -51,7 +51,8 @@ import { MemberPreferencesRequestError } from "./member/memberPreferencesClient"
 import { createTestRecognitionProfile } from "./test/recognitionProfile";
 import type {
   OcrRecognizer,
-  RecognitionPassIdentity
+  RecognitionPassIdentity,
+  RecognizerObservation
 } from "./recognition/ocrRecognizer";
 
 const DEFAULT_RATE: GuestReferenceRate = {
@@ -98,6 +99,65 @@ function useMediaDevices(getUserMedia: ReturnType<typeof vi.fn>) {
     configurable: true,
     value: { getUserMedia }
   });
+}
+
+function canvasContext(): CanvasRenderingContext2D {
+  return {
+    drawImage: vi.fn(),
+    getImageData: (
+      _x: number,
+      _y: number,
+      width: number,
+      height: number
+    ) =>
+      ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+        colorSpace: "srgb"
+      }) as ImageData,
+    createImageData: (width: number, height: number) =>
+      ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+        colorSpace: "srgb"
+      }) as ImageData,
+    putImageData: vi.fn()
+  } as unknown as CanvasRenderingContext2D;
+}
+
+function recognizedObservation(
+  text: string,
+  confidence: number,
+  box: { x: number; y: number; width: number; height: number },
+  passIdentity: RecognitionPassIdentity
+): RecognizerObservation {
+  const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
+  const scaledBox = {
+    x: box.x * scale,
+    y: box.y * scale,
+    width: box.width * scale,
+    height: box.height * scale
+  };
+  return {
+    text,
+    evidenceKind: "text",
+    confidence,
+    line: { blockIndex: 0, paragraphIndex: 0, lineIndex: 0 },
+    box: scaledBox,
+    polygon: [
+      { x: scaledBox.x, y: scaledBox.y },
+      { x: scaledBox.x + scaledBox.width, y: scaledBox.y },
+      {
+        x: scaledBox.x + scaledBox.width,
+        y: scaledBox.y + scaledBox.height
+      },
+      { x: scaledBox.x, y: scaledBox.y + scaledBox.height }
+    ],
+    timing: { startedAtMs: 1, completedAtMs: 2, durationMs: 1 },
+    passIdentity
+  };
 }
 
 afterEach(() => {
@@ -700,9 +760,9 @@ describe("Guest camera journey", () => {
     const { stream } = createMediaStream();
     const preparation = createDeferred<void>();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      drawImage: vi.fn()
-    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
     const recognizer: OcrRecognizer = {
       prepare: vi.fn().mockReturnValue(preparation.promise),
       recognize: vi.fn().mockResolvedValue([]),
@@ -765,9 +825,9 @@ describe("Guest camera journey", () => {
       .fn()
       .mockReturnValueOnce(failedRecognizer)
       .mockReturnValueOnce(recoveredRecognizer);
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      drawImage: vi.fn()
-    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
 
     render(<App createRecognizer={createRecognizer} />);
     await user.click(screen.getByRole("button", { name: /open camera/i }));
@@ -811,9 +871,9 @@ describe("Guest camera journey", () => {
     const user = userEvent.setup();
     const { stream, track } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      drawImage: vi.fn()
-    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
     const recognizer: OcrRecognizer = {
       prepare: vi.fn().mockResolvedValue(undefined),
       recognize: vi.fn().mockResolvedValue([]),
@@ -910,14 +970,14 @@ describe("Guest camera journey", () => {
       .fn()
       .mockImplementation(
         async (_image: unknown, pass: RecognitionPassIdentity) => [
-          {
-            text: "4,142円",
-            confidence: 96,
-            box:
-              pass.kind === "discovery"
-                ? { x: 170, y: 446, width: 160, height: 80 }
-                : { x: 64, y: 40, width: 160, height: 80 }
-          }
+          recognizedObservation(
+            "4,142円",
+            96,
+            pass.kind === "discovery"
+              ? { x: 170, y: 446, width: 160, height: 80 }
+              : { x: 64, y: 40, width: 160, height: 80 },
+            pass
+          )
         ]
       );
     const recognizer: OcrRecognizer = {
@@ -925,9 +985,9 @@ describe("Guest camera journey", () => {
       recognize,
       terminate: vi.fn().mockResolvedValue(undefined)
     };
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      drawImage: vi.fn()
-    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     let reportProgress: (progress: number, status: string) => void =
       () => undefined;
@@ -977,7 +1037,7 @@ describe("Guest camera journey", () => {
     expect(recognizer.prepare).toHaveBeenCalledOnce();
     expect(recognize).toHaveBeenCalled();
     await waitFor(
-      () => expect(recognize).toHaveBeenCalledTimes(4),
+      () => expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(12),
       { timeout: 6_500 }
     );
     expect(recognize).toHaveBeenCalledWith(
@@ -1008,8 +1068,13 @@ describe("Guest camera journey", () => {
       })
     );
 
+    const callsBeforeMiss = recognize.mock.calls.length;
     recognize.mockResolvedValue([]);
-    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
+    await waitFor(() =>
+      expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
+        callsBeforeMiss + 3
+      )
+    );
     expect(
       document.querySelector('[data-detected-price="JPY-4142"]')
     ).toHaveClass("focused-detection");
@@ -1041,23 +1106,26 @@ describe("Guest camera journey", () => {
       async (_image: unknown, pass: RecognitionPassIdentity) =>
         pass.kind === "discovery"
           ? [
-              {
-                text: "4,142円",
-                confidence: 96,
-                box: { x: 170, y: 446, width: 160, height: 80 }
-              },
-              {
-                text: "980円",
-                confidence: 89,
-                box: { x: 330, y: 200, width: 120, height: 70 }
-              }
+              recognizedObservation(
+                "4,142円",
+                96,
+                { x: 170, y: 446, width: 160, height: 80 },
+                pass
+              ),
+              recognizedObservation(
+                "980円",
+                89,
+                { x: 330, y: 200, width: 120, height: 70 },
+                pass
+              )
             ]
           : [
-              {
-                text: "4,142円",
-                confidence: 96,
-                box: { x: 64, y: 40, width: 160, height: 80 }
-              }
+              recognizedObservation(
+                "4,142円",
+                96,
+                { x: 64, y: 40, width: 160, height: 80 },
+                pass
+              )
             ]
     );
     const recognizer: OcrRecognizer = {
@@ -1065,9 +1133,9 @@ describe("Guest camera journey", () => {
       recognize,
       terminate: vi.fn().mockResolvedValue(undefined)
     };
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      drawImage: vi.fn()
-    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
 
     render(
       <App
@@ -1096,9 +1164,10 @@ describe("Guest camera journey", () => {
     });
     fireEvent.loadedMetadata(video);
 
-    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(4), {
-      timeout: 6_500
-    });
+    await waitFor(
+      () => expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(12),
+      { timeout: 6_500 }
+    );
     const focused = document.querySelector('[data-detected-price="JPY-4142"]');
     const other = document.querySelector('[data-detected-price="JPY-980"]');
     await waitFor(() => expect(focused).toHaveClass("focused-detection"));
@@ -1109,7 +1178,12 @@ describe("Guest camera journey", () => {
     });
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
     expect(recognitionSummary).toHaveTextContent(/Detected Price · JPY 980/i);
-    await waitFor(() => expect(recognize).toHaveBeenCalledTimes(5));
+    const callsBeforeNextPass = recognize.mock.calls.length;
+    await waitFor(() =>
+      expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
+        callsBeforeNextPass + 3
+      )
+    );
     expect(
       document.querySelector('[data-detected-price="JPY-980"]')
     ).toBeInTheDocument();
