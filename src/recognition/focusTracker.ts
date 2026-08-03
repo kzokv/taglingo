@@ -9,7 +9,7 @@ interface Point {
 export interface FocusTracker {
   observe(
     candidates: DetectedPrice[],
-    currentReticle?: Point
+    currentCaptureGuideCenter?: Point
   ): DetectedPrice | null;
 }
 
@@ -102,19 +102,19 @@ function nearestTo(
 }
 
 export function createFocusTracker({
-  reticle
+  captureGuideCenter
 }: {
-  reticle: Point;
+  captureGuideCenter: Point;
 }): FocusTracker {
   let pending: { candidate: DetectedPrice; observations: number } | null = null;
   let focusedPrice: DetectedPrice | null = null;
   let consecutiveMisses = 0;
 
   return {
-    observe(candidates, currentReticle = reticle) {
+    observe(candidates, currentCaptureGuideCenter = captureGuideCenter) {
       const selected = nearestTo(
         candidates,
-        currentReticle,
+        currentCaptureGuideCenter,
         focusedPrice ?? pending?.candidate ?? null
       );
       if (!selected) {

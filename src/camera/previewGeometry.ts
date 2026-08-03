@@ -57,3 +57,51 @@ export function mapSampleBoxToPreview(
     height: tokenBox.height * geometry.scale
   };
 }
+
+export function mapPreviewRegionToCamera(
+  previewRegion: Rectangle,
+  camera: Size,
+  preview: Size
+): Rectangle | null {
+  const geometry = calculateCoverGeometry(camera, preview);
+  const visibleLeft = Math.max(0, previewRegion.x);
+  const visibleTop = Math.max(0, previewRegion.y);
+  const visibleRight = Math.min(
+    preview.width,
+    previewRegion.x + previewRegion.width
+  );
+  const visibleBottom = Math.min(
+    preview.height,
+    previewRegion.y + previewRegion.height
+  );
+  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+    return null;
+  }
+
+  const cameraLeft = Math.max(
+    0,
+    Math.floor((visibleLeft - geometry.offsetX) / geometry.scale)
+  );
+  const cameraTop = Math.max(
+    0,
+    Math.floor((visibleTop - geometry.offsetY) / geometry.scale)
+  );
+  const cameraRight = Math.min(
+    camera.width,
+    Math.ceil((visibleRight - geometry.offsetX) / geometry.scale)
+  );
+  const cameraBottom = Math.min(
+    camera.height,
+    Math.ceil((visibleBottom - geometry.offsetY) / geometry.scale)
+  );
+
+  if (cameraRight <= cameraLeft || cameraBottom <= cameraTop) {
+    return null;
+  }
+  return {
+    x: cameraLeft,
+    y: cameraTop,
+    width: cameraRight - cameraLeft,
+    height: cameraBottom - cameraTop
+  };
+}

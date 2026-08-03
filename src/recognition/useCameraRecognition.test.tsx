@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 import { createTestRecognitionProfile } from "../test/recognitionProfile";
 import type {
@@ -41,6 +41,104 @@ function preview() {
   return element;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+it("crops every Guide pass to the visible Capture Guide and discovery to the full preview", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const cameraVideo = video();
+  Object.defineProperties(cameraVideo, {
+    videoWidth: { configurable: true, value: 200 },
+    videoHeight: { configurable: true, value: 100 }
+  });
+  const cameraPreview = document.createElement("div");
+  vi.spyOn(cameraPreview, "getBoundingClientRect").mockReturnValue({
+    width: 100,
+    height: 100,
+    x: 10,
+    y: 20,
+    top: 20,
+    right: 110,
+    bottom: 120,
+    left: 10,
+    toJSON: () => ({})
+  });
+  const captureGuide = document.createElement("div");
+  vi.spyOn(captureGuide, "getBoundingClientRect").mockReturnValue({
+    width: 50,
+    height: 40,
+    x: 35,
+    y: 40,
+    top: 40,
+    right: 85,
+    bottom: 80,
+    left: 35,
+    toJSON: () => ({})
+  });
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage
+  } as unknown as CanvasRenderingContext2D);
+  const recognizer: OcrRecognizer = {
+    prepare: vi.fn().mockResolvedValue(undefined),
+    recognize: vi.fn().mockResolvedValue([]),
+    terminate: vi.fn().mockResolvedValue(undefined)
+  };
+  const profile = createTestRecognitionProfile();
+  const createRecognizer = () => recognizer;
+
+  const { unmount } = renderHook(() =>
+    useCameraRecognition({
+      enabled: true,
+      profile,
+      video: cameraVideo,
+      preview: cameraPreview,
+      captureGuide,
+      createRecognizer
+    })
+  );
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(drawImage).toHaveBeenNthCalledWith(
+    1,
+    cameraVideo,
+    75,
+    20,
+    50,
+    40,
+    0,
+    0,
+    50,
+    40
+  );
+
+  await act(async () => vi.advanceTimersToNextTimerAsync());
+  await act(async () => vi.advanceTimersToNextTimerAsync());
+  await act(async () => vi.advanceTimersToNextTimerAsync());
+  expect(drawImage).toHaveBeenCalledWith(
+    cameraVideo,
+    50,
+    0,
+    100,
+    100,
+    0,
+    0,
+    100,
+    100
+  );
+  expect(recognizer.recognize).toHaveBeenCalledWith(
+    expect.any(HTMLCanvasElement),
+    expect.objectContaining({ kind: "discovery" })
+  );
+
+  unmount();
+});
+
 function observation(): RecognizerObservation {
   return {
     text: "4,142円",
@@ -68,13 +166,11 @@ it("releases prior generations and discards their stale results", async () => {
     drawImage: vi.fn()
   } as unknown as CanvasRenderingContext2D);
   const staleRecognition = deferred<RecognizerObservation[]>();
+  const firstRelease = deferred<void>();
   const firstRecognizer: OcrRecognizer = {
     prepare: vi.fn().mockResolvedValue(undefined),
-    recognize: vi
-      .fn()
-      .mockResolvedValueOnce([observation()])
-      .mockReturnValueOnce(staleRecognition.promise),
-    terminate: vi.fn().mockResolvedValue(undefined)
+    recognize: vi.fn().mockReturnValueOnce(staleRecognition.promise),
+    terminate: vi.fn().mockReturnValue(firstRelease.promise)
   };
   const nextRecognizer = (): OcrRecognizer => ({
     prepare: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +204,7 @@ it("releases prior generations and discards their stale results", async () => {
         profile,
         video: cameraVideo,
         preview: cameraPreview,
+        captureGuide: cameraPreview,
         createRecognizer,
         recognitionRestartKey: restartKey
       }),
@@ -121,7 +218,7 @@ it("releases prior generations and discards their stale results", async () => {
   );
 
   await waitFor(() =>
-    expect(firstRecognizer.recognize).toHaveBeenCalledTimes(2)
+    expect(firstRecognizer.recognize).toHaveBeenCalledOnce()
   );
   rerender({
     profile: secondProfile,
@@ -129,6 +226,10 @@ it("releases prior generations and discards their stale results", async () => {
     restartKey: 0
   });
   await waitFor(() => expect(firstRecognizer.terminate).toHaveBeenCalledOnce());
+  expect(createRecognizer).toHaveBeenCalledOnce();
+
+  await act(async () => firstRelease.resolve());
+  await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(2));
   expect(createRecognizer).toHaveBeenLastCalledWith(
     secondProfile,
     expect.any(Function)
@@ -154,6 +255,6 @@ it("releases prior generations and discards their stale results", async () => {
   expect(thirdRecognizer.terminate).toHaveBeenCalledOnce();
 
   unmount();
-  expect(fourthRecognizer.terminate).toHaveBeenCalledOnce();
+  await waitFor(() => expect(fourthRecognizer.terminate).toHaveBeenCalledOnce());
   expect(recognizers).toHaveLength(0);
 });

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
+  mapPreviewRegionToCamera,
   mapSampleBoxToPreview,
   type Size
 } from "../camera/previewGeometry";
@@ -18,14 +19,17 @@ import {
   localizePrices,
   type DetectedPrice
 } from "./priceLocalization";
-import { createNewestOnlyPipeline } from "./newestOnlyPipeline";
-import { nextRecognitionDelay } from "./recognitionCadence";
+import {
+  createRecognitionScheduler,
+  type RecognitionScheduler
+} from "./recognitionScheduler";
 import type { RecognitionProfile } from "./recognitionProfile";
 
 export type RecognitionPhase =
   | "waiting"
   | "preparing"
   | "searching"
+  | "stabilizing"
   | "focused"
   | "error";
 
@@ -53,22 +57,17 @@ export const createBrowserRecognizer: CreateRecognizer = (
   onProgress
 ) => createOcrRecognizer(profile, { onProgress });
 
-function centralSample(camera: Size): Rectangle | null {
-  if (camera.width <= 0 || camera.height <= 0) {
-    return null;
-  }
+interface CapturedRecognitionPass {
+  canvas: HTMLCanvasElement;
+  sample: Rectangle;
+  cameraSize: Size;
+  previewSize: Size;
+  guideCenter: { x: number; y: number };
+}
 
-  const width = Math.round(camera.width * 0.7);
-  const height = Math.round(camera.height * 0.28);
-  return {
-    x: Math.round((camera.width - width) / 2),
-    y: Math.max(
-      0,
-      Math.round(camera.height * 0.45 - height / 2)
-    ),
-    width,
-    height
-  };
+interface CompletedRecognitionPass {
+  detectedPrices: DetectedPrice[];
+  guideCenter: { x: number; y: number };
 }
 
 export function useCameraRecognition({
@@ -76,6 +75,7 @@ export function useCameraRecognition({
   profile,
   video,
   preview,
+  captureGuide,
   createRecognizer,
   recognitionRestartKey = 0
 }: {
@@ -83,11 +83,13 @@ export function useCameraRecognition({
   profile: RecognitionProfile;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
+  captureGuide: HTMLElement | null;
   createRecognizer: CreateRecognizer;
   recognitionRestartKey?: number;
 }): RecognitionView {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
+  const recognizerRelease = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     const sourceCurrency = profile.sourceCurrency;
@@ -95,6 +97,7 @@ export function useCameraRecognition({
       !enabled ||
       !video ||
       !preview ||
+      !captureGuide ||
       !hasRecognizerAdapter(sourceCurrency)
     ) {
       setRecognition(EMPTY_RECOGNITION);
@@ -103,74 +106,72 @@ export function useCameraRecognition({
 
     let active = true;
     let prepared = false;
-    let nextSubmission: number | undefined;
-    let recognitionDelay = 350;
-    let completedPasses = 0;
     let discoveryDetectedPrices: DetectedPrice[] = [];
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d", {
-      alpha: false,
-      willReadFrequently: true
-    });
-    const previewRect = preview.getBoundingClientRect();
+    let recognizer: OcrRecognizer | null = null;
+    const previousRecognizerRelease = recognizerRelease.current;
+    const initialPreviewBounds = preview.getBoundingClientRect();
     const tracker = createFocusTracker({
-      reticle: { x: previewRect.width / 2, y: previewRect.height * 0.45 }
+      captureGuideCenter: {
+        x: initialPreviewBounds.width / 2,
+        y: initialPreviewBounds.height * 0.45
+      }
     });
-    const recognizer = createRecognizer(
-      profile,
-      (progress) => {
-        if (active && !prepared) {
-          setRecognition((current) => ({
-            ...current,
-            phase: "preparing",
-            progress: Math.max(current.progress, progress)
-          }));
-        }
-      }
-    );
-
-    const pipeline = createNewestOnlyPipeline<
-      number,
-      {
-        displayedDetectedPrices: DetectedPrice[];
-        currentPassDetectedPrices: DetectedPrice[];
-        ocrDurationMs: number;
-        reticle: { x: number; y: number };
-      }
+    let scheduler: RecognitionScheduler;
+    scheduler = createRecognitionScheduler<
+      CapturedRecognitionPass,
+      CompletedRecognitionPass
     >({
-      async recognize() {
-        const startedAt = performance.now();
-        completedPasses += 1;
-        const passKind =
-          completedPasses % 4 === 0 ? "discovery" : "guide";
+      capturePass(request) {
         const cameraSize = {
           width: video.videoWidth,
           height: video.videoHeight
         };
         const previewBounds = preview.getBoundingClientRect();
+        const guideBounds = captureGuide.getBoundingClientRect();
         const previewSize = {
           width: previewBounds.width,
           height: previewBounds.height
         };
-        const sample =
-          passKind === "discovery"
-            ? {
+        if (
+          cameraSize.width <= 0 ||
+          cameraSize.height <= 0 ||
+          previewSize.width <= 0 ||
+          previewSize.height <= 0
+        ) {
+          return null;
+        }
+
+        const guideRegion = {
+          x: guideBounds.left - previewBounds.left,
+          y: guideBounds.top - previewBounds.top,
+          width: guideBounds.width,
+          height: guideBounds.height
+        };
+        const previewRegion =
+          request.kind === "guide"
+            ? guideRegion
+            : {
                 x: 0,
                 y: 0,
-                width: cameraSize.width,
-                height: cameraSize.height
-              }
-            : centralSample(cameraSize);
-        if (!sample || !context) {
-          return {
-            displayedDetectedPrices: [],
-            currentPassDetectedPrices: [],
-            ocrDurationMs: performance.now() - startedAt,
-            reticle: {
-              x: previewSize.width / 2,
-              y: previewSize.height * 0.45
-            }
-          };
+                width: previewSize.width,
+                height: previewSize.height
+              };
+        const sample = mapPreviewRegionToCamera(
+          previewRegion,
+          cameraSize,
+          previewSize
+        );
+        if (!sample) {
+          return null;
+        }
+
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", {
+          alpha: false,
+          willReadFrequently: true
+        });
+        if (!context) {
+          return null;
         }
         canvas.width = sample.width;
         canvas.height = sample.height;
@@ -186,16 +187,27 @@ export function useCameraRecognition({
           sample.height
         );
 
-        const frameIdentity = `${profile.id}:frame-${completedPasses}`;
-        const tokens = await recognizer.recognize(canvas, {
-          kind: passKind,
-          frameIdentity,
+        return {
+          canvas,
+          sample,
+          cameraSize,
+          previewSize,
+          guideCenter: {
+            x: guideRegion.x + guideRegion.width / 2,
+            y: guideRegion.y + guideRegion.height / 2
+          }
+        };
+      },
+      async runPass(captured, request) {
+        if (!recognizer) {
+          throw new Error("Recognition pass started before profile preparation.");
+        }
+        const observations = await recognizer.recognize(captured.canvas, {
+          kind: request.kind,
+          frameIdentity: request.frameIdentity,
           preprocessingIdentity: profile.preprocessing[0].id
         });
-        const currentPassDetectedPrices = localizePrices(
-          sourceCurrency,
-          tokens
-        )
+        const detectedPrices = localizePrices(sourceCurrency, observations)
           .filter(
             ({ confidence }) =>
               confidence >= profile.thresholds.candidateConfidence
@@ -204,59 +216,51 @@ export function useCameraRecognition({
             ...price,
             box: mapSampleBoxToPreview(
               price.box,
-              sample,
-              cameraSize,
-              previewSize
+              captured.sample,
+              captured.cameraSize,
+              captured.previewSize
             )
           }));
-        if (passKind === "discovery") {
-          discoveryDetectedPrices = currentPassDetectedPrices;
-        }
-
         return {
-          displayedDetectedPrices:
-            discoveryDetectedPrices.length > 0
-              ? discoveryDetectedPrices
-              : currentPassDetectedPrices,
-          currentPassDetectedPrices,
-          ocrDurationMs: performance.now() - startedAt,
-          reticle: {
-            x: previewSize.width / 2,
-            y: previewSize.height * 0.45
-          }
+          detectedPrices,
+          guideCenter: captured.guideCenter
         };
       },
-      onResult({
-        displayedDetectedPrices,
-        currentPassDetectedPrices,
-        ocrDurationMs,
-        reticle
-      }) {
+      onResult(completed, request) {
         if (!active) {
           return;
         }
-        recognitionDelay = nextRecognitionDelay(ocrDurationMs);
+        if (request.kind === "discovery") {
+          discoveryDetectedPrices = completed.detectedPrices;
+        }
+        const displayedDetectedPrices =
+          discoveryDetectedPrices.length > 0
+            ? [...discoveryDetectedPrices]
+            : [...completed.detectedPrices];
         const focusedPrice = tracker.observe(
-          currentPassDetectedPrices,
-          reticle
+          completed.detectedPrices,
+          completed.guideCenter
         );
-        const displayedDetectedPricesWithFocus = focusedPrice
+        const displayedWithFocus = focusedPrice
           ? displayedDetectedPrices.map((price) =>
               areDetectedPricesAssociated(price, focusedPrice)
                 ? focusedPrice
                 : price
             )
           : displayedDetectedPrices;
-        if (
-          focusedPrice &&
-          !displayedDetectedPricesWithFocus.includes(focusedPrice)
-        ) {
-          displayedDetectedPricesWithFocus.push(focusedPrice);
+        if (focusedPrice && !displayedWithFocus.includes(focusedPrice)) {
+          displayedWithFocus.push(focusedPrice);
         }
+        const phase = focusedPrice
+          ? "focused"
+          : completed.detectedPrices.length > 0
+            ? "stabilizing"
+            : "searching";
+        scheduler.setState(phase);
         setRecognition({
-          phase: focusedPrice ? "focused" : "searching",
+          phase,
           progress: 1,
-          detectedPrices: displayedDetectedPricesWithFocus,
+          detectedPrices: displayedWithFocus,
           focusedPrice
         });
       },
@@ -266,12 +270,6 @@ export function useCameraRecognition({
         }
       }
     });
-    const scheduleNextSubmission = () => {
-      nextSubmission = window.setTimeout(() => {
-        pipeline.submit(performance.now());
-        scheduleNextSubmission();
-      }, recognitionDelay);
-    };
 
     setRecognition({
       phase: "preparing",
@@ -279,8 +277,22 @@ export function useCameraRecognition({
       detectedPrices: [],
       focusedPrice: null
     });
-    void recognizer
-      .prepare()
+    void previousRecognizerRelease
+      .then(async () => {
+        if (!active) {
+          return;
+        }
+        recognizer = createRecognizer(profile, (progress) => {
+          if (active && !prepared) {
+            setRecognition((current) => ({
+              ...current,
+              phase: "preparing",
+              progress: Math.max(current.progress, progress)
+            }));
+          }
+        });
+        await recognizer.prepare();
+      })
       .then(() => {
         if (!active) {
           return;
@@ -291,8 +303,9 @@ export function useCameraRecognition({
           phase: "searching",
           progress: 1
         }));
-        pipeline.submit(performance.now());
-        scheduleNextSubmission();
+        scheduler.start(
+          `${profile.id}:session-${recognitionRestartKey.toString()}`
+        );
       })
       .catch(() => {
         if (active) {
@@ -302,13 +315,14 @@ export function useCameraRecognition({
 
     return () => {
       active = false;
-      if (nextSubmission !== undefined) {
-        window.clearTimeout(nextSubmission);
-      }
-      pipeline.dispose();
-      void recognizer.terminate();
+      scheduler.dispose();
+      const release = previousRecognizerRelease.then(async () => {
+        await recognizer?.terminate();
+      });
+      recognizerRelease.current = release.catch(() => undefined);
     };
   }, [
+    captureGuide,
     createRecognizer,
     enabled,
     preview,

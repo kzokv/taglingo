@@ -24,7 +24,9 @@ export function useDemoRecognition(enabled: boolean): RecognitionView {
         box: { x: 280, y: 274, width: 440, height: 122 }
       }
     ]);
-    const tracker = createFocusTracker({ reticle: { x: 500, y: 450 } });
+    const tracker = createFocusTracker({
+      captureGuideCenter: { x: 500, y: 450 }
+    });
     setRecognition({
       phase: "preparing",
       progress: 0,

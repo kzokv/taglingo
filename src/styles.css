@@ -772,7 +772,7 @@ h1 em {
   inset: 0;
 }
 
-.reticle {
+.capture-guide {
   position: absolute;
   top: 45%;
   left: 50%;
@@ -781,7 +781,7 @@ h1 em {
   transform: translate(-50%, -50%);
 }
 
-.reticle::after {
+.capture-guide::after {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -794,7 +794,7 @@ h1 em {
   transform: translate(-50%, -50%);
 }
 
-.reticle i {
+.capture-guide i {
   position: absolute;
   width: 26px;
   height: 26px;
@@ -802,28 +802,28 @@ h1 em {
   border-style: solid;
 }
 
-.reticle i:nth-child(1) {
+.capture-guide i:nth-child(1) {
   top: 0;
   left: 0;
   border-width: 1px 0 0 1px;
   border-radius: 8px 0 0;
 }
 
-.reticle i:nth-child(2) {
+.capture-guide i:nth-child(2) {
   top: 0;
   right: 0;
   border-width: 1px 1px 0 0;
   border-radius: 0 8px 0 0;
 }
 
-.reticle i:nth-child(3) {
+.capture-guide i:nth-child(3) {
   bottom: 0;
   left: 0;
   border-width: 0 0 1px 1px;
   border-radius: 0 0 0 8px;
 }
 
-.reticle i:nth-child(4) {
+.capture-guide i:nth-child(4) {
   right: 0;
   bottom: 0;
   border-width: 0 1px 1px 0;
