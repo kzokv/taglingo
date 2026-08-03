@@ -1,5 +1,6 @@
 import type { SourceCurrencyCode } from "../domain/currencies";
 import type { PhysicalPlatform } from "../domain/currencyCapabilities";
+import { deepFreeze } from "../domain/exactObject";
 import { TESSERACT_LSTM_RUNTIME_FILE_NAMES } from "./tesseractRuntime";
 
 export type RecognitionQualificationState =
@@ -155,16 +156,6 @@ export interface RecognitionProfileRegistry {
 }
 
 export type ResolveRecognitionProfile = RecognitionProfileRegistry["resolve"];
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) {
-      deepFreeze(child);
-    }
-  }
-  return value;
-}
 
 export function recognitionAssets(
   profile: RecognitionProfile
