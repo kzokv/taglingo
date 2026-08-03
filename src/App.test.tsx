@@ -1098,35 +1098,26 @@ describe("Guest camera journey", () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
   }, 10_000);
 
-  it("outlines every confident candidate but focuses and converts only the Capture Guide-nearest price", async () => {
+  it("outlines every stable candidate but focuses and converts only the Capture Guide-nearest price", async () => {
     const user = userEvent.setup();
     const { stream } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
     const recognize = vi.fn().mockImplementation(
       async (_image: unknown, pass: RecognitionPassIdentity) =>
-        pass.kind === "discovery"
-          ? [
-              recognizedObservation(
-                "4,142円",
-                96,
-                { x: 170, y: 446, width: 160, height: 80 },
-                pass
-              ),
-              recognizedObservation(
-                "980円",
-                89,
-                { x: 330, y: 200, width: 120, height: 70 },
-                pass
-              )
-            ]
-          : [
-              recognizedObservation(
-                "4,142円",
-                96,
-                { x: 64, y: 40, width: 160, height: 80 },
-                pass
-              )
-            ]
+        [
+          recognizedObservation(
+            "4,142円",
+            96,
+            { x: 64, y: 40, width: 160, height: 80 },
+            pass
+          ),
+          recognizedObservation(
+            "980円",
+            89,
+            { x: 330, y: 200, width: 120, height: 70 },
+            pass
+          )
+        ]
     );
     const recognizer: OcrRecognizer = {
       prepare: vi.fn().mockResolvedValue(undefined),
@@ -1165,7 +1156,7 @@ describe("Guest camera journey", () => {
     fireEvent.loadedMetadata(video);
 
     await waitFor(
-      () => expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(12),
+      () => expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(6),
       { timeout: 6_500 }
     );
     const focused = document.querySelector('[data-detected-price="JPY-4142"]');
@@ -1179,10 +1170,12 @@ describe("Guest camera journey", () => {
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
     expect(recognitionSummary).toHaveTextContent(/Detected Price · JPY 980/i);
     const callsBeforeNextPass = recognize.mock.calls.length;
-    await waitFor(() =>
-      expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
-        callsBeforeNextPass + 3
-      )
+    await waitFor(
+      () =>
+        expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
+          callsBeforeNextPass + 3
+        ),
+      { timeout: 2_500 }
     );
     expect(
       document.querySelector('[data-detected-price="JPY-980"]')

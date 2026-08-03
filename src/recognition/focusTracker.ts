@@ -1,16 +1,40 @@
 import type { Rectangle } from "../domain/geometry";
 import type { DetectedPrice } from "./priceLocalization";
+import type { RecognitionProfile } from "./recognitionProfile";
 
 interface Point {
   x: number;
   y: number;
 }
 
-export interface FocusTracker {
+declare const detectedPriceIdentityBrand: unique symbol;
+
+export type DetectedPriceIdentity = string & {
+  readonly [detectedPriceIdentityBrand]: true;
+};
+
+export interface TrackedDetectedPrice extends DetectedPrice {
+  readonly identity: DetectedPriceIdentity;
+}
+
+export interface CandidateTrackingPass {
+  readonly frameIdentity: string;
+  readonly candidates: readonly DetectedPrice[];
+  readonly coverage: Rectangle;
+}
+
+export interface CandidateTrackingSnapshot {
+  readonly detectedPrices: TrackedDetectedPrice[];
+  readonly focusedPrice: TrackedDetectedPrice | null;
+  readonly hasUnstableCandidates: boolean;
+}
+
+export interface CandidateTracker {
   observe(
-    candidates: DetectedPrice[],
+    pass: CandidateTrackingPass,
     currentCaptureGuideCenter?: Point
-  ): DetectedPrice | null;
+  ): CandidateTrackingSnapshot;
+  select(identity: DetectedPriceIdentity): CandidateTrackingSnapshot;
 }
 
 function center(box: Rectangle): Point {
@@ -24,50 +48,18 @@ function distance(left: Point, right: Point): number {
   return Math.hypot(left.x - right.x, left.y - right.y);
 }
 
-function overlaps(left: Rectangle, right: Rectangle): boolean {
-  return (
-    left.x < right.x + right.width &&
-    left.x + left.width > right.x &&
-    left.y < right.y + right.height &&
-    left.y + left.height > right.y
-  );
-}
-
-export function areDetectedPricesAssociated(
-  left: DetectedPrice,
-  right: DetectedPrice
-): boolean {
-  if (
-    left.currency !== right.currency ||
-    left.minorUnits !== right.minorUnits
-  ) {
-    return false;
-  }
-
-  const maximumCenterShift =
-    Math.max(left.box.width, left.box.height, right.box.width, right.box.height) /
-    2;
-  return (
-    overlaps(left.box, right.box) ||
-    distance(center(left.box), center(right.box)) <= maximumCenterShift
-  );
-}
-
 function nearestTo(
-  candidates: DetectedPrice[],
-  point: Point,
-  preferred: DetectedPrice | null
-): DetectedPrice | undefined {
-  const stableTieKey = (price: DetectedPrice) =>
-    [
-      price.box.x,
-      price.box.y,
-      price.box.width,
-      price.box.height,
-      price.currency,
-      price.minorUnits
-    ].join(":");
-  const nearest = candidates.reduce<DetectedPrice | undefined>(
+  candidates: TrackedDetectedPrice[],
+  point: Point
+): TrackedDetectedPrice | undefined {
+  const compareTie = (left: DetectedPrice, right: DetectedPrice) =>
+    left.box.y - right.box.y ||
+    left.box.x - right.box.x ||
+    left.box.width - right.box.width ||
+    left.box.height - right.box.height ||
+    left.currency.localeCompare(right.currency) ||
+    left.minorUnits - right.minorUnits;
+  return candidates.reduce<TrackedDetectedPrice | undefined>(
     (current, candidate) => {
       if (!current) {
         return candidate;
@@ -76,84 +68,221 @@ function nearestTo(
         distance(center(candidate.box), point) -
         distance(center(current.box), point);
       if (Math.abs(distanceDifference) <= 0.001) {
-        return stableTieKey(candidate) < stableTieKey(current)
-          ? candidate
-          : current;
+        return compareTie(candidate, current) < 0 ? candidate : current;
       }
       return distanceDifference < 0 ? candidate : current;
     },
     undefined
   );
-  const preferredCandidate =
-    preferred &&
-    candidates.find((candidate) =>
-      areDetectedPricesAssociated(preferred, candidate)
-    );
-  if (!nearest || !preferredCandidate) {
-    return nearest;
-  }
-
-  const hysteresis =
-    Math.max(preferredCandidate.box.width, preferredCandidate.box.height) * 0.1;
-  return distance(center(preferredCandidate.box), point) <=
-    distance(center(nearest.box), point) + hysteresis
-    ? preferredCandidate
-    : nearest;
 }
 
-export function createFocusTracker({
-  captureGuideCenter
-}: {
+interface CandidateTrack {
+  readonly identity: DetectedPriceIdentity;
+  readonly sequence: number;
+  price: DetectedPrice;
+  readonly observedFrames: Set<string>;
+  coveredMisses: number;
+}
+
+function containsRegion(coverage: Rectangle, region: Rectangle): boolean {
+  return (
+    region.x >= coverage.x &&
+    region.y >= coverage.y &&
+    region.x + region.width <= coverage.x + coverage.width &&
+    region.y + region.height <= coverage.y + coverage.height
+  );
+}
+
+function areCandidatesCompatible(
+  track: DetectedPrice,
+  candidate: DetectedPrice,
+  maximumDisplacementInTextHeights: number
+): boolean {
+  if (
+    track.currency !== candidate.currency ||
+    track.minorUnits !== candidate.minorUnits
+  ) {
+    return false;
+  }
+  const textHeight = Math.max(track.box.height, candidate.box.height);
+  return (
+    textHeight > 0 &&
+    distance(center(track.box), center(candidate.box)) <=
+      maximumDisplacementInTextHeights * textHeight
+  );
+}
+
+function smoothRectangle(
+  current: Rectangle,
+  observed: Rectangle,
+  smoothingFactor: number
+): Rectangle {
+  const smooth = (previous: number, next: number) =>
+    previous + (next - previous) * smoothingFactor;
+  return {
+    x: smooth(current.x, observed.x),
+    y: smooth(current.y, observed.y),
+    width: smooth(current.width, observed.width),
+    height: smooth(current.height, observed.height)
+  };
+}
+
+export function createCandidateTracker(options: {
   captureGuideCenter: Point;
-}): FocusTracker {
-  let pending: { candidate: DetectedPrice; observations: number } | null = null;
-  let focusedPrice: DetectedPrice | null = null;
-  let consecutiveMisses = 0;
+  geometry: RecognitionProfile["geometry"];
+  stabilization: RecognitionProfile["stabilization"];
+}): CandidateTracker {
+  const tracks: CandidateTrack[] = [];
+  let nextIdentity = 1;
+  let explicitFocusIdentity: DetectedPriceIdentity | null = null;
+  let lastGuideCenter = options.captureGuideCenter;
+
+  const snapshot = (guideCenter: Point): CandidateTrackingSnapshot => {
+    const detectedPrices = tracks
+      .filter(
+        ({ observedFrames }) =>
+          observedFrames.size >=
+          options.stabilization.requiredDistinctFrames
+      )
+      .map(({ identity, price }) => ({ ...price, identity }));
+    const explicitlyFocused = detectedPrices.find(
+      ({ identity }) => identity === explicitFocusIdentity
+    );
+    if (explicitFocusIdentity && !explicitlyFocused) {
+      explicitFocusIdentity = null;
+    }
+    const focusedPrice =
+      explicitlyFocused ?? nearestTo(detectedPrices, guideCenter);
+    return {
+      detectedPrices,
+      focusedPrice: focusedPrice ?? null,
+      hasUnstableCandidates: tracks.length > detectedPrices.length
+    };
+  };
 
   return {
-    observe(candidates, currentCaptureGuideCenter = captureGuideCenter) {
-      const selected = nearestTo(
-        candidates,
-        currentCaptureGuideCenter,
-        focusedPrice ?? pending?.candidate ?? null
+    observe(pass, currentCaptureGuideCenter = options.captureGuideCenter) {
+      lastGuideCenter = currentCaptureGuideCenter;
+      const matchedTracks = new Set<CandidateTrack>();
+      const matchedCandidateIndexes = new Set<number>();
+      const compatibleTracksByCandidate = pass.candidates.map((candidate) =>
+        tracks
+          .filter((track) =>
+            areCandidatesCompatible(
+              track.price,
+              candidate,
+              options.geometry.maximumDisplacementInTextHeights
+            )
+          )
+          .sort(
+            (left, right) =>
+              distance(center(left.price.box), center(candidate.box)) -
+                distance(center(right.price.box), center(candidate.box)) ||
+              left.sequence - right.sequence
+          )
       );
-      if (!selected) {
-        pending = null;
-        consecutiveMisses += 1;
-        if (consecutiveMisses > 2) {
-          focusedPrice = null;
+      const matchedCandidateByTrack = new Map<CandidateTrack, number>();
+      const assignCandidate = (
+        candidateIndex: number,
+        visitedTracks: Set<CandidateTrack>
+      ): boolean => {
+        for (const track of compatibleTracksByCandidate[candidateIndex]) {
+          if (visitedTracks.has(track)) {
+            continue;
+          }
+          visitedTracks.add(track);
+          const previousCandidateIndex = matchedCandidateByTrack.get(track);
+          if (
+            previousCandidateIndex === undefined ||
+            assignCandidate(previousCandidateIndex, visitedTracks)
+          ) {
+            matchedCandidateByTrack.set(track, candidateIndex);
+            return true;
+          }
         }
-        return focusedPrice;
+        return false;
+      };
+      const candidateOrder = pass.candidates
+        .map((_candidate, candidateIndex) => candidateIndex)
+        .sort(
+          (leftIndex, rightIndex) =>
+            compatibleTracksByCandidate[leftIndex].length -
+              compatibleTracksByCandidate[rightIndex].length ||
+            pass.candidates[leftIndex].box.y -
+              pass.candidates[rightIndex].box.y ||
+            pass.candidates[leftIndex].box.x -
+              pass.candidates[rightIndex].box.x ||
+            leftIndex - rightIndex
+        );
+      for (const candidateIndex of candidateOrder) {
+        assignCandidate(candidateIndex, new Set());
       }
-      consecutiveMisses = 0;
-
-      if (
-        focusedPrice &&
-        areDetectedPricesAssociated(focusedPrice, selected)
-      ) {
-        focusedPrice = selected;
-        pending = null;
-        return focusedPrice;
-      }
-
-      if (
-        pending &&
-        areDetectedPricesAssociated(pending.candidate, selected)
-      ) {
-        pending = {
-          candidate: selected,
-          observations: pending.observations + 1
+      for (const [track, candidateIndex] of matchedCandidateByTrack) {
+        const candidate = pass.candidates[candidateIndex];
+        matchedTracks.add(track);
+        matchedCandidateIndexes.add(candidateIndex);
+        track.coveredMisses = 0;
+        track.price = {
+          ...candidate,
+          box: smoothRectangle(
+            track.price.box,
+            candidate.box,
+            options.geometry.smoothingFactor
+          )
         };
-      } else {
-        pending = { candidate: selected, observations: 1 };
+        if (
+          track.observedFrames.size <
+          options.stabilization.requiredDistinctFrames
+        ) {
+          track.observedFrames.add(pass.frameIdentity);
+        }
       }
-
-      if (pending.observations >= 2) {
-        focusedPrice = selected;
-        pending = null;
+      pass.candidates.forEach((candidate, candidateIndex) => {
+        if (!matchedCandidateIndexes.has(candidateIndex)) {
+          const created = {
+            identity:
+              `detected-price-${nextIdentity.toString()}` as DetectedPriceIdentity,
+            sequence: nextIdentity,
+            price: candidate,
+            observedFrames: new Set([pass.frameIdentity]),
+            coveredMisses: 0
+          };
+          tracks.push(created);
+          matchedTracks.add(created);
+          nextIdentity += 1;
+        }
+      });
+      for (const track of tracks) {
+        if (
+          !matchedTracks.has(track) &&
+          containsRegion(pass.coverage, track.price.box)
+        ) {
+          track.coveredMisses += 1;
+        }
       }
+      for (let index = tracks.length - 1; index >= 0; index -= 1) {
+        if (
+          tracks[index].coveredMisses >=
+          options.stabilization.coveredMissesBeforeRemoval
+        ) {
+          tracks.splice(index, 1);
+        }
+      }
+      return snapshot(currentCaptureGuideCenter);
+    },
 
-      return focusedPrice;
+    select(identity) {
+      if (
+        tracks.some(
+          (track) =>
+            track.identity === identity &&
+            track.observedFrames.size >=
+              options.stabilization.requiredDistinctFrames
+        )
+      ) {
+        explicitFocusIdentity = identity;
+      }
+      return snapshot(lastGuideCenter);
     }
   };
 }
