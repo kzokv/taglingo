@@ -7,6 +7,7 @@ import {
 } from "./focusTracker";
 import { localizePrices } from "./priceLocalization";
 import {
+  applyCandidateTrackingSnapshot,
   EMPTY_RECOGNITION,
   type RecognitionController,
   type RecognitionView
@@ -21,11 +22,9 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     if (!snapshot) {
       return;
     }
-    setRecognition((current) => ({
-      ...current,
-      detectedPrices: snapshot.detectedPrices,
-      focusedPrice: snapshot.focusedPrice
-    }));
+    setRecognition((current) =>
+      applyCandidateTrackingSnapshot(current, snapshot)
+    );
   }, []);
 
   useEffect(() => {
@@ -61,7 +60,8 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
       phase: "preparing",
       progress: 0,
       detectedPrices: [],
-      focusedPrice: null
+      focusedPrice: null,
+      explicitlyFocusedPriceIdentity: null
     });
 
     const prepared = window.setTimeout(() => {
@@ -70,12 +70,12 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
         candidates: detectedPrices,
         coverage
       });
-      setRecognition({
-        phase: "stabilizing",
-        progress: 1,
-        detectedPrices: snapshot.detectedPrices,
-        focusedPrice: snapshot.focusedPrice
-      });
+      setRecognition((current) =>
+        applyCandidateTrackingSnapshot(
+          { ...current, phase: "stabilizing", progress: 1 },
+          snapshot
+        )
+      );
     }, 80);
     const stabilized = window.setTimeout(() => {
       const snapshot = tracker.observe({
@@ -83,12 +83,12 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
         candidates: detectedPrices,
         coverage
       });
-      setRecognition({
-        phase: "focused",
-        progress: 1,
-        detectedPrices: snapshot.detectedPrices,
-        focusedPrice: snapshot.focusedPrice
-      });
+      setRecognition((current) =>
+        applyCandidateTrackingSnapshot(
+          { ...current, phase: "focused", progress: 1 },
+          snapshot
+        )
+      );
     }, 160);
 
     return () => {

@@ -68,11 +68,9 @@ import {
   type CreateRecognizer,
   type RecognitionView
 } from "./recognition/useCameraRecognition";
+import { AccessibleDetectedPriceList } from "./recognition/AccessibleDetectedPriceList";
+import { CameraExperienceOverlay } from "./recognition/CameraExperience";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
-import {
-  CameraExperienceOverlay,
-  DetectedPriceRail
-} from "./recognition/CameraExperience";
 import { RecognitionSummary } from "./recognition/RecognitionSummary";
 import {
   resolveQualifiedRecognitionProfile,
@@ -829,6 +827,13 @@ function CameraSurface({
     recognitionRestartKey
   });
   const recognition = demo ? demoRecognition : cameraRecognition;
+  const previewBounds = preview?.getBoundingClientRect();
+  const detectedPricePreviewSize = demo
+    ? { width: 1_000, height: 1_000 }
+    : {
+        width: previewBounds?.width ?? 1,
+        height: previewBounds?.height ?? 1
+      };
 
   useEffect(() => {
     setEnteredPrice(null);
@@ -966,7 +971,15 @@ function CameraSurface({
           }
         />
         <RecognitionSummary recognition={recognition} demo={demo} />
-        <DetectedPriceRail recognition={recognition} />
+        <AccessibleDetectedPriceList
+          detectedPrices={recognition.detectedPrices}
+          focusedPrice={recognition.focusedPrice}
+          explicitlyFocusedPriceIdentity={
+            recognition.explicitlyFocusedPriceIdentity
+          }
+          previewSize={detectedPricePreviewSize}
+          onSelect={recognition.selectDetectedPrice}
+        />
         <ManualPriceComposer
           sourceCurrency={preferences.sourceCurrency}
           enteredPrice={enteredPrice}

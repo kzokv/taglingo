@@ -39,6 +39,7 @@ export interface RecognitionView {
   progress: number;
   detectedPrices: TrackedDetectedPrice[];
   focusedPrice: TrackedDetectedPrice | null;
+  explicitlyFocusedPriceIdentity: DetectedPriceIdentity | null;
 }
 
 export interface RecognitionController extends RecognitionView {
@@ -59,8 +60,21 @@ export const EMPTY_RECOGNITION: RecognitionView = {
   phase: "waiting",
   progress: 0,
   detectedPrices: [],
-  focusedPrice: null
+  focusedPrice: null,
+  explicitlyFocusedPriceIdentity: null
 };
+
+export function applyCandidateTrackingSnapshot(
+  recognition: RecognitionView,
+  snapshot: CandidateTrackingSnapshot
+): RecognitionView {
+  return {
+    ...recognition,
+    detectedPrices: snapshot.detectedPrices,
+    focusedPrice: snapshot.focusedPrice,
+    explicitlyFocusedPriceIdentity: snapshot.explicitlyFocusedPriceIdentity
+  };
+}
 
 export type CreateRecognizer = (
   profile: RecognitionProfile,
@@ -115,12 +129,12 @@ export function useCameraRecognition({
     if (!snapshot) {
       return;
     }
-    setRecognition((current) => ({
-      ...current,
-      phase: phaseFor(snapshot),
-      detectedPrices: snapshot.detectedPrices,
-      focusedPrice: snapshot.focusedPrice
-    }));
+    setRecognition((current) =>
+      applyCandidateTrackingSnapshot(
+        { ...current, phase: phaseFor(snapshot) },
+        snapshot
+      )
+    );
   }, []);
 
   useEffect(() => {
@@ -283,12 +297,12 @@ export function useCameraRecognition({
         );
         const phase = phaseFor(snapshot);
         scheduler.setState(phase);
-        setRecognition({
-          phase,
-          progress: 1,
-          detectedPrices: snapshot.detectedPrices,
-          focusedPrice: snapshot.focusedPrice
-        });
+        setRecognition((current) =>
+          applyCandidateTrackingSnapshot(
+            { ...current, phase, progress: 1 },
+            snapshot
+          )
+        );
       },
       onError() {
         if (active) {
@@ -301,7 +315,8 @@ export function useCameraRecognition({
       phase: "preparing",
       progress: 0,
       detectedPrices: [],
-      focusedPrice: null
+      focusedPrice: null,
+      explicitlyFocusedPriceIdentity: null
     });
     void previousRecognizerRelease
       .then(async () => {

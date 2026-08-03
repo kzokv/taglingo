@@ -54,6 +54,7 @@ describe("Candidate tracking", () => {
     expect(tracker.observe(pass("frame-2", [price]))).toEqual({
       detectedPrices: [{ ...price, identity: "detected-price-1" }],
       focusedPrice: { ...price, identity: "detected-price-1" },
+      explicitlyFocusedPriceIdentity: null,
       hasUnstableCandidates: false
     });
   });
