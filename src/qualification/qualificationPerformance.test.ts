@@ -101,6 +101,8 @@ function passingEvidence(
   evidenceKind: PerformanceQualificationEvidence["evidenceKind"] =
     "physical-device"
 ): PerformanceQualificationEvidence {
+  const sha256 = (value: number) =>
+    `sha256:${value.toString(16).padStart(64, "0")}` as const;
   const starts = (recognitionReadyMs: number) =>
     Array.from({ length: 30 }, (_, index) => ({
       id: `start-${index}`,
@@ -108,18 +110,61 @@ function passingEvidence(
       previewAfterPermissionMs: 2_000,
       recognitionReadyMs
     }));
-  const sustainedRun = (id: string) => ({
-    id,
-    durationMs: 600_000,
-    crashes: 0,
-    reloads: 0,
-    thermalWarnings: 0,
-    cameraInterruptions: 0,
-    forcedRecoveries: 0,
-    previewFpsSamples: [24],
-    minutes2To4RecognitionDurationsMs: [1_000],
-    finalTwoMinutesRecognitionDurationsMs: [1_250],
-    batteryDrainPercentagePoints: 20 / 6
+  const sustainedRun = (index: number) => {
+    const startedAtMs = Date.parse(`2026-08-0${index + 1}T00:00:00.000Z`);
+    const baseline = 100 + index;
+    return {
+      id: `sustained-${index + 1}`,
+      captureArtifactHash: sha256(10_000 + index),
+      startedAt: new Date(startedAtMs).toISOString(),
+      endedAt: new Date(startedAtMs + 600_000).toISOString(),
+      cameraPreviewBaselineMiB: baseline,
+      checkpoints: Array.from({ length: 11 }, (_, minute) => ({
+        atMs: minute * 60_000,
+        previewFps: 24 + index + minute / 100,
+        recognitionDurationMs:
+          minute >= 8 ? 1_250 + index : 1_000 + index,
+        memoryMiB:
+          minute === 5
+            ? baseline + 300
+            : minute === 2
+              ? baseline + 100
+              : minute === 10
+                ? baseline + 125
+                : baseline + 110,
+        batteryDrainPercentagePoints: (20 / 6) * (minute / 10),
+        crashes: 0,
+        reloads: 0,
+        thermalWarnings: 0,
+        cameraInterruptions: 0,
+        forcedRecoveries: 0
+      }))
+    };
+  };
+
+  const positiveOccurrences = new Map<QualificationStratum, number>();
+  const trials = manifest.fixtures.map((fixture, index) => {
+    const occurrence = positiveOccurrences.get(fixture.stratum) ?? 0;
+    const positive = fixture.markerClass !== null;
+    if (positive) positiveOccurrences.set(fixture.stratum, occurrence + 1);
+    const focused = positive && occurrence < 36;
+    return {
+      fixtureId: fixture.id,
+      trialId: `performance-trial-${index}`,
+      captureArtifactHash: sha256(index + 1),
+      capturedAt: new Date(
+        Date.parse("2026-07-01T00:00:00.000Z") + index * 60_000
+      ).toISOString(),
+      guidePassDurationsMs: [900 + index / 1_000],
+      discoveryPassDurationsMs: [1_800 + index / 1_000],
+      searchingOrStabilizingGuideIntervalsMs: [1_400 + index / 10_000],
+      searchingOrStabilizingDiscoveryIntervalsMs: [3_900 + index / 10_000],
+      yieldsBetweenPassesMs: [250 + index / 1_000],
+      focusOutcome: focused ? "focused" as const : "not-focused" as const,
+      focusedPriceLatencyMs: focused ? 1_000 : null,
+      focusedGuideIntervalsMs: focused ? [1_900 + index / 10_000] : [],
+      focusedDiscoveryIntervalsMs: focused ? [4_900 + index / 10_000] : []
+    };
   });
 
   return {
@@ -134,36 +179,28 @@ function passingEvidence(
       cached: starts(3_000)
     },
     sceneRun: {
-      fixtureIds: manifest.fixtures.map(({ id }) => id),
-      guidePassDurationsMs: Array(299).fill(1_000),
-      discoveryPassDurationsMs: Array(299).fill(2_000),
-      focusedPriceLatenciesMs: Array(108).fill(5_000),
-      searchingOrStabilizingGuideIntervalsMs: Array(299).fill(1_500),
-      searchingOrStabilizingDiscoveryIntervalsMs: Array(299).fill(4_000),
-      focusedGuideIntervalsMs: Array(108).fill(2_000),
-      focusedDiscoveryIntervalsMs: Array(108).fill(5_000),
-      yieldsBetweenPassesMs: Array(299).fill(250)
+      trials
     },
     resources: {
       firstInstallTransferMiB: 60,
-      cachedProfileStorageMiB: 75,
-      cameraPreviewBaselineMiB: 100,
-      peakWithRecognitionMiB: 400,
-      minute2MemoryMiB: 200,
-      minute10MemoryMiB: 225
+      cachedProfileStorageMiB: 75
     },
     sustainedRuns: [
-      sustainedRun("sustained-1"),
-      sustainedRun("sustained-2"),
-      sustainedRun("sustained-3")
+      sustainedRun(0),
+      sustainedRun(1),
+      sustainedRun(2)
     ]
   };
 }
 
 function passingReliabilityRecords(manifest: QualificationManifest) {
   const exactPrice = { sourceCurrency: "JPY", minorUnits: 12_345 } as const;
+  const positiveOccurrences = new Map<QualificationStratum, number>();
   return manifest.fixtures.map((entry) => {
     const positive = entry.markerClass !== null;
+    const occurrence = positiveOccurrences.get(entry.stratum) ?? 0;
+    if (positive) positiveOccurrences.set(entry.stratum, occurrence + 1);
+    const successful = positive && occurrence < 36;
     const input: TrialCaptureInput = {
       fixtureId: entry.id,
       stratum: entry.stratum,
@@ -176,7 +213,7 @@ function passingReliabilityRecords(manifest: QualificationManifest) {
         geometryMs: positive ? 1_000 : null
       },
       expectation: positive ? exactPrice : null,
-      focusTransitions: positive
+      focusTransitions: successful
         ? [{ atMs: 1_000, focusedPrice: exactPrice }]
         : [],
       geometry: positive ? { oneToOne: true, iou: 0.75 } : null,
@@ -201,13 +238,20 @@ describe("mobile performance qualification", () => {
     expect(report.startup.uncached.sampleCount).toBe(30);
     expect(report.startup.cached.sampleCount).toBe(30);
     expect(report.sceneRun.sceneCount).toBe(299);
-    expect(report.sceneRun.sampleCounts).toMatchObject({
-      guidePassDurations: 299,
-      discoveryPassDurations: 299,
-      focusedPriceLatencies: 108,
-      yieldsBetweenPasses: 299
+    expect(report.sceneRun).toMatchObject({
+      completeTrialCount: 299,
+      uniqueMeasurementCount: 299,
+      focusedPositiveTrialCount: 108,
+      guidePassSampleCount: 299,
+      discoveryPassSampleCount: 299,
+      focusedPriceSampleCount: 108
     });
     expect(report.sustainedRuns).toHaveLength(3);
+    expect(report.sustainedRuns[0]).toMatchObject({
+      checkpointCount: 11,
+      additionalPeakMemoryMiB: 300,
+      minute2To10MemoryGrowthMiB: 25
+    });
     expect(report.disposition).toMatch(/performance gate passes/i);
     expect(Object.isFrozen(report)).toBe(true);
   });
@@ -279,45 +323,70 @@ describe("mobile performance qualification", () => {
     })],
     ["299 scenes", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, fixtureIds: evidence.sceneRun.fixtureIds.slice(1) }
+      sceneRun: { trials: evidence.sceneRun.trials.slice(1) }
     })],
     ["Guide p95", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, guidePassDurationsMs: [1_001] }
+      sceneRun: {
+        trials: evidence.sceneRun.trials.map((trial) => ({
+          ...trial,
+          guidePassDurationsMs: [1_001]
+        }))
+      }
     })],
     ["discovery p95", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, discoveryPassDurationsMs: [2_001] }
+      sceneRun: {
+        trials: evidence.sceneRun.trials.map((trial) => ({
+          ...trial,
+          discoveryPassDurationsMs: [2_001]
+        }))
+      }
     })],
     ["Searching Guide cadence", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: {
-        ...evidence.sceneRun,
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
         searchingOrStabilizingGuideIntervalsMs: [1_501]
-      }
+      })) }
     })],
     ["Searching discovery cadence", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: {
-        ...evidence.sceneRun,
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
         searchingOrStabilizingDiscoveryIntervalsMs: [4_001]
-      }
+      })) }
     })],
     ["Focused Guide cadence", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, focusedGuideIntervalsMs: [2_001] }
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
+        focusedGuideIntervalsMs:
+          trial.focusOutcome === "focused" ? [2_001] : []
+      })) }
     })],
     ["Focused discovery cadence", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, focusedDiscoveryIntervalsMs: [5_001] }
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
+        focusedDiscoveryIntervalsMs:
+          trial.focusOutcome === "focused" ? [5_001] : []
+      })) }
     })],
     ["yield", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, yieldsBetweenPassesMs: [249] }
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
+        yieldsBetweenPassesMs: [249]
+      })) }
     })],
     ["Focused Price deadline", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, focusedPriceLatenciesMs: [5_001] }
+      sceneRun: { trials: evidence.sceneRun.trials.map((trial) => ({
+        ...trial,
+        focusedPriceLatencyMs:
+          trial.focusOutcome === "focused" ? 5_001 : null
+      })) }
     })],
     ["asset transfer", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
@@ -329,70 +398,188 @@ describe("mobile performance qualification", () => {
     })],
     ["peak memory above baseline", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      resources: { ...evidence.resources, peakWithRecognitionMiB: 400.01 }
+      sustainedRuns: evidence.sustainedRuns.map((run, runIndex) =>
+        runIndex === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, index) =>
+                index === 5
+                  ? {
+                      ...checkpoint,
+                      memoryMiB: run.cameraPreviewBaselineMiB + 300.01
+                    }
+                  : checkpoint
+              )
+            }
+          : run
+      )
     })],
     ["minute-2-to-10 memory growth", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
-      resources: { ...evidence.resources, minute10MemoryMiB: 225.01 }
+      sustainedRuns: evidence.sustainedRuns.map((run, runIndex) =>
+        runIndex === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint) =>
+                checkpoint.atMs === 600_000
+                  ? { ...checkpoint, memoryMiB: run.cameraPreviewBaselineMiB + 125.01 }
+                  : checkpoint
+              )
+            }
+          : run
+      )
     })],
     ["three sustained runs", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.slice(1)
     })],
+    ["non-overlapping sustained runs", (evidence: PerformanceQualificationEvidence) => ({
+      ...evidence,
+      sustainedRuns: evidence.sustainedRuns.map((run, index) =>
+        index === 1
+          ? {
+              ...run,
+              startedAt: evidence.sustainedRuns[0].startedAt,
+              endedAt: evidence.sustainedRuns[0].endedAt
+            }
+          : run
+      )
+    })],
+    ["unique sustained capture artifacts", (evidence: PerformanceQualificationEvidence) => ({
+      ...evidence,
+      sustainedRuns: evidence.sustainedRuns.map((run, index) =>
+        index === 1
+          ? {
+              ...run,
+              captureArtifactHash:
+                evidence.sustainedRuns[0].captureArtifactHash
+            }
+          : run
+      )
+    })],
     ["ten-minute run duration", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, durationMs: 599_999 } : run
+        index === 0
+          ? {
+              ...run,
+              endedAt: new Date(Date.parse(run.startedAt) + 599_999).toISOString()
+            }
+          : run
       )
     })],
     ["crash result", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, crashes: 1 } : run
+        index === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5 ? { ...checkpoint, crashes: 1 } : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["reload result", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 2 ? { ...run, reloads: 1 } : run
+        index === 2
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5 ? { ...checkpoint, reloads: 1 } : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["thermal warning result", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, thermalWarnings: 1 } : run
+        index === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5
+                  ? { ...checkpoint, thermalWarnings: 1 }
+                  : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["camera interruption result", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, cameraInterruptions: 1 } : run
+        index === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5
+                  ? { ...checkpoint, cameraInterruptions: 1 }
+                  : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["forced recovery result", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, forcedRecoveries: 1 } : run
+        index === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5
+                  ? { ...checkpoint, forcedRecoveries: 1 }
+                  : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["preview frame rate", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 1 ? { ...run, previewFpsSamples: [23.99] } : run
+        index === 1
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, checkpointIndex) =>
+                checkpointIndex === 5 ? { ...checkpoint, previewFps: 23.99 } : checkpoint
+              )
+            }
+          : run
       )
     })],
     ["late-run slowdown", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
         index === 1
-          ? { ...run, finalTwoMinutesRecognitionDurationsMs: [1_251] }
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint) =>
+                checkpoint.atMs >= 480_000
+                  ? { ...checkpoint, recognitionDurationMs: 1_300 }
+                  : checkpoint
+              )
+            }
           : run
       )
     })],
     ["battery drain", (evidence: PerformanceQualificationEvidence) => ({
       ...evidence,
       sustainedRuns: evidence.sustainedRuns.map((run, index) =>
-        index === 0 ? { ...run, batteryDrainPercentagePoints: 3.34 } : run
+        index === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint) => ({
+                ...checkpoint,
+                batteryDrainPercentagePoints:
+                  3.34 * (checkpoint.atMs / 600_000)
+              }))
+            }
+          : run
       )
     })]
   ])("does not let another metric compensate for a failed %s gate", (_name, change) => {
@@ -412,13 +599,119 @@ describe("mobile performance qualification", () => {
     const evidence = passingEvidence(manifest);
     const report = scorePerformanceQualification(manifest, {
       ...evidence,
-      sceneRun: { ...evidence.sceneRun, guidePassDurationsMs: [] }
+      sceneRun: {
+        trials: evidence.sceneRun.trials.map((trial, index) =>
+          index === 0 ? { ...trial, guidePassDurationsMs: [] } : trial
+        )
+      }
     });
 
     expect(report.evidenceComplete).toBe(false);
     expect(report.performanceEligible).toBe(false);
     expect(report.failures).toContainEqual(
-      expect.objectContaining({ id: "scene.guide-pass-duration-p95", actual: null })
+      expect.objectContaining({ id: "scene.complete-trial-count", actual: 298 })
+    );
+  });
+
+  it("rejects copied one-scene measurements even when all fixture IDs are present", () => {
+    const manifest = validManifest();
+    const evidence = passingEvidence(manifest);
+    const source = evidence.sceneRun.trials[0];
+    const copied = evidence.sceneRun.trials.map((trial) => ({
+      ...trial,
+      guidePassDurationsMs: source.guidePassDurationsMs,
+      discoveryPassDurationsMs: source.discoveryPassDurationsMs,
+      searchingOrStabilizingGuideIntervalsMs:
+        source.searchingOrStabilizingGuideIntervalsMs,
+      searchingOrStabilizingDiscoveryIntervalsMs:
+        source.searchingOrStabilizingDiscoveryIntervalsMs,
+      yieldsBetweenPassesMs: source.yieldsBetweenPassesMs,
+      focusOutcome: source.focusOutcome,
+      focusedPriceLatencyMs: source.focusedPriceLatencyMs,
+      focusedGuideIntervalsMs: source.focusedGuideIntervalsMs,
+      focusedDiscoveryIntervalsMs: source.focusedDiscoveryIntervalsMs
+    }));
+
+    const report = scorePerformanceQualification(manifest, {
+      ...evidence,
+      sceneRun: { trials: copied }
+    });
+
+    expect(report.sceneRun.sceneCount).toBe(299);
+    expect(report.sceneRun.uniqueMeasurementCount).toBe(1);
+    expect(report.performanceEligible).toBe(false);
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({ id: "scene.unique-evidence-count" })
+    );
+  });
+
+  it("requires independently identified evidence for every fixture trial", () => {
+    const manifest = validManifest();
+    const evidence = passingEvidence(manifest);
+    const first = evidence.sceneRun.trials[0];
+    const trials = evidence.sceneRun.trials.map((trial, index) =>
+      index === 1
+        ? {
+            ...trial,
+            trialId: first.trialId,
+            captureArtifactHash: first.captureArtifactHash,
+            capturedAt: first.capturedAt
+          }
+        : trial
+    );
+    const report = scorePerformanceQualification(manifest, {
+      ...evidence,
+      sceneRun: { trials }
+    });
+
+    expect(report.sceneRun.uniqueMeasurementCount).toBe(299);
+    expect(report.performanceEligible).toBe(false);
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({ id: "scene.unique-evidence-count" })
+    );
+  });
+
+  it("rejects copied sustained telemetry behind distinct caller-supplied IDs", () => {
+    const manifest = validManifest();
+    const evidence = passingEvidence(manifest);
+    const source = evidence.sustainedRuns[0];
+    const sustainedRuns = evidence.sustainedRuns.map((run) => ({
+      ...run,
+      cameraPreviewBaselineMiB: source.cameraPreviewBaselineMiB,
+      checkpoints: [...source.checkpoints].reverse()
+    }));
+    const report = scorePerformanceQualification(manifest, {
+      ...evidence,
+      sustainedRuns
+    });
+
+    expect(report.sustainedRuns.every(({ passed }) => passed)).toBe(true);
+    expect(report.performanceEligible).toBe(false);
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({ id: "sustained.run-count" })
+    );
+  });
+
+  it("requires minute-by-minute checkpoints throughout every sustained run", () => {
+    const manifest = validManifest();
+    const evidence = passingEvidence(manifest);
+    const sustainedRuns = evidence.sustainedRuns.map((run, index) =>
+      index === 1
+        ? {
+            ...run,
+            checkpoints: run.checkpoints.filter(({ atMs }) => atMs !== 300_000)
+          }
+        : run
+    );
+    const report = scorePerformanceQualification(manifest, {
+      ...evidence,
+      sustainedRuns
+    });
+
+    expect(report.sustainedRuns[1].checkpointCount).toBe(10);
+    expect(report.sustainedRuns[1].passed).toBe(false);
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({ id: "sustained.2.checkpoint-coverage" })
     );
   });
 
@@ -443,12 +736,27 @@ describe("mobile performance qualification", () => {
     expect(evidence).not.toBe(input);
     expect(Object.isFrozen(evidence)).toBe(true);
     expect(Object.isFrozen(evidence.starts.uncached)).toBe(true);
+    expect(Object.isFrozen(evidence.sceneRun.trials[0])).toBe(true);
+    expect(Object.isFrozen(evidence.sustainedRuns[0].checkpoints)).toBe(true);
     expect(() =>
       createPerformanceQualificationEvidence(manifest, {
         ...input,
         browser: { ...input.browser, version: "different" }
       })
     ).toThrow(/match the qualification block/i);
+    expect(() =>
+      createPerformanceQualificationEvidence(manifest, {
+        ...input,
+        sustainedRuns: input.sustainedRuns.map((run, index) =>
+          index === 0
+            ? {
+                ...run,
+                captureArtifactHash: "sha256:not-a-hash"
+              }
+            : run
+        )
+      })
+    ).toThrow(/SHA-256 capture artifact hash/i);
   });
 
   it("requires reliability and physical performance to pass independently", () => {
@@ -462,6 +770,7 @@ describe("mobile performance qualification", () => {
 
     expect(passed.reliability.qualified).toBe(true);
     expect(passed.performance.performanceEligible).toBe(true);
+    expect(passed.evidenceAligned).toBe(true);
     expect(passed.qualified).toBe(true);
 
     const failedReliability = scoreProfileQualification(
@@ -472,5 +781,23 @@ describe("mobile performance qualification", () => {
     expect(failedReliability.reliability.qualified).toBe(false);
     expect(failedReliability.performance.performanceEligible).toBe(true);
     expect(failedReliability.qualified).toBe(false);
+  });
+
+  it("binds successful reliability trials to the same fixture performance evidence", () => {
+    const manifest = validManifest();
+    const evidence = passingEvidence(manifest);
+    const changedTrials = evidence.sceneRun.trials.map((trial, index) =>
+      index === 0 ? { ...trial, focusedPriceLatencyMs: 1_001 } : trial
+    );
+    const report = scoreProfileQualification(
+      manifest,
+      passingReliabilityRecords(manifest),
+      { ...evidence, sceneRun: { trials: changedTrials } }
+    );
+
+    expect(report.reliability.qualified).toBe(true);
+    expect(report.performance.performanceEligible).toBe(true);
+    expect(report.evidenceAligned).toBe(false);
+    expect(report.qualified).toBe(false);
   });
 });

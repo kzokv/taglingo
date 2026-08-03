@@ -27,6 +27,7 @@ import type {
 export interface ProfileQualificationReport {
   readonly version: "profile-qualification-report.v1";
   readonly qualified: boolean;
+  readonly evidenceAligned: boolean;
   readonly manualPriceEntryAvailable: true;
   readonly disposition: string;
   readonly reliability: QualificationReport;
@@ -295,10 +296,46 @@ export function scoreProfileQualification(
     manifest,
     performanceEvidence
   );
-  const qualified = reliability.qualified && performance.performanceEligible;
+  const reliabilityFailures = new Set(
+    reliability.failures.map(({ fixtureId }) => fixtureId)
+  );
+  const performanceByFixture = new Map(
+    performanceEvidence?.sceneRun.trials.map((trial) => [
+      trial.fixtureId,
+      trial
+    ]) ?? []
+  );
+  const recordsByFixture = new Map(
+    records.map((record) => [record.fixtureId, record])
+  );
+  const evidenceAligned =
+    performanceEvidence !== null &&
+    manifest.fixtures.every((fixture) => {
+      if (!isPositiveStratum(fixture.stratum)) return true;
+      const reliabilitySucceeded = !reliabilityFailures.has(fixture.id);
+      if (!reliabilitySucceeded) return true;
+      const trial = performanceByFixture.get(fixture.id);
+      const record = recordsByFixture.get(fixture.id);
+      const firstExpectedFocusMs = record?.focusTransitions
+        .filter(({ classification }) => classification === "expected")
+        .reduce<number | null>(
+          (earliest, { atMs }) =>
+            earliest === null || atMs < earliest ? atMs : earliest,
+          null
+        );
+      return (
+        trial?.focusOutcome === "focused" &&
+        trial.focusedPriceLatencyMs === firstExpectedFocusMs
+      );
+    });
+  const qualified =
+    reliability.qualified &&
+    performance.performanceEligible &&
+    evidenceAligned;
   return deepFreeze({
     version: "profile-qualification-report.v1",
     qualified,
+    evidenceAligned,
     manualPriceEntryAvailable: true,
     disposition: qualified
       ? "Reliability and physical-device performance gates pass independently for this profile and platform."

@@ -32,11 +32,14 @@ export type {
 } from "./qualificationTypes";
 export type {
   PerformanceEvidenceKind,
+  PerformanceEvidenceHash,
   PerformanceGateResult,
   PerformanceQualificationEvidence,
   PerformanceQualificationReport,
+  ScenePerformanceTrial,
   StartupCohortReport,
   StartupPerformanceMeasurement,
+  SustainedPerformanceCheckpoint,
   SustainedPerformanceRun,
   SustainedRunReport
 } from "./qualificationPerformance";
