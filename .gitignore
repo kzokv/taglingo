@@ -8,6 +8,8 @@ node_modules/
 .DS_Store
 public/ocr/tesseract-7.0.0/
 public/ocr/tesseract-core-7.0.0/
+public/ocr/paddleocr-js-0.4.2/
+public/ocr/onnxruntime-web-1.24.3/
 test-results/
 playwright-report/
 blob-report/

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "assets:icons": "node scripts/generate-icons.mjs",
-    "assets:ocr": "node scripts/prepare-ocr-assets.mjs",
+    "assets:ocr": "node scripts/prepare-ocr-assets.mjs && node scripts/prepare-comparison-assets.mjs",
     "prebuild": "npm run assets:ocr",
     "predev": "npm run build && npm run db:migrate:local",
     "predev:spa": "npm run assets:ocr",
@@ -22,6 +22,8 @@
   "dependencies": {
     "@clerk/backend": "^3.14.0",
     "@clerk/react": "^6.12.9",
+    "@paddleocr/paddleocr-js": "0.4.2",
+    "onnxruntime-web": "1.24.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tesseract.js": "7.0.0",

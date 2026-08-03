@@ -17,7 +17,7 @@ export interface RecognitionAsset {
   readonly hash: Sha256Hash;
 }
 
-export interface RecognizerConfiguration {
+export interface TesseractRecognizerConfiguration {
   readonly engine: "tesseract.js";
   readonly engineVersion: "7.0.0";
   readonly engineMode: "lstm-only";
@@ -43,6 +43,42 @@ export interface RecognizerConfiguration {
     readonly preserveInterwordSpaces: string;
   };
 }
+
+export interface PaddleOcrRecognizerConfiguration {
+  readonly engine: "paddleocr.js";
+  readonly engineVersion: "0.4.2";
+  readonly runtime: "onnxruntime-web";
+  readonly runtimeVersion: "1.24.3";
+  readonly delivery: {
+    readonly worker: true;
+    readonly backend: "wasm";
+    readonly wasmPaths: `/${string}`;
+  };
+  readonly models: {
+    readonly detection: string;
+    readonly recognition: string;
+  };
+  readonly assets: {
+    readonly worker: RecognitionAsset;
+    readonly runtime: {
+      readonly basePath: `/${string}`;
+      readonly files: readonly RecognitionAsset[];
+    };
+    readonly models: readonly [RecognitionAsset, RecognitionAsset];
+  };
+  readonly parameters: {
+    readonly textDetLimitSideLen: number;
+    readonly textDetLimitType: "min" | "max";
+    readonly textDetThresh: number;
+    readonly textDetBoxThresh: number;
+    readonly textDetUnclipRatio: number;
+    readonly textRecScoreThresh: number;
+  };
+}
+
+export type RecognizerConfiguration =
+  | TesseractRecognizerConfiguration
+  | PaddleOcrRecognizerConfiguration;
 
 export type RecognitionPreprocessingStep =
   | {
@@ -164,7 +200,8 @@ function assertValidRecognitionProfile(profile: RecognitionProfile) {
   }
   if (
     !profile.id ||
-    profile.recognizer.languages.length === 0 ||
+    (profile.recognizer.engine === "tesseract.js" &&
+      profile.recognizer.languages.length === 0) ||
     profile.recognizer.assets.runtime.files.length === 0 ||
     profile.recognizer.assets.models.length === 0 ||
     profile.preprocessing.length === 0 ||
@@ -207,14 +244,21 @@ function assertValidRecognitionProfile(profile: RecognitionProfile) {
     );
   }
 
-  const modelPathsMatchLanguages =
-    profile.recognizer.languages.length ===
-      profile.recognizer.assets.models.length &&
-    profile.recognizer.languages.every((language, index) =>
-      profile.recognizer.assets.models[index].path.endsWith(
-        `/${language}.traineddata.gz`
-      )
-    );
+  const modelPathsMatchConfiguration =
+    profile.recognizer.engine === "tesseract.js"
+      ? profile.recognizer.languages.length ===
+          profile.recognizer.assets.models.length &&
+        profile.recognizer.languages.every((language, index) =>
+          profile.recognizer.assets.models[index].path.endsWith(
+            `/${language}.traineddata.gz`
+          )
+        )
+      : profile.recognizer.assets.models[0].path.includes(
+            profile.recognizer.models.detection
+          ) &&
+        profile.recognizer.assets.models[1].path.includes(
+          profile.recognizer.models.recognition
+        );
   const modelDirectories = new Set(
     profile.recognizer.assets.models.map(({ path }) =>
       path.slice(0, path.lastIndexOf("/"))
@@ -227,12 +271,17 @@ function assertValidRecognitionProfile(profile: RecognitionProfile) {
   const runtimeFileNames = profile.recognizer.assets.runtime.files
     .map(({ path }) => path.slice(path.lastIndexOf("/") + 1))
     .sort();
+  const runtimeFilesMatchConfiguration =
+    profile.recognizer.engine === "tesseract.js"
+      ? runtimeFileNames.join("\n") ===
+        TESSERACT_LSTM_RUNTIME_FILE_NAMES.join("\n")
+      : runtimeFileNames.includes("ort-wasm-simd-threaded.wasm") &&
+        runtimeFileNames.includes("ort-wasm-simd-threaded.mjs");
   if (
-    !modelPathsMatchLanguages ||
+    !modelPathsMatchConfiguration ||
     modelDirectories.size !== 1 ||
     !runtimeFilesMatchBasePath ||
-    runtimeFileNames.join("\n") !==
-      TESSERACT_LSTM_RUNTIME_FILE_NAMES.join("\n")
+    !runtimeFilesMatchConfiguration
   ) {
     throw new Error(
       `Recognition profile ${profile.id} model assets do not match its loaded configuration.`

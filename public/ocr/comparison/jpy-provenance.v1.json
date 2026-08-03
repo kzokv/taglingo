@@ -1,0 +1,190 @@
+{
+  "version": "jpy-comparison-provenance.v1",
+  "frozenAt": "2026-08-03T00:00:00.000Z",
+  "limits": {
+    "transferBytes": 62914560,
+    "storageBytes": 78643200
+  },
+  "packages": {
+    "paddleSdk": {
+      "name": "@paddleocr/paddleocr-js",
+      "version": "0.4.2",
+      "integrity": "sha512-vpwSaFVKcpTaRaNXIXL7R76lyvGjqQ8K17d7L/gsugQZYkNfwMR+yesAkLwzZtXmQVdMhVGtQmqBAQNkjvQ3EQ=="
+    },
+    "paddleRuntime": {
+      "name": "onnxruntime-web",
+      "version": "1.24.3",
+      "integrity": "sha512-41dDq7fxtTm0XzGE7N0d6m8FcOY8EWtUA65GkOixJPB/G7DGzBmiDAnVVXHznRw9bgUZpb+4/1lQK/PNxGpbrQ=="
+    },
+    "tesseractSdk": {
+      "name": "tesseract.js",
+      "version": "7.0.0",
+      "integrity": "sha512-exPBkd+z+wM1BuMkx/Bjv43OeLBxhL5kKWsz/9JY+DXcXdiBjiAch0V49QR3oAJqCaL5qURE0vx9Eo+G5YE7mA=="
+    },
+    "tesseractRuntime": {
+      "name": "tesseract.js-core",
+      "version": "7.0.0",
+      "integrity": "sha512-WnNH518NzmbSq9zgTPeoF8c+xmilS8rFIl1YKbk/ptuuc7p6cLNELNuPAzcmsYw450ca6bLa8j3t0VAtq435Vw=="
+    }
+  },
+  "assets": {
+    "paddleBootstrap": {
+      "path": "/ocr/paddleocr-js-0.4.2/index.mjs",
+      "sha256": "8610d82fdc539e48fa0147763be4b676c699d646a8db75fbceb627d9d37deb94",
+      "bytes": 81588,
+      "roles": ["runtime"],
+      "packagePath": "@paddleocr/paddleocr-js/dist/index.mjs"
+    },
+    "paddleSdkWorker": {
+      "path": "/ocr/paddleocr-js-0.4.2/worker-entry-C9UNuyOJ.js",
+      "sha256": "477db3f009c118823a5f9ebe15f1e96c1c464165715ba28a9884290f61addf52",
+      "bytes": 11341486,
+      "roles": ["runtime"],
+      "packagePath": "@paddleocr/paddleocr-js/dist/assets/worker-entry-C9UNuyOJ.js"
+    },
+    "paddleGuardedWorker": {
+      "path": "/ocr/comparison/paddle-worker-same-origin.v1.js",
+      "sha256": "f7914e9d0c8c26211b440b4e821ebf105d09b89729c9db0be0d6d7eb75e9050b",
+      "bytes": 511,
+      "roles": ["worker"]
+    },
+    "ortModule": {
+      "path": "/ocr/onnxruntime-web-1.24.3/ort-wasm-simd-threaded.mjs",
+      "sha256": "5687566b1bc1c8cf628d76c2ddb16b2a3b81a7997273d4666564880495088e57",
+      "bytes": 24274,
+      "roles": ["runtime"],
+      "packagePath": "onnxruntime-web/dist/ort-wasm-simd-threaded.mjs"
+    },
+    "ortWasm": {
+      "path": "/ocr/onnxruntime-web-1.24.3/ort-wasm-simd-threaded.wasm",
+      "sha256": "be0e129949062ad50290ef94683fac8be5bb6156f709e030b7a5f1661a2f6c17",
+      "bytes": 12361745,
+      "roles": ["runtime"],
+      "packagePath": "onnxruntime-web/dist/ort-wasm-simd-threaded.wasm"
+    },
+    "v6Detector": {
+      "path": "/ocr/paddleocr/PP-OCRv6_small_det_onnx_infer.tar",
+      "sha256": "d218f6fbf0f1c23d2161bd6ac7f5eaa6104fa89955c09290497e31008e2618e4",
+      "bytes": 9891840,
+      "roles": ["model", "configuration"],
+      "sourceUrl": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv6_small_det_onnx_infer.tar"
+    },
+    "v6Recognizer": {
+      "path": "/ocr/paddleocr/PP-OCRv6_small_rec_onnx_infer.tar",
+      "sha256": "d267ab077a44a0eedb1ea8f8c542d263f211de8e9d7a029bf9fcfff7e5a88fb1",
+      "bytes": 21319680,
+      "roles": ["model", "dictionary", "configuration"],
+      "sourceUrl": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv6_small_rec_onnx_infer.tar"
+    },
+    "v5Detector": {
+      "path": "/ocr/paddleocr/PP-OCRv5_mobile_det_onnx_infer.tar",
+      "sha256": "781056046c9ed77a15c94681605db6a0f62317c2e9cce6931c71da2478d4bc30",
+      "bytes": 4843520,
+      "roles": ["model", "configuration"],
+      "sourceUrl": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_onnx_infer.tar"
+    },
+    "v5Recognizer": {
+      "path": "/ocr/paddleocr/PP-OCRv5_mobile_rec_onnx_infer.tar",
+      "sha256": "f7e792bc836f36e7ef895ad47c426d75b0b75b1650caa6d63fe9418441ffba8c",
+      "bytes": 16701440,
+      "roles": ["model", "dictionary", "configuration"],
+      "sourceUrl": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_rec_onnx_infer.tar"
+    },
+    "tesseractWorker": {
+      "path": "/ocr/tesseract-7.0.0/worker.min.js",
+      "sha256": "576b7df7e3393e137e51849357c9adb53fe7ac1bb69bfa06cf3d61520f182c6d",
+      "bytes": 111307,
+      "roles": ["runtime", "worker"]
+    },
+    "tesseractCore": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm",
+      "sha256": "66b17df6e20c5329a17ffa9c202a47eaa3e32500b253d4c7f38e7f2bc01457c3",
+      "bytes": 2855361,
+      "roles": ["runtime"]
+    },
+    "tesseractCoreLoader": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm.js",
+      "sha256": "eef5f8b2f8e20e150680b20adaec4a60babafee3adbe8a94583c81fee46e8680",
+      "bytes": 3896484,
+      "roles": ["runtime"]
+    },
+    "tesseractRelaxedCore": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm",
+      "sha256": "7985c92d4c64e7267d24cadffe1b2a1da6bf8aa55fdcaf953fe94fe122a24545",
+      "bytes": 2862266,
+      "roles": ["runtime"]
+    },
+    "tesseractRelaxedLoader": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm.js",
+      "sha256": "861a536cf9ef8e63cb644d57bab39c388f37f7d6b6f60024b741c5f6b39a59b3",
+      "bytes": 3905767,
+      "roles": ["runtime"]
+    },
+    "tesseractSimdCore": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm",
+      "sha256": "34e8d50cac216427d86bf397d610fdd9f49492539bbcdfbfccc4eda20c810bea",
+      "bytes": 2857601,
+      "roles": ["runtime"]
+    },
+    "tesseractSimdLoader": {
+      "path": "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm.js",
+      "sha256": "c58b46a4c796c0b8afccf77591d5b875b6896b45d402bbce8caa6f5362447b38",
+      "bytes": 3899472,
+      "roles": ["runtime"]
+    },
+    "jpnModel": {
+      "path": "/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz",
+      "sha256": "daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45",
+      "bytes": 1532711,
+      "roles": ["model", "dictionary"]
+    },
+    "engModel": {
+      "path": "/ocr/tessdata_fast-4.1.0/eng.traineddata.gz",
+      "sha256": "afa9b778b3bfe580362a0b61308d08389c77dd3052c29a35270c827d7e75165c",
+      "bytes": 1977247,
+      "roles": ["model", "dictionary"]
+    }
+  },
+  "preprocessing": [
+    { "id": "raw", "operation": "raw" },
+    { "id": "contrast", "operation": "grayscale-contrast", "scale": 2, "contrast": 1.5 },
+    { "id": "threshold", "operation": "adaptive-threshold", "scale": 2, "windowSize": 3, "bias": 5 }
+  ],
+  "paddleParameters": {
+    "textDetLimitSideLen": 960,
+    "textDetLimitType": "max",
+    "textDetThresh": 0.3,
+    "textDetBoxThresh": 0.6,
+    "textDetUnclipRatio": 1.5,
+    "textRecScoreThresh": 0
+  },
+  "tesseractParameters": {
+    "guidePageSegmentationMode": "7",
+    "discoveryPageSegmentationMode": "11",
+    "preserveInterwordSpaces": "1"
+  },
+  "profileConfigurations": {
+    "jpy-pp-ocrv6-small.2026-08-03": {
+      "engine": "paddleocr.js",
+      "detector": "PP-OCRv6_small_det",
+      "recognizer": "PP-OCRv6_small_rec",
+      "modelIdentity": "PP-OCRv6_small_det+PP-OCRv6_small_rec"
+    },
+    "jpy-pp-ocrv5-mobile.2026-08-03": {
+      "engine": "paddleocr.js",
+      "detector": "PP-OCRv5_mobile_det",
+      "recognizer": "PP-OCRv5_mobile_rec",
+      "modelIdentity": "PP-OCRv5_mobile_det+PP-OCRv5_mobile_rec"
+    },
+    "jpy-tesseract-7.2026-08-03": {
+      "engine": "tesseract.js",
+      "languages": ["jpn", "eng"],
+      "modelIdentity": "tessdata_fast-4.1.0:jpn+eng"
+    }
+  },
+  "profileAssets": {
+    "jpy-pp-ocrv6-small.2026-08-03": ["paddleBootstrap", "paddleSdkWorker", "paddleGuardedWorker", "ortModule", "ortWasm", "v6Detector", "v6Recognizer"],
+    "jpy-pp-ocrv5-mobile.2026-08-03": ["paddleBootstrap", "paddleSdkWorker", "paddleGuardedWorker", "ortModule", "ortWasm", "v5Detector", "v5Recognizer"],
+    "jpy-tesseract-7.2026-08-03": ["tesseractWorker", "tesseractCore", "tesseractCoreLoader", "tesseractRelaxedCore", "tesseractRelaxedLoader", "tesseractSimdCore", "tesseractSimdLoader", "jpnModel", "engModel"]
+  }
+}

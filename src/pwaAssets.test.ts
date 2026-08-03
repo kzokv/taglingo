@@ -5,8 +5,13 @@ import { resolve } from "node:path";
 import vm from "node:vm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { JPY_COMPARISON_PROFILES } from "./recognition/comparisonProfiles";
+
 beforeAll(() => {
   execFileSync(process.execPath, ["scripts/prepare-ocr-assets.mjs"], {
+    cwd: process.cwd()
+  });
+  execFileSync(process.execPath, ["scripts/prepare-comparison-assets.mjs"], {
     cwd: process.cwd()
   });
 });
@@ -214,5 +219,84 @@ describe("installable application metadata", () => {
         expectedHash
       );
     }
+  });
+
+  it("self-hosts the pinned PaddleOCR.js worker, WASM runtime, and model archives", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(process.cwd(), "package.json"), "utf8")
+    ) as { dependencies: Record<string, string> };
+    const ocrRoot = resolve(process.cwd(), "public/ocr");
+
+    expect(packageJson.dependencies["@paddleocr/paddleocr-js"]).toBe("0.4.2");
+    expect(packageJson.dependencies["onnxruntime-web"]).toBe("1.24.3");
+    expect(packageJson.dependencies["@techstark/opencv-js"]).toBeUndefined();
+    expect(
+      sha256(
+        resolve(
+          ocrRoot,
+          "paddleocr-js-0.4.2/worker-entry-C9UNuyOJ.js"
+        )
+      )
+    ).toBe("477db3f009c118823a5f9ebe15f1e96c1c464165715ba28a9884290f61addf52");
+    expect(
+      sha256(
+        resolve(
+          ocrRoot,
+          "onnxruntime-web-1.24.3/ort-wasm-simd-threaded.wasm"
+        )
+      )
+    ).toBe("be0e129949062ad50290ef94683fac8be5bb6156f709e030b7a5f1661a2f6c17");
+    expect(
+      sha256(
+        resolve(ocrRoot, "paddleocr/PP-OCRv6_small_rec_onnx_infer.tar")
+      )
+    ).toBe("d267ab077a44a0eedb1ea8f8c542d263f211de8e9d7a029bf9fcfff7e5a88fb1");
+    expect(
+      sha256(
+        resolve(ocrRoot, "paddleocr/PP-OCRv5_mobile_rec_onnx_infer.tar")
+      )
+    ).toBe("f7e792bc836f36e7ef895ad47c426d75b0b75b1650caa6d63fe9418441ffba8c");
+
+    for (const profile of JPY_COMPARISON_PROFILES) {
+      for (const asset of profile.assets) {
+        const path = resolve(process.cwd(), "public", asset.path.slice(1));
+        expect(existsSync(path), asset.path).toBe(true);
+        expect(sha256(path), asset.path).toBe(asset.hash.slice("sha256:".length));
+        expect(readFileSync(path).byteLength, asset.path).toBe(
+          asset.storageBytes
+        );
+      }
+    }
+  });
+
+  it("installs the same-origin guard in the actual Paddle camera worker", async () => {
+    const workerPath = resolve(
+      process.cwd(),
+      "public/ocr/comparison/paddle-worker-same-origin.v1.js"
+    );
+    const workerSource = readFileSync(workerPath, "utf8").replace(
+      /await import\([^;]+;/u,
+      ""
+    );
+    const nativeFetch = vi.fn().mockResolvedValue(new Response("asset"));
+    const workerScope = {
+      fetch: nativeFetch,
+      location: { origin: "https://taglingo.test" }
+    };
+
+    vm.runInNewContext(workerSource, {
+      Error,
+      Promise,
+      Request,
+      URL,
+      self: workerScope
+    });
+
+    await workerScope.fetch("/ocr/model.tar");
+    await expect(
+      workerScope.fetch("https://cdn.example.com/camera-derived-frame")
+    ).rejects.toThrow(/third-party/i);
+    expect(nativeFetch).toHaveBeenCalledOnce();
+    expect(nativeFetch).toHaveBeenCalledWith("/ocr/model.tar", undefined);
   });
 });
