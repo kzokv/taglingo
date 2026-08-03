@@ -2,7 +2,8 @@ import type { SourceCurrencyCode } from "../domain/currencies";
 import type {
   RecognitionPlatform,
   RecognitionProfile,
-  RecognitionQualificationState
+  RecognitionQualificationState,
+  TesseractRecognizerConfiguration
 } from "../recognition/recognitionProfile";
 import { TESSERACT_LSTM_RUNTIME_FILE_NAMES } from "../recognition/tesseractRuntime";
 
@@ -21,7 +22,9 @@ export function createTestRecognitionProfile({
   platform?: RecognitionPlatform;
   qualificationState?: RecognitionQualificationState;
   expiresAt?: string;
-} = {}): RecognitionProfile {
+} = {}): RecognitionProfile & {
+  readonly recognizer: TesseractRecognizerConfiguration;
+} {
   return {
     id,
     version: "recognition-profile.v1",

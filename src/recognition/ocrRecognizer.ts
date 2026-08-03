@@ -147,6 +147,12 @@ export function createOcrRecognizer(
     now?: () => number;
   } = {}
 ): OcrRecognizer {
+  if (profile.recognizer.engine !== "tesseract.js") {
+    throw new Error(
+      `${profile.id} must be loaded through its PaddleOCR.js adapter.`
+    );
+  }
+  const configuration = profile.recognizer;
   let workerPromise: Promise<OcrWorker> | null = null;
   const markerSet = new Set(profile.notation.markers.map(normalizeMarker));
   const pinnedAssets = recognitionAssets(profile);
@@ -155,17 +161,17 @@ export function createOcrRecognizer(
     workerPromise ??= verifyAssets(pinnedAssets)
       .then(() =>
         workerFactory(
-          [...profile.recognizer.languages],
-          profile.recognizer.engineMode === "lstm-only"
+          [...configuration.languages],
+          configuration.engineMode === "lstm-only"
             ? Tesseract.OEM.LSTM_ONLY
             : Tesseract.OEM.DEFAULT,
           {
-            workerPath: profile.recognizer.assets.worker.path,
-            corePath: profile.recognizer.assets.runtime.basePath,
-            langPath: parentPath(profile.recognizer.assets.models[0].path),
-            gzip: profile.recognizer.delivery.gzipModels,
-            workerBlobURL: profile.recognizer.delivery.workerBlobUrl,
-            cacheMethod: profile.recognizer.delivery.cacheMethod,
+            workerPath: configuration.assets.worker.path,
+            corePath: configuration.assets.runtime.basePath,
+            langPath: parentPath(configuration.assets.models[0].path),
+            gzip: configuration.delivery.gzipModels,
+            workerBlobURL: configuration.delivery.workerBlobUrl,
+            cacheMethod: configuration.delivery.cacheMethod,
             logger: ({ progress, status }) => onProgress(progress, status)
           }
         )
@@ -174,9 +180,9 @@ export function createOcrRecognizer(
         try {
           await worker.setParameters({
             tessedit_pageseg_mode:
-              profile.recognizer.parameters.guidePageSegmentationMode,
+              configuration.parameters.guidePageSegmentationMode,
             preserve_interword_spaces:
-              profile.recognizer.parameters.preserveInterwordSpaces
+              configuration.parameters.preserveInterwordSpaces
           });
           return worker;
         } catch (error) {
@@ -201,8 +207,8 @@ export function createOcrRecognizer(
       await worker.setParameters({
         tessedit_pageseg_mode:
           passIdentity.kind === "discovery"
-            ? profile.recognizer.parameters.discoveryPageSegmentationMode
-            : profile.recognizer.parameters.guidePageSegmentationMode
+            ? configuration.parameters.discoveryPageSegmentationMode
+            : configuration.parameters.guidePageSegmentationMode
       });
       const startedAtMs = now();
       const {
