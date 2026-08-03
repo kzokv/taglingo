@@ -1019,6 +1019,77 @@ h1 em {
   font-size: 0.72rem;
 }
 
+.accessible-price-list {
+  margin-top: 16px;
+}
+
+.accessible-price-list h2 {
+  margin: 0;
+  color: #c9cfce;
+  font-size: 0.76rem;
+}
+
+.accessible-price-list h2:focus-visible {
+  border-radius: 4px;
+  outline: 3px solid var(--mint);
+  outline-offset: 3px;
+}
+
+.accessible-price-list ul {
+  display: grid;
+  gap: 8px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accessible-price-list button {
+  display: flex;
+  width: 100%;
+  min-height: 46px;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(246, 244, 237, 0.035);
+  color: var(--paper);
+  text-align: left;
+}
+
+.accessible-price-list button[aria-current="true"] {
+  border-color: rgba(255, 129, 95, 0.64);
+  background: rgba(255, 129, 95, 0.07);
+}
+
+.accessible-price-list button > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.accessible-price-list button strong {
+  font-size: 0.76rem;
+}
+
+.accessible-price-list button small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-transform: capitalize;
+}
+
+.accessible-price-list button > em,
+.accessible-price-list button > span:last-child {
+  color: var(--mint);
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.accessible-price-list button > em {
+  color: var(--coral);
+}
+
 .manual-price-composer {
   margin-top: 20px;
 }
