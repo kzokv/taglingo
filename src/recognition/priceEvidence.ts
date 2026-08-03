@@ -173,15 +173,11 @@ function sameLine(
   );
 }
 
-function aligned(
+function observationRelationship(
   left: RecognizerObservation,
-  right: RecognizerObservation,
-  profile: RecognitionProfile
-): boolean {
+  right: RecognizerObservation
+) {
   const textHeight = Math.max(left.box.height, right.box.height);
-  if (textHeight <= 0) {
-    return false;
-  }
   const verticalOverlap = Math.max(
     0,
     Math.min(
@@ -189,16 +185,36 @@ function aligned(
       right.box.y + right.box.height
     ) - Math.max(left.box.y, right.box.y)
   );
-  const overlapRatio =
-    verticalOverlap / Math.min(left.box.height, right.box.height);
-  const horizontalGap = Math.max(
-    0,
-    left.box.x - (right.box.x + right.box.width),
-    right.box.x - (left.box.x + left.box.width)
-  );
-  const baselineDelta = Math.abs(
-    left.box.y + left.box.height - (right.box.y + right.box.height)
-  );
+  return {
+    textHeight,
+    verticalOverlap,
+    overlapRatio:
+      verticalOverlap / Math.min(left.box.height, right.box.height),
+    horizontalGap: Math.max(
+      0,
+      left.box.x - (right.box.x + right.box.width),
+      right.box.x - (left.box.x + left.box.width)
+    ),
+    baselineDelta: Math.abs(
+      left.box.y + left.box.height - (right.box.y + right.box.height)
+    )
+  };
+}
+
+function aligned(
+  left: RecognizerObservation,
+  right: RecognizerObservation,
+  profile: RecognitionProfile
+): boolean {
+  const {
+    textHeight,
+    overlapRatio,
+    horizontalGap,
+    baselineDelta
+  } = observationRelationship(left, right);
+  if (textHeight <= 0) {
+    return false;
+  }
 
   return (
     (sameLine(left, right) || overlapRatio > 0) &&
@@ -217,17 +233,8 @@ function sharesContext(
   if (sameLine(anchor, context)) {
     return true;
   }
-  const textHeight = Math.max(anchor.box.height, context.box.height);
-  const verticalOverlap =
-    Math.min(
-      anchor.box.y + anchor.box.height,
-      context.box.y + context.box.height
-    ) - Math.max(anchor.box.y, context.box.y);
-  const horizontalGap = Math.max(
-    0,
-    anchor.box.x - (context.box.x + context.box.width),
-    context.box.x - (anchor.box.x + anchor.box.width)
-  );
+  const { textHeight, verticalOverlap, horizontalGap } =
+    observationRelationship(anchor, context);
   return (
     verticalOverlap > 0 &&
     horizontalGap <= profile.fusion.maximumGapInTextHeights * textHeight * 2
