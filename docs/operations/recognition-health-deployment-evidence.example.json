@@ -1,0 +1,48 @@
+{
+  "version": "recognition-health-deployment-evidence.v1",
+  "environment": "production",
+  "revision": "REPLACE_WITH_40_CHARACTER_GIT_REVISION",
+  "reviewedAt": "REPLACE_WITH_ISO_TIMESTAMP",
+  "databaseIdSha256": "REPLACE_WITH_SHA256_OF_PRODUCTION_D1_DATABASE_ID",
+  "controls": {
+    "transportBuffer": {
+      "encryptedInTransit": true,
+      "encryptedAtRest": true,
+      "accessRestricted": true,
+      "analyticsQueryable": false,
+      "maxRetentionHours": 24,
+      "destructionTestReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/transport/destruction-test.json",
+      "accessControlReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/transport/access-control.json"
+    },
+    "aggregateStorage": {
+      "primaryRetentionDays": 90,
+      "replicaRetentionDays": 90,
+      "backupRetentionDays": 90,
+      "restoreTestPassed": true,
+      "primaryRetentionReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/storage/primary-retention.json",
+      "replicaRetentionReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/storage/replica-retention.json",
+      "backupRetentionReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/storage/backup-retention.json",
+      "restoreTestReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/storage/restore-test.json"
+    },
+    "scheduler": {
+      "enabled": true,
+      "failureAlertEnabled": true,
+      "failureAlertReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/scheduler/failure-alert.json"
+    },
+    "operatorAccess": {
+      "namedOperatorsOnly": true,
+      "auditEnabled": true,
+      "thresholdedOnly": true,
+      "accessReviewReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/access/operator-review.json",
+      "auditThresholdReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/access/audit-threshold.json"
+    },
+    "application": {
+      "killSwitchTestPassed": true,
+      "loggingTestPassed": true,
+      "contractTestsPassed": true,
+      "killSwitchTestReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/application/kill-switch.json",
+      "loggingTestReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/application/logging.json",
+      "contractTestReference": "https://REPLACE_WITH_TRUSTED_AUTHORITY/protected/taglingo/recognition-health/application/contract-tests.json"
+    }
+  }
+}
