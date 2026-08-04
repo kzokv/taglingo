@@ -18,6 +18,11 @@ import {
   type CameraStatus
 } from "./camera/cameraSession";
 import {
+  createCameraUsageSession,
+  type CameraUsageSession
+} from "./camera/cameraUsageSession";
+import {
+  isGuestCameraCurrency,
   resolveFoundationCameraAccess,
   type ResolveCameraAccess
 } from "./domain/cameraAccess";
@@ -33,6 +38,13 @@ import {
   createGuestPreferenceStore,
   type GuestPreferences
 } from "./domain/guestPreferences";
+import {
+  createGuestCameraAllowanceStore,
+  createWebLocksGuestCameraAllowanceLock,
+  GUEST_CAMERA_USAGE_LIMIT,
+  type GuestCameraAllowanceSnapshot,
+  type GuestCameraAllowanceStore
+} from "./domain/guestCameraAllowance";
 import {
   getManualPriceEntryGuidance,
   parseManualPriceEntry,
@@ -137,6 +149,64 @@ const statusContent: Partial<
       "Check that no other app is using it, then retry or continue without a camera."
   }
 };
+
+function formatAllowanceRefresh(timestampMs: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(timestampMs));
+}
+
+function GuestCameraAllowanceNote({
+  sourceCurrency,
+  allowance
+}: {
+  sourceCurrency: SourceCurrencyCode;
+  allowance: GuestCameraAllowanceSnapshot;
+}) {
+  const guestCameraCurrency = isGuestCameraCurrency(sourceCurrency);
+
+  if (!guestCameraCurrency) {
+    return (
+      <aside className="camera-allowance-note" aria-label="Guest Camera Allowance">
+        <strong>{sourceCurrency} uses Manual Price Entry for Guests.</strong>
+        <p>Manual Price Entry is unlimited for every Source Currency.</p>
+      </aside>
+    );
+  }
+
+  if (allowance.isExhausted && allowance.nextRefreshAtMs !== null) {
+    return (
+      <aside
+        className="camera-allowance-note exhausted"
+        aria-label="Guest Camera Allowance"
+      >
+        <strong>Guest Camera Allowance used</strong>
+        <p>
+          {GUEST_CAMERA_USAGE_LIMIT} of {GUEST_CAMERA_USAGE_LIMIT} successful
+          usages used. Camera refreshes at{" "}
+          <time dateTime={new Date(allowance.nextRefreshAtMs).toISOString()}>
+            {formatAllowanceRefresh(allowance.nextRefreshAtMs)}
+          </time>
+          . Manual Price Entry remains unlimited.
+        </p>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="camera-allowance-note" aria-label="Guest Camera Allowance">
+      <strong>
+        {allowance.remaining} of {GUEST_CAMERA_USAGE_LIMIT} successful camera
+        usages remain in this browser.
+      </strong>
+      <p>
+        A usage is charged only when a camera session produces its first Focused
+        Price. Manual Price Entry remains unlimited.
+      </p>
+    </aside>
+  );
+}
 
 function TagLingoMark() {
   return (
@@ -769,7 +839,8 @@ function CameraSurface({
   privacySettingsOpen,
   onRecognitionHealthChange,
   onOpenPrivacySettings,
-  onClosePrivacySettings
+  onClosePrivacySettings,
+  onFocusedPrice
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -796,6 +867,7 @@ function CameraSurface({
   onRecognitionHealthChange: (enabled: boolean) => void;
   onOpenPrivacySettings: () => void;
   onClosePrivacySettings: () => void;
+  onFocusedPrice: () => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
@@ -827,6 +899,12 @@ function CameraSurface({
         width: previewBounds?.width ?? 1,
         height: previewBounds?.height ?? 1
       };
+
+  useEffect(() => {
+    if (!demo && recognition.focusedPrice) {
+      onFocusedPrice();
+    }
+  }, [demo, onFocusedPrice, recognition.focusedPrice]);
 
   useEffect(() => {
     setEnteredPrice(null);
@@ -1465,7 +1543,8 @@ export default function App({
   memberSession = null,
   loadMemberPreferences = loadMemberPreferencesFromApi,
   saveMemberPreferences = saveMemberPreferencesToApi,
-  submitRecognitionHealth = submitRecognitionHealthSummary
+  submitRecognitionHealth = submitRecognitionHealthSummary,
+  guestCameraAllowanceStore
 }: {
   createRecognizer?: CreateRecognizer;
   recognitionRuntime?: RecognitionRuntimeConfiguration;
@@ -1476,12 +1555,25 @@ export default function App({
   loadMemberPreferences?: LoadMemberPreferences;
   saveMemberPreferences?: SaveMemberPreferences;
   submitRecognitionHealth?: SubmitRecognitionHealthSummary;
+  guestCameraAllowanceStore?: GuestCameraAllowanceStore;
 }) {
   const memberUserId = memberSession?.userId ?? null;
   const getMemberSessionToken = memberSession?.getSessionToken;
   const preferenceStoreRef = useRef(
     createGuestPreferenceStore(getBrowserStorage())
   );
+  const defaultGuestCameraAllowanceStoreRef = useRef(
+    createGuestCameraAllowanceStore({
+      storage: getBrowserStorage(),
+      lock: createWebLocksGuestCameraAllowanceLock(navigator.locks)
+    })
+  );
+  const allowanceStore =
+    guestCameraAllowanceStore ?? defaultGuestCameraAllowanceStoreRef.current;
+  const [guestCameraAllowance, setGuestCameraAllowance] =
+    useState<GuestCameraAllowanceSnapshot | null>(() =>
+      memberUserId ? null : allowanceStore.getSnapshot()
+    );
   const rateSnapshotStoreRef = useRef(
     createBrowserRateSnapshotStore(getBrowserStorage())
   );
@@ -1618,6 +1710,38 @@ export default function App({
     !useGuestMode &&
     memberAccessStatus === "approved" &&
     memberPreferences !== null;
+  const confirmationContextKey =
+    memberUserId && !useGuestMode ? `member:${memberUserId}` : "guest";
+  const shouldUseGuestCameraAllowance =
+    !memberUserId ||
+    useGuestMode ||
+    memberAccessStatus === "inactive";
+  useEffect(() => {
+    if (!shouldUseGuestCameraAllowance) {
+      setGuestCameraAllowance(null);
+      return undefined;
+    }
+
+    const refreshAllowance = () =>
+      setGuestCameraAllowance(allowanceStore.getSnapshot());
+    refreshAllowance();
+    window.addEventListener("storage", refreshAllowance);
+    return () => window.removeEventListener("storage", refreshAllowance);
+  }, [allowanceStore, shouldUseGuestCameraAllowance]);
+  useEffect(() => {
+    if (
+      !shouldUseGuestCameraAllowance ||
+      guestCameraAllowance?.nextRefreshAtMs === null ||
+      guestCameraAllowance?.nextRefreshAtMs === undefined
+    ) {
+      return undefined;
+    }
+    const refreshTimer = window.setTimeout(
+      () => setGuestCameraAllowance(allowanceStore.getSnapshot()),
+      Math.max(0, guestCameraAllowance.nextRefreshAtMs - Date.now())
+    );
+    return () => window.clearTimeout(refreshTimer);
+  }, [allowanceStore, guestCameraAllowance, shouldUseGuestCameraAllowance]);
   const preferences: ExperiencePreferences = isApprovedMember
     ? {
         sourceCurrency: memberPreferences.sourceCurrency,
@@ -1627,9 +1751,17 @@ export default function App({
         sourceCurrency: guestPreferences.sourceCurrency,
         targetCurrencies: [guestPreferences.targetCurrency]
       };
+  const guestCameraAllowanceAvailable =
+    guestCameraAllowance !== null && !guestCameraAllowance.isExhausted;
   const cameraAvailable = resolveCameraAccess({
     sourceCurrency: preferences.sourceCurrency,
-    isApprovedMember
+    isApprovedMember,
+    guestCameraAllowanceAvailable
+  });
+  const cameraSessionPolicyAvailable = resolveCameraAccess({
+    sourceCurrency: preferences.sourceCurrency,
+    isApprovedMember,
+    guestCameraAllowanceAvailable: true
   });
   const ratePreferences: ExperiencePreferences =
     isApprovedMember && synchronizedMemberPreferences
@@ -1640,6 +1772,12 @@ export default function App({
         }
       : preferences;
   const sessionRef = useRef<CameraSession | null>(null);
+  const cameraUsageSessionRef = useRef<CameraUsageSession | null>(null);
+  const cameraUsageGenerationRef = useRef(0);
+  useEffect(() => {
+    cameraUsageGenerationRef.current += 1;
+    cameraUsageSessionRef.current = null;
+  }, [confirmationContextKey]);
   const [cameraSnapshot, setCameraSnapshot] = useState<CameraSnapshot>({
     status: "idle",
     stream: null
@@ -1648,15 +1786,17 @@ export default function App({
   useEffect(() => {
     if (
       (mode === "camera" || mode === "demo") &&
-      !cameraAvailable
+      !cameraSessionPolicyAvailable
     ) {
       if (mode === "camera") {
         finishRecognitionHealthSession("closed-without-price", "none");
       }
       sessionRef.current?.stop();
+      cameraUsageGenerationRef.current += 1;
+      cameraUsageSessionRef.current = null;
       setMode("manual");
     }
-  }, [cameraAvailable, finishRecognitionHealthSession, mode]);
+  }, [cameraSessionPolicyAvailable, finishRecognitionHealthSession, mode]);
   useEffect(() => {
     rateSnapshotStoreRef.current.retainActivePairs(
       ratePreferences.targetCurrencies.map((target) => ({
@@ -1698,6 +1838,8 @@ export default function App({
     sessionRef.current = session;
     const unsubscribe = session.subscribe(setCameraSnapshot);
     return () => {
+      cameraUsageGenerationRef.current += 1;
+      cameraUsageSessionRef.current = null;
       unsubscribe();
       session.dispose();
       if (sessionRef.current === session) {
@@ -1749,10 +1891,13 @@ export default function App({
       nextPreferences.sourceCurrency !== preferences.sourceCurrency &&
       !resolveCameraAccess({
         sourceCurrency: nextPreferences.sourceCurrency,
-        isApprovedMember
+        isApprovedMember,
+        guestCameraAllowanceAvailable
       })
     ) {
       sessionRef.current?.stop();
+      cameraUsageGenerationRef.current += 1;
+      cameraUsageSessionRef.current = null;
       setMode("manual");
     }
   };
@@ -1760,8 +1905,37 @@ export default function App({
   const startCamera = async () => {
     if (!cameraAvailable) {
       sessionRef.current?.stop();
+      cameraUsageGenerationRef.current += 1;
+      cameraUsageSessionRef.current = null;
       setMode("manual");
       return;
+    }
+    if (!cameraUsageSessionRef.current) {
+      const generation = cameraUsageGenerationRef.current + 1;
+      cameraUsageGenerationRef.current = generation;
+      let usageSession: CameraUsageSession;
+      usageSession = createCameraUsageSession(async () => {
+        if (isApprovedMember) {
+          return true;
+        }
+        const charge = await allowanceStore.recordSuccessfulUsage();
+        if (
+          cameraUsageGenerationRef.current !== generation ||
+          cameraUsageSessionRef.current !== usageSession
+        ) {
+          return false;
+        }
+        setGuestCameraAllowance(charge.snapshot);
+        if (!charge.charged) {
+          finishRecognitionHealthSession("closed-without-price", "none");
+          sessionRef.current?.stop();
+          cameraUsageGenerationRef.current += 1;
+          cameraUsageSessionRef.current = null;
+          setMode("manual");
+        }
+        return charge.charged;
+      });
+      cameraUsageSessionRef.current = usageSession;
     }
     recognitionHealthSessionRef.current ??= createRecognitionHealthSession({
       consentAtStart: recognitionHealthPreferencesRef.current.sharingEnabled,
@@ -1778,6 +1952,8 @@ export default function App({
 
   const openDemo = () => {
     sessionRef.current?.stop();
+    cameraUsageGenerationRef.current += 1;
+    cameraUsageSessionRef.current = null;
     setMode(cameraAvailable ? "demo" : "manual");
   };
 
@@ -1790,8 +1966,13 @@ export default function App({
       errorFamily
     );
     sessionRef.current?.stop();
+    cameraUsageGenerationRef.current += 1;
+    cameraUsageSessionRef.current = null;
     setMode("welcome");
   };
+  const recordFocusedPrice = useCallback(() => {
+    void cameraUsageSessionRef.current?.observeFocusedPrice(true);
+  }, []);
   const recordRecognitionHealth = useCallback(
     (observation: RecognitionHealthObservation) => {
       recognitionHealthSessionRef.current?.record(observation);
@@ -1831,7 +2012,7 @@ export default function App({
 
   if (
     mode !== "welcome" &&
-    cameraAvailable
+    cameraSessionPolicyAvailable
   ) {
     return (
       <CameraSurface
@@ -1858,6 +2039,7 @@ export default function App({
         onRecognitionHealthChange={changeRecognitionHealthSharing}
         onOpenPrivacySettings={() => setPrivacySettingsOpen(true)}
         onClosePrivacySettings={() => setPrivacySettingsOpen(false)}
+        onFocusedPrice={recordFocusedPrice}
       />
     );
   }
@@ -1867,6 +2049,13 @@ export default function App({
     isCameraFailureStatus(cameraSnapshot.status)
       ? statusContent[cameraSnapshot.status]
       : undefined;
+  const guestCameraCurrency = isGuestCameraCurrency(
+    preferences.sourceCurrency
+  );
+  const guestAllowanceExhausted =
+    !isApprovedMember &&
+    guestCameraCurrency &&
+    guestCameraAllowance?.isExhausted === true;
 
   return (
     <main className="welcome-shell">
@@ -1933,6 +2122,12 @@ export default function App({
           isApprovedMember={isApprovedMember}
           memberAccessStatus={memberAccessStatus}
         />
+        {!isApprovedMember && guestCameraAllowance ? (
+          <GuestCameraAllowanceNote
+            sourceCurrency={preferences.sourceCurrency}
+            allowance={guestCameraAllowance}
+          />
+        ) : null}
         {memberStatus}
 
         <RecognitionHealthPrivacy
@@ -1952,14 +2147,30 @@ export default function App({
         ) : null}
 
         <div className="primary-actions">
-          <button className="primary-button" type="button" onClick={startCamera}>
-            <span
-              className={cameraAvailable ? "button-camera" : "button-manual"}
-              aria-hidden="true"
-            />
-            {cameraAvailable ? "Open camera" : "Enter price manually"}
-            <span aria-hidden="true">→</span>
-          </button>
+          {guestAllowanceExhausted ? (
+            <>
+              <button className="primary-button" type="button" disabled>
+                <span className="button-camera" aria-hidden="true" />
+                Open camera · allowance used
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setMode("manual")}
+              >
+                Enter price manually · unlimited
+              </button>
+            </>
+          ) : (
+            <button className="primary-button" type="button" onClick={startCamera}>
+              <span
+                className={cameraAvailable ? "button-camera" : "button-manual"}
+                aria-hidden="true"
+              />
+              {cameraAvailable ? "Open camera" : "Enter price manually"}
+              <span aria-hidden="true">→</span>
+            </button>
+          )}
           {cameraAvailable && preferences.sourceCurrency === "JPY" ? (
             <button className="secondary-button" type="button" onClick={openDemo}>
               Try without camera

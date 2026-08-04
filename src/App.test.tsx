@@ -9,20 +9,12 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Existing deterministic camera journeys isolate recognition behavior from
-// the Guest policy work tracked in #81.
-vi.mock("./domain/cameraAccess", () => {
-  return {
-    resolveFoundationCameraAccess: ({
-      sourceCurrency
-    }: {
-      sourceCurrency: CurrencyCode;
-    }) => sourceCurrency === "JPY"
-  };
-});
-
 import App from "./App";
 import type { CurrencyCode } from "./domain/currencies";
+import type {
+  GuestCameraAllowanceSnapshot,
+  GuestCameraAllowanceStore
+} from "./domain/guestCameraAllowance";
 import type { GuestReferenceRate } from "./fx/referenceRate";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
@@ -76,6 +68,28 @@ function useMediaDevices(getUserMedia: ReturnType<typeof vi.fn>) {
     configurable: true,
     value: { getUserMedia }
   });
+}
+
+function createAllowanceStore(
+  snapshot: GuestCameraAllowanceSnapshot = {
+    used: 0,
+    remaining: 10,
+    isExhausted: false,
+    nextRefreshAtMs: null
+  }
+): GuestCameraAllowanceStore {
+  return {
+    getSnapshot: vi.fn(() => snapshot),
+    recordSuccessfulUsage: vi.fn(async () => ({
+      charged: true,
+      snapshot: {
+        used: snapshot.used + 1,
+        remaining: snapshot.remaining - 1,
+        isExhausted: snapshot.remaining === 1,
+        nextRefreshAtMs: snapshot.remaining === 1 ? Date.now() + 3_600_000 : null
+      }
+    }))
+  };
 }
 
 function canvasContext(): CanvasRenderingContext2D {
@@ -143,6 +157,16 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  Object.defineProperty(window.navigator, "locks", {
+    configurable: true,
+    value: {
+      request: async (
+        _name: string,
+        _options: LockOptions,
+        transaction: () => unknown
+      ) => transaction()
+    }
+  });
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(DEFAULT_RATE));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
@@ -635,6 +659,96 @@ describe("Guest camera journey", () => {
       screen.getByRole("region", { name: /member admission/i })
     ).toBeInTheDocument();
     expect(screen.getByText(/guest mode/i)).toBeInTheDocument();
+  });
+
+  it("explains the successful-usage rule and unlimited Manual Price Entry", () => {
+    useMediaDevices(vi.fn());
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/10 of 10 successful camera usages remain/i);
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/first Focused Price/i);
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/manual price entry remains unlimited/i);
+  });
+
+  it("does not charge camera starts, failures, cancellations, or the no-camera demo", async () => {
+    const user = userEvent.setup();
+    const allowanceStore = createAllowanceStore();
+    useMediaDevices(
+      vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+
+    render(<App guestCameraAllowanceStore={allowanceStore} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    expect(allowanceStore.recordSuccessfulUsage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+    await within(
+      screen.getByRole("region", { name: /recognition summary/i })
+    ).findByText(/^focused price · jpy 4,142$/i);
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    expect(allowanceStore.recordSuccessfulUsage).not.toHaveBeenCalled();
+  });
+
+  it("disables Guest camera at ten usages, shows refresh, and re-enables at expiry", () => {
+    vi.useFakeTimers();
+    const nowMs = Date.parse("2026-08-04T10:00:00.000Z");
+    const refreshAtMs = nowMs + 3_600_000;
+    vi.setSystemTime(nowMs);
+    const allowanceStore: GuestCameraAllowanceStore = {
+      getSnapshot: vi.fn(() =>
+        Date.now() < refreshAtMs
+          ? {
+              used: 10,
+              remaining: 0,
+              isExhausted: true,
+              nextRefreshAtMs: refreshAtMs
+            }
+          : {
+              used: 9,
+              remaining: 1,
+              isExhausted: false,
+              nextRefreshAtMs: null
+            }
+      ),
+      recordSuccessfulUsage: vi.fn(async () => ({
+        charged: false,
+        snapshot: {
+          used: 10,
+          remaining: 0,
+          isExhausted: true,
+          nextRefreshAtMs: refreshAtMs
+        }
+      }))
+    };
+    useMediaDevices(vi.fn());
+
+    render(<App guestCameraAllowanceStore={allowanceStore} />);
+
+    expect(
+      screen.getByRole("button", { name: /open camera · allowance used/i })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/camera refreshes at/i);
+    expect(
+      screen.getByRole("button", { name: /enter price manually · unlimited/i })
+    ).toBeEnabled();
+
+    act(() => vi.advanceTimersByTime(3_600_000));
+
+    expect(screen.getByRole("button", { name: /open camera/i })).toBeEnabled();
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/1 of 10 successful camera usages remain/i);
   });
 
   it("restores an offline conversion with its cached effective-date state", async () => {
@@ -1153,6 +1267,7 @@ describe("Guest camera journey", () => {
 
   it("stabilizes browser-local camera observations without uploading them", async () => {
     const user = userEvent.setup();
+    const allowanceStore = createAllowanceStore();
     const { stream } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
     const recognize = vi
@@ -1183,6 +1298,7 @@ describe("Guest camera journey", () => {
 
     render(
       <App
+        guestCameraAllowanceStore={allowanceStore}
         createRecognizer={(_sourceCurrency, onProgress) => {
           reportProgress = onProgress;
           return recognizer;
@@ -1211,6 +1327,7 @@ describe("Guest camera journey", () => {
     expect(
       await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 2500 })
     ).toBeInTheDocument();
+    expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce();
     const highlightedPrice = document.querySelector(
       '[data-detected-price="JPY-4142"]'
     ) as HTMLElement;
@@ -1233,6 +1350,7 @@ describe("Guest camera journey", () => {
       expect.any(HTMLCanvasElement),
       expect.objectContaining({ kind: "discovery" })
     );
+    expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce();
 
     const composer = screen.getByRole("region", {
       name: /manual price entry/i
@@ -1287,6 +1405,183 @@ describe("Guest camera journey", () => {
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
+  }, 10_000);
+
+  it.each([
+    ["keeps the intentional tenth successful session open", true],
+    ["stops a stale concurrent session when its atomic charge is denied", false]
+  ])("%s", async (_case, charged) => {
+    const user = userEvent.setup();
+    const { stream, track } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
+    const allowanceStore: GuestCameraAllowanceStore = {
+      getSnapshot: vi.fn(() => ({
+        used: 9,
+        remaining: 1,
+        isExhausted: false,
+        nextRefreshAtMs: null
+      })),
+      recordSuccessfulUsage: vi.fn(async () => ({
+        charged,
+        snapshot: {
+          used: 10,
+          remaining: 0,
+          isExhausted: true,
+          nextRefreshAtMs: Date.now() + 3_600_000
+        }
+      }))
+    };
+    const successfulRecognition = async (
+      _image: unknown,
+      pass: RecognitionPassIdentity
+    ) =>
+      [
+          recognizedObservation(
+            "4,142円",
+            96,
+            { x: 64, y: 40, width: 160, height: 80 },
+            pass
+          )
+        ];
+    const recognize = vi.fn(successfulRecognition);
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize,
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+
+    render(
+      <App
+        guestCameraAllowanceStore={allowanceStore}
+        createRecognizer={() => recognizer}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+
+    await waitFor(
+      () => expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce(),
+      { timeout: 3_000 }
+    );
+    if (charged) {
+      expect(
+        screen.getByRole("button", { name: /close camera/i })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("status", { name: /price used for conversion/i })
+      ).toHaveTextContent(/focused price in use/i);
+      expect(track.stop).not.toHaveBeenCalled();
+    } else {
+      expect(
+        await screen.findByRole("heading", { name: /manual price entry/i })
+      ).toBeInTheDocument();
+      expect(screen.queryByLabelText(/rear camera preview/i)).not.toBeInTheDocument();
+      expect(track.stop).toHaveBeenCalledOnce();
+    }
+  }, 10_000);
+
+  it("ignores a denied charge that resolves after its camera session closes", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    const pendingCharge = createDeferred<
+      Awaited<ReturnType<GuestCameraAllowanceStore["recordSuccessfulUsage"]>>
+    >();
+    const allowanceStore: GuestCameraAllowanceStore = {
+      getSnapshot: vi.fn(() => ({
+        used: 9,
+        remaining: 1,
+        isExhausted: false,
+        nextRefreshAtMs: null
+      })),
+      recordSuccessfulUsage: vi.fn(() => pendingCharge.promise)
+    };
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize: vi.fn(
+        async (_image: unknown, pass: RecognitionPassIdentity) => [
+          recognizedObservation(
+            "4,142円",
+            96,
+            { x: 64, y: 40, width: 160, height: 80 },
+            pass
+          )
+        ]
+      ),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+
+    render(
+      <App
+        guestCameraAllowanceStore={allowanceStore}
+        createRecognizer={() => recognizer}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+    await waitFor(
+      () => expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce(),
+      { timeout: 3_000 }
+    );
+
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    await act(async () => {
+      pendingCharge.resolve({
+        charged: false,
+        denialReason: "exhausted",
+        snapshot: {
+          used: 10,
+          remaining: 0,
+          isExhausted: true,
+          nextRefreshAtMs: Date.now() + 3_600_000
+        }
+      });
+    });
+
+    expect(
+      screen.getByRole("heading", { name: /understand any price/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /^manual price entry$/i })
+    ).not.toBeInTheDocument();
   }, 10_000);
 
   it("automatically focuses the Guide-nearest price and lets its accessible peer be selected", async () => {
@@ -1460,10 +1755,14 @@ describe("Guest camera journey", () => {
 });
 
 describe("Approved Member journey", () => {
-  it("describes the signed-in membership check without flashing Guest mode", async () => {
-    const user = userEvent.setup();
+  it("never reads or writes the Guest Camera Allowance", async () => {
     useMediaDevices(vi.fn());
-    const pending = createDeferred<MemberPreferences | null>();
+    const allowanceStore = createAllowanceStore({
+      used: 10,
+      remaining: 0,
+      isExhausted: true,
+      nextRefreshAtMs: Date.now() + 60_000
+    });
 
     render(
       <App
@@ -1471,17 +1770,25 @@ describe("Approved Member journey", () => {
           userId: "user_member",
           getSessionToken: getTestMemberSessionToken
         }}
-        loadMemberPreferences={vi.fn(() => pending.promise)}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "CAD",
+          targetCurrencies: ["USD"]
+        })}
+        guestCameraAllowanceStore={allowanceStore}
       />
     );
 
-    expect(screen.getAllByText(/checking member access/i)).toHaveLength(2);
-    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /try without camera/i }));
-
-    expect(screen.getByText(/checking member access/i)).toBeInTheDocument();
-    expect(screen.queryByText(/guest · 1/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("CAD");
+    expect(screen.getByRole("button", { name: /open camera/i })).toBeEnabled();
+    expect(allowanceStore.getSnapshot).not.toHaveBeenCalled();
+    expect(allowanceStore.recordSuccessfulUsage).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("complementary", { name: /guest camera allowance/i })
+    ).not.toBeInTheDocument();
   });
 
   it("creates a synchronized preference row only after active membership is confirmed", async () => {
