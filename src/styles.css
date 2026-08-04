@@ -651,6 +651,82 @@ h1 em {
   background: rgba(255, 129, 95, 0.055);
 }
 
+.recognition-health-card {
+  margin-top: 22px;
+  padding: 22px;
+  border: 1px solid rgba(152, 224, 192, 0.28);
+  border-radius: 18px;
+  background: rgba(152, 224, 192, 0.055);
+}
+
+.recognition-health-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.recognition-health-heading span {
+  color: var(--mint);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.recognition-health-heading h2 {
+  margin: 5px 0 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.recognition-health-disclosure,
+.recognition-health-card > p {
+  color: #b9c1c0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.recognition-health-disclosure p {
+  margin: 14px 0 6px;
+}
+
+.recognition-health-disclosure ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.recognition-health-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 18px;
+  color: var(--paper);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.recognition-health-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--mint);
+}
+
+.recognition-health-actions {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.recognition-health-actions button {
+  min-height: 50px;
+  border-radius: 13px;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .feature-list {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -716,6 +792,21 @@ h1 em {
   justify-content: space-between;
   padding: max(18px, env(safe-area-inset-top)) 20px 14px;
   background: linear-gradient(#071016 0, transparent 100%);
+}
+
+.camera-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.camera-privacy-button {
+  border: 0;
+  padding: 8px 4px;
+  background: transparent;
+  color: var(--mint);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .close-button {
@@ -1542,6 +1633,10 @@ h1 em {
   }
 
   .admission-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .recognition-health-actions {
     grid-template-columns: 1fr;
   }
 

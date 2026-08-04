@@ -77,6 +77,17 @@ import {
   type RecognitionProfile,
   type ResolveRecognitionProfile
 } from "./recognition/recognitionProfile";
+import {
+  createRecognitionHealthPreferenceStore,
+  createRecognitionHealthSession,
+  detectRecognitionHealthPlatform,
+  submitRecognitionHealthSummary,
+  type RecognitionHealthErrorFamily,
+  type RecognitionHealthObservation,
+  type RecognitionHealthPreferences,
+  type RecognitionHealthTerminalOutcome,
+  type SubmitRecognitionHealthSummary
+} from "./recognitionHealth/recognitionHealth";
 
 import "./styles.css";
 
@@ -177,13 +188,15 @@ function CurrencySettings({
   onChange,
   isApprovedMember,
   memberAccessStatus = isApprovedMember ? "approved" : "guest",
-  compact = false
+  compact = false,
+  sourceCurrencyDisabled = false
 }: {
   preferences: ExperiencePreferences;
   onChange: (preferences: ExperiencePreferences) => void;
   isApprovedMember: boolean;
   memberAccessStatus?: MemberAccessStatus;
   compact?: boolean;
+  sourceCurrencyDisabled?: boolean;
 }) {
   const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetQuery, setTargetQuery] = useState("");
@@ -266,6 +279,7 @@ function CurrencySettings({
         <select
           name={compact ? "cameraSourceCurrency" : "sourceCurrency"}
           value={preferences.sourceCurrency}
+          disabled={sourceCurrencyDisabled}
           onChange={updateSource}
         >
           {SOURCE_CURRENCIES.map((currency) => (
@@ -787,7 +801,13 @@ function CameraSurface({
   onRetry,
   onPlaybackError,
   memberStatus,
-  onContinueAsGuest
+  onContinueAsGuest,
+  onRecognitionHealthRecord,
+  recognitionHealthPreferences,
+  privacySettingsOpen,
+  onRecognitionHealthChange,
+  onOpenPrivacySettings,
+  onClosePrivacySettings
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -800,11 +820,22 @@ function CameraSurface({
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   recognitionProfile: RecognitionProfile;
   createRecognizer: CreateRecognizer;
-  onClose: () => void;
+  onClose: (
+    outcome: RecognitionHealthTerminalOutcome,
+    errorFamily: RecognitionHealthErrorFamily
+  ) => void;
   onRetry: () => void;
   onPlaybackError: () => void;
   memberStatus: ReactNode;
   onContinueAsGuest: () => void;
+  onRecognitionHealthRecord: (
+    observation: RecognitionHealthObservation
+  ) => void;
+  recognitionHealthPreferences: RecognitionHealthPreferences;
+  privacySettingsOpen: boolean;
+  onRecognitionHealthChange: (enabled: boolean) => void;
+  onOpenPrivacySettings: () => void;
+  onClosePrivacySettings: () => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
@@ -814,6 +845,7 @@ function CameraSurface({
   const [manualEntryExpanded, setManualEntryExpanded] = useState(false);
   const [enteredPriceInUse, setEnteredPriceInUse] = useState(false);
   const manualPromotionHandledRef = useRef(false);
+  const manualEntryPromotedRef = useRef(false);
   const demoRecognition = useDemoRecognition(
     demo && preferences.sourceCurrency === "JPY"
   );
@@ -840,6 +872,7 @@ function CameraSurface({
     setManualEntryExpanded(false);
     setEnteredPriceInUse(false);
     manualPromotionHandledRef.current = false;
+    manualEntryPromotedRef.current = false;
   }, [preferences.sourceCurrency]);
 
   useEffect(() => {
@@ -848,6 +881,7 @@ function CameraSurface({
       isCameraFailureStatus(snapshot.status)
     ) {
       manualPromotionHandledRef.current = true;
+      manualEntryPromotedRef.current = true;
       setManualEntryExpanded(true);
     }
   }, [recognition.phase, snapshot.status]);
@@ -862,10 +896,71 @@ function CameraSurface({
     }
     const promotion = window.setTimeout(() => {
       manualPromotionHandledRef.current = true;
+      manualEntryPromotedRef.current = true;
       setManualEntryExpanded(true);
     }, MANUAL_ENTRY_PROMOTION_DELAY_MS);
     return () => window.clearTimeout(promotion);
   }, [manualEntryExpanded, recognition.focusedPrice]);
+
+  useEffect(() => {
+    onRecognitionHealthRecord({
+      atMs: performance.now(),
+      ready: ["searching", "stabilizing", "focused"].includes(
+        recognition.phase
+      ),
+      detectedPriceCount: recognition.detectedPrices.length,
+      hasFocusedPrice: recognition.focusedPrice !== null,
+      recognitionPassCount: recognition.completedPassCount,
+      missCount: recognition.missCount,
+      focusChangeCount: recognition.focusChangeCount,
+      stableDetectionCount: recognition.stableDetectionCount
+    });
+  }, [onRecognitionHealthRecord, recognition]);
+
+  const closeCamera = () => {
+    if (snapshot.status === "denied") {
+      onClose("camera-permission-denied", "camera-permission");
+      return;
+    }
+    if (snapshot.status === "unavailable") {
+      onClose("camera-unavailable-or-interrupted", "camera-unavailable");
+      return;
+    }
+    if (snapshot.status === "interrupted" || snapshot.status === "error") {
+      onClose("camera-unavailable-or-interrupted", "camera-interrupted");
+      return;
+    }
+    if (recognition.phase === "error") {
+      onClose(
+        recognition.completedPassCount === 0
+          ? "recognition-initialization-failed"
+          : "unexpected-recognition-failure",
+        recognition.completedPassCount === 0
+          ? "recognition-initialization"
+          : "recognition-runtime"
+      );
+      return;
+    }
+    if (enteredPriceInUse && enteredPrice) {
+      onClose(
+        manualEntryPromotedRef.current
+          ? "entered-price-after-promotion"
+          : "entered-price-before-promotion",
+        "none"
+      );
+      return;
+    }
+    if (recognition.focusedPrice) {
+      onClose("focused-price-obtained", "none");
+      return;
+    }
+    onClose(
+      recognition.completedPassCount > 0
+        ? "recognition-ended-without-stable-price"
+        : "closed-without-price",
+      "none"
+    );
+  };
 
   const updateEnteredPrice = (nextEnteredPrice: EnteredPrice | null) => {
     setEnteredPrice(nextEnteredPrice);
@@ -926,9 +1021,18 @@ function CameraSurface({
     <main className="camera-shell">
       <header className="camera-header">
         <TagLingoMark />
-        <button className="close-button" type="button" onClick={onClose}>
-          <span aria-hidden="true">×</span> Close camera
-        </button>
+        <div className="camera-header-actions">
+          <button
+            className="camera-privacy-button"
+            type="button"
+            onClick={onOpenPrivacySettings}
+          >
+            Privacy settings
+          </button>
+          <button className="close-button" type="button" onClick={closeCamera}>
+            <span aria-hidden="true">×</span> Close camera
+          </button>
+        </div>
       </header>
 
       <section ref={setPreview} className="preview" aria-label="Price camera">
@@ -952,12 +1056,21 @@ function CameraSurface({
 
       <section className="result-sheet" aria-label="Camera controls and status">
         <div className="sheet-handle" aria-hidden="true" />
+        <RecognitionHealthPrivacy
+          preferences={recognitionHealthPreferences}
+          invitation={false}
+          settingsOpen={privacySettingsOpen}
+          onChange={onRecognitionHealthChange}
+          onDismissInvitation={() => undefined}
+          onCloseSettings={onClosePrivacySettings}
+        />
         <CurrencySettings
           preferences={preferences}
           onChange={onPreferencesChange}
           isApprovedMember={isApprovedMember}
           memberAccessStatus={memberAccessStatus}
           compact
+          sourceCurrencyDisabled={!demo}
         />
         {memberStatus}
         <StatusPanel
@@ -1210,6 +1323,110 @@ function getBrowserStorage(): Storage | undefined {
   }
 }
 
+function RecognitionHealthDisclosure() {
+  return (
+    <div className="recognition-health-disclosure">
+      <p>One future camera session may share only:</p>
+      <ul>
+        <li>app release and summary schema version;</li>
+        <li>coarse platform family and Source Currency;</li>
+        <li>bucketed readiness, first-detection, and first-focus timing;</li>
+        <li>
+          bucketed recognition pass, miss, focus-change, and stable-detection
+          counts; and
+        </li>
+        <li>a fixed terminal outcome and broad error family.</li>
+      </ul>
+      <p>
+        No account or stable identifier, camera or price content, coordinates,
+        exact time, URL, referrer, locale, membership state, Target Currency,
+        message, or stack is included.
+      </p>
+    </div>
+  );
+}
+
+function RecognitionHealthPrivacy({
+  preferences,
+  invitation,
+  settingsOpen,
+  onChange,
+  onDismissInvitation,
+  onCloseSettings
+}: {
+  preferences: RecognitionHealthPreferences;
+  invitation: boolean;
+  settingsOpen: boolean;
+  onChange: (enabled: boolean) => void;
+  onDismissInvitation: () => void;
+  onCloseSettings: () => void;
+}) {
+  if (!invitation && !settingsOpen) return null;
+  return (
+    <section
+      className="recognition-health-card"
+      aria-label={
+        settingsOpen
+          ? "Privacy settings"
+          : "Anonymous recognition health invitation"
+      }
+    >
+      <div className="recognition-health-heading">
+        <div>
+          <span>
+            {settingsOpen ? "Privacy settings" : "Optional privacy choice"}
+          </span>
+          <h2>Share anonymous recognition health</h2>
+        </div>
+        {settingsOpen ? (
+          <button
+            className="text-button"
+            type="button"
+            onClick={onCloseSettings}
+          >
+            Close settings
+          </button>
+        ) : null}
+      </div>
+      <RecognitionHealthDisclosure />
+      {settingsOpen ? (
+        <>
+          <label className="recognition-health-toggle">
+            <input
+              type="checkbox"
+              checked={preferences.sharingEnabled}
+              onChange={(event) => onChange(event.target.checked)}
+            />
+            <span>Share for future camera sessions</span>
+          </label>
+          <p>
+            This choice stays only in this browser and is independent of camera
+            access. Prior anonymous contributions cannot be isolated; they remain
+            only in thresholded aggregates until expiry.
+          </p>
+        </>
+      ) : (
+        <div className="recognition-health-actions">
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => onChange(true)}
+          >
+            Share future summaries
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onDismissInvitation}
+          >
+            Not now
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function MemberStatusPanel({
   accessStatus,
   saveStatus,
@@ -1286,7 +1503,8 @@ export default function App({
   memberSession = null,
   loadMemberPreferences = loadMemberPreferencesFromApi,
   saveMemberPreferences = saveMemberPreferencesToApi,
-  scheduleProfileExpiry = scheduleRecognitionProfileExpiry
+  scheduleProfileExpiry = scheduleRecognitionProfileExpiry,
+  submitRecognitionHealth = submitRecognitionHealthSummary
 }: {
   createRecognizer?: CreateRecognizer;
   resolveRecognitionProfile?: ResolveRecognitionProfile;
@@ -1296,6 +1514,7 @@ export default function App({
   loadMemberPreferences?: LoadMemberPreferences;
   saveMemberPreferences?: SaveMemberPreferences;
   scheduleProfileExpiry?: ScheduleRecognitionProfileExpiry;
+  submitRecognitionHealth?: SubmitRecognitionHealthSummary;
 }) {
   const memberUserId = memberSession?.userId ?? null;
   const getMemberSessionToken = memberSession?.getSessionToken;
@@ -1304,6 +1523,54 @@ export default function App({
   );
   const rateSnapshotStoreRef = useRef(
     createBrowserRateSnapshotStore(getBrowserStorage())
+  );
+  const recognitionHealthStoreRef = useRef(
+    createRecognitionHealthPreferenceStore(getBrowserStorage())
+  );
+  const [recognitionHealthPreferences, setRecognitionHealthPreferences] =
+    useState(() => recognitionHealthStoreRef.current.load());
+  const recognitionHealthPreferencesRef = useRef(recognitionHealthPreferences);
+  const [showRecognitionHealthInvitation, setShowRecognitionHealthInvitation] =
+    useState(false);
+  const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
+  const recognitionHealthSessionRef = useRef<
+    ReturnType<typeof createRecognitionHealthSession> | null
+  >(null);
+  const updateRecognitionHealthPreferences = (
+    next: RecognitionHealthPreferences
+  ) => {
+    recognitionHealthPreferencesRef.current = next;
+    setRecognitionHealthPreferences(next);
+    recognitionHealthStoreRef.current.save(next);
+  };
+  const changeRecognitionHealthSharing = (sharingEnabled: boolean) => {
+    updateRecognitionHealthPreferences({
+      sharingEnabled,
+      invitationShown: true
+    });
+    setShowRecognitionHealthInvitation(false);
+  };
+  const finishRecognitionHealthSession = useCallback(
+    (
+      outcome: RecognitionHealthTerminalOutcome,
+      errorFamily: RecognitionHealthErrorFamily
+    ) => {
+      const healthSession = recognitionHealthSessionRef.current;
+      recognitionHealthSessionRef.current = null;
+      if (!healthSession) return;
+      void healthSession.finish(outcome, errorFamily);
+      if (!recognitionHealthPreferencesRef.current.invitationShown) {
+        const next = {
+          ...recognitionHealthPreferencesRef.current,
+          invitationShown: true
+        };
+        recognitionHealthPreferencesRef.current = next;
+        setRecognitionHealthPreferences(next);
+        recognitionHealthStoreRef.current.save(next);
+        setShowRecognitionHealthInvitation(true);
+      }
+    },
+    []
   );
   const browserRateLoaderRef = useRef<LoadGuestRate | null>(null);
   browserRateLoaderRef.current ??= createOfflineGuestRateLoader({
@@ -1440,10 +1707,13 @@ export default function App({
       (mode === "camera" || mode === "demo") &&
       !cameraSupported
     ) {
+      if (mode === "camera") {
+        finishRecognitionHealthSession("closed-without-price", "none");
+      }
       sessionRef.current?.stop();
       setMode("manual");
     }
-  }, [cameraSupported, mode]);
+  }, [cameraSupported, finishRecognitionHealthSession, mode]);
   useEffect(() => {
     rateSnapshotStoreRef.current.retainActivePairs(
       ratePreferences.targetCurrencies.map((target) => ({
@@ -1551,6 +1821,15 @@ export default function App({
       setMode("manual");
       return;
     }
+    recognitionHealthSessionRef.current ??= createRecognitionHealthSession({
+      consentAtStart: recognitionHealthPreferencesRef.current.sharingEnabled,
+      isSharingEnabled: () =>
+        recognitionHealthPreferencesRef.current.sharingEnabled,
+      platform: detectRecognitionHealthPlatform(navigator.userAgent),
+      sourceCurrency: preferences.sourceCurrency,
+      startedAtMs: performance.now(),
+      submit: submitRecognitionHealth
+    });
     setMode("camera");
     await sessionRef.current?.start();
   };
@@ -1560,10 +1839,23 @@ export default function App({
     setMode(cameraSupported ? "demo" : "manual");
   };
 
-  const closeExperience = () => {
+  const closeExperience = (
+    outcome?: RecognitionHealthTerminalOutcome,
+    errorFamily: RecognitionHealthErrorFamily = "none"
+  ) => {
+    finishRecognitionHealthSession(
+      outcome ?? "closed-without-price",
+      errorFamily
+    );
     sessionRef.current?.stop();
     setMode("welcome");
   };
+  const recordRecognitionHealth = useCallback(
+    (observation: RecognitionHealthObservation) => {
+      recognitionHealthSessionRef.current?.record(observation);
+    },
+    []
+  );
   const handlePlaybackError = useCallback(() => {
     sessionRef.current?.interrupt();
   }, []);
@@ -1623,6 +1915,12 @@ export default function App({
         onPlaybackError={handlePlaybackError}
         memberStatus={memberStatus}
         onContinueAsGuest={() => setUseGuestMode(true)}
+        onRecognitionHealthRecord={recordRecognitionHealth}
+        recognitionHealthPreferences={recognitionHealthPreferences}
+        privacySettingsOpen={privacySettingsOpen}
+        onRecognitionHealthChange={changeRecognitionHealthSharing}
+        onOpenPrivacySettings={() => setPrivacySettingsOpen(true)}
+        onClosePrivacySettings={() => setPrivacySettingsOpen(false)}
       />
     );
   }
@@ -1700,6 +1998,15 @@ export default function App({
         />
         {memberStatus}
 
+        <RecognitionHealthPrivacy
+          preferences={recognitionHealthPreferences}
+          invitation={showRecognitionHealthInvitation}
+          settingsOpen={privacySettingsOpen}
+          onChange={changeRecognitionHealthSharing}
+          onDismissInvitation={() => setShowRecognitionHealthInvitation(false)}
+          onCloseSettings={() => setPrivacySettingsOpen(false)}
+        />
+
         {failure ? (
           <div className="failure-card" role="alert">
             <strong>{failure.title}</strong>
@@ -1757,6 +2064,13 @@ export default function App({
         {cameraSupported ? (
           <p>Physical-device qualification applies to this camera path.</p>
         ) : null}
+        <button
+          className="text-button"
+          type="button"
+          onClick={() => setPrivacySettingsOpen(true)}
+        >
+          Privacy settings
+        </button>
       </footer>
     </main>
   );

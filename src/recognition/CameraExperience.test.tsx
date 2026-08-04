@@ -37,6 +37,10 @@ function recognition(
     detectedPrices: [],
     focusedPrice: null,
     explicitlyFocusedPriceIdentity: null,
+    completedPassCount: 0,
+    missCount: 0,
+    focusChangeCount: 0,
+    stableDetectionCount: 0,
     selectDetectedPrice: vi.fn(),
     ...overrides
   };

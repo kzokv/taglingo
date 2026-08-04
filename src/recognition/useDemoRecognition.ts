@@ -61,7 +61,11 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
       progress: 0,
       detectedPrices: [],
       focusedPrice: null,
-      explicitlyFocusedPriceIdentity: null
+      explicitlyFocusedPriceIdentity: null,
+      completedPassCount: 0,
+      missCount: 0,
+      focusChangeCount: 0,
+      stableDetectionCount: 0
     });
 
     const prepared = window.setTimeout(() => {

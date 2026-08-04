@@ -202,6 +202,84 @@ test("Guest completes recognition with deterministic media and OCR", async ({
   await expect(page.getByText("USD 6.58")).toBeVisible();
 });
 
+test("anonymous recognition health stays silent until a future opted-in camera session", async ({
+  page,
+  context
+}) => {
+  await installDeterministicCamera(page);
+  await context.addCookies([
+    {
+      name: "account-session",
+      value: "must-not-be-sent",
+      domain: "127.0.0.1",
+      path: "/"
+    }
+  ]);
+  const healthRequests: Array<{
+    body: Record<string, unknown>;
+    headers: Record<string, string>;
+  }> = [];
+  await page.route("**/api/recognition-health", async (route) => {
+    const request = route.request();
+    healthRequests.push({
+      body: JSON.parse(request.postData() ?? "null") as Record<string, unknown>,
+      headers: request.headers()
+    });
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/e2e/harness.html");
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(page.getByText("Camera ready")).toBeVisible();
+  await page.getByRole("button", { name: /close camera/i }).click();
+
+  await expect(
+    page.getByRole("region", {
+      name: /anonymous recognition health invitation/i
+    })
+  ).toBeVisible();
+  expect(healthRequests).toEqual([]);
+  await page
+    .getByRole("button", { name: /share future summaries/i })
+    .click();
+
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(page.getByText("Camera ready")).toBeVisible();
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await expect.poll(() => healthRequests.length).toBe(1);
+
+  const [{ body, headers }] = healthRequests;
+  expect(Object.keys(body).sort()).toEqual(
+    [
+      "schemaVersion",
+      "release",
+      "platform",
+      "sourceCurrency",
+      "timeToReady",
+      "timeToFirstDetectedPrice",
+      "timeToFirstFocusedPrice",
+      "recognitionPassCount",
+      "missCount",
+      "focusChangeCount",
+      "stableDetectionCount",
+      "terminalOutcome",
+      "errorFamily"
+    ].sort()
+  );
+  expect(body).toMatchObject({
+    schemaVersion: 1,
+    release: "0.1.0",
+    platform: "other",
+    sourceCurrency: "JPY"
+  });
+  expect(headers.cookie).toBeUndefined();
+  expect(headers.authorization).toBeUndefined();
+  expect(headers.referer).toBeUndefined();
+  expect(JSON.stringify(body)).not.toMatch(
+    /target|member|priceAmount|coordinate|locale|message|stack|identifier/i
+  );
+});
+
 test("Approved Member completes a deterministic three-currency journey", async ({
   page
 }) => {
