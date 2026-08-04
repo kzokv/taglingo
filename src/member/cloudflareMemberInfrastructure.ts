@@ -1,6 +1,6 @@
 import type { D1Database } from "../fx/cloudflareInfrastructure";
 import {
-  isMemberPreferences,
+  normalizeMemberPreferences,
   type MemberPreferences,
   type MemberPreferenceStore,
   type MembershipStore
@@ -15,6 +15,8 @@ interface MemberPreferenceRow {
   clerk_user_id: unknown;
   source_currency: unknown;
   target_currencies: unknown;
+  manual_entry_promotion: unknown;
+  focused_price_behavior: unknown;
 }
 
 export function createD1MembershipStore(
@@ -63,11 +65,11 @@ function rowToMemberPreferences(
   const preferences: unknown = {
     ownerId: row.clerk_user_id,
     sourceCurrency: row.source_currency,
-    targetCurrencies: targets
+    targetCurrencies: targets,
+    manualEntryPromotion: row.manual_entry_promotion,
+    focusedPriceBehavior: row.focused_price_behavior
   };
-  return isMemberPreferences(preferences, expectedUserId)
-    ? preferences
-    : null;
+  return normalizeMemberPreferences(preferences, expectedUserId);
 }
 
 export function createD1MemberPreferenceStore(
@@ -77,7 +79,8 @@ export function createD1MemberPreferenceStore(
     async find(userId) {
       const row = await database
         .prepare(
-          `SELECT clerk_user_id, source_currency, target_currencies
+          `SELECT clerk_user_id, source_currency, target_currencies,
+                  manual_entry_promotion, focused_price_behavior
              FROM member_preferences
             WHERE clerk_user_id = ?1`
         )
@@ -90,17 +93,22 @@ export function createD1MemberPreferenceStore(
       const result = await database
         .prepare(
           `INSERT INTO member_preferences (
-             clerk_user_id, source_currency, target_currencies, updated_at
-           ) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+             clerk_user_id, source_currency, target_currencies,
+             manual_entry_promotion, focused_price_behavior, updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
            ON CONFLICT(clerk_user_id) DO UPDATE SET
              source_currency = excluded.source_currency,
              target_currencies = excluded.target_currencies,
+             manual_entry_promotion = excluded.manual_entry_promotion,
+             focused_price_behavior = excluded.focused_price_behavior,
              updated_at = CURRENT_TIMESTAMP`
         )
         .bind(
           preferences.ownerId,
           preferences.sourceCurrency,
-          JSON.stringify(preferences.targetCurrencies)
+          JSON.stringify(preferences.targetCurrencies),
+          preferences.manualEntryPromotion,
+          preferences.focusedPriceBehavior
         )
         .run();
       if (!result.success) {

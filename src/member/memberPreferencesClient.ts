@@ -1,5 +1,6 @@
 import {
   isMemberPreferences,
+  normalizeMemberPreferences,
   type MemberPreferences
 } from "./memberPreferencesApi";
 import {
@@ -107,10 +108,11 @@ async function loadMemberPreferences(
   if (preferences === null) {
     return null;
   }
-  if (!isMemberPreferences(preferences, userId)) {
+  const normalized = normalizeMemberPreferences(preferences, userId);
+  if (!normalized) {
     throw invalidResponseError();
   }
-  return preferences;
+  return normalized;
 }
 
 export const loadMemberPreferencesFromApi: LoadMemberPreferences =

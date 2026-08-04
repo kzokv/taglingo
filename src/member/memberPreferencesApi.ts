@@ -12,7 +12,28 @@ export interface MemberPreferences {
   ownerId: string;
   sourceCurrency: SourceCurrencyCode;
   targetCurrencies: CurrencyCode[];
+  manualEntryPromotion: ManualEntryPromotion;
+  focusedPriceBehavior: FocusedPriceBehavior;
 }
+
+export const MANUAL_ENTRY_PROMOTIONS = [
+  "after-3-seconds",
+  "after-5-seconds",
+  "after-10-seconds",
+  "only-on-request"
+] as const;
+export type ManualEntryPromotion = (typeof MANUAL_ENTRY_PROMOTIONS)[number];
+
+export const FOCUSED_PRICE_BEHAVIORS = ["automatic", "confirm"] as const;
+export type FocusedPriceBehavior = (typeof FOCUSED_PRICE_BEHAVIORS)[number];
+
+export const DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS = {
+  manualEntryPromotion: "after-5-seconds",
+  focusedPriceBehavior: "automatic"
+} as const satisfies Pick<
+  MemberPreferences,
+  "manualEntryPromotion" | "focusedPriceBehavior"
+>;
 
 export type AuthenticationResult =
   | { kind: "authenticated"; userId: string; sessionId: string }
@@ -95,7 +116,9 @@ export function isMemberPreferences(
     !hasExactKeys(value, [
       "ownerId",
       "sourceCurrency",
-      "targetCurrencies"
+      "targetCurrencies",
+      "manualEntryPromotion",
+      "focusedPriceBehavior"
     ])
   ) {
     return false;
@@ -115,8 +138,34 @@ export function isMemberPreferences(
       (target) =>
         isCurrencyCode(target) && target !== candidate.sourceCurrency
     ) &&
-    new Set(targets).size === targets.length
+    new Set(targets).size === targets.length &&
+    MANUAL_ENTRY_PROMOTIONS.includes(
+      candidate.manualEntryPromotion as ManualEntryPromotion
+    ) &&
+    FOCUSED_PRICE_BEHAVIORS.includes(
+      candidate.focusedPriceBehavior as FocusedPriceBehavior
+    )
   );
+}
+
+export function normalizeMemberPreferences(
+  value: unknown,
+  ownerId: string
+): MemberPreferences | null {
+  if (isMemberPreferences(value, ownerId)) {
+    return value;
+  }
+  if (!hasExactKeys(value, ["ownerId", "sourceCurrency", "targetCurrencies"])) {
+    return null;
+  }
+  const candidate = value;
+  const withDefaults: unknown = {
+    ownerId: candidate.ownerId,
+    sourceCurrency: candidate.sourceCurrency,
+    targetCurrencies: candidate.targetCurrencies,
+    ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+  };
+  return isMemberPreferences(withDefaults, ownerId) ? withDefaults : null;
 }
 
 export function createMemberPreferencesHandler({
@@ -159,8 +208,13 @@ export function createMemberPreferencesHandler({
       );
     }
     if (request.method === "GET") {
+      const found = await preferences.find(authentication.userId);
       return Response.json(
-        { preferences: await preferences.find(authentication.userId) },
+        {
+          preferences: found
+            ? normalizeMemberPreferences(found, authentication.userId)
+            : null
+        },
         { headers: { "cache-control": "private, no-store" } }
       );
     }
@@ -175,7 +229,7 @@ export function createMemberPreferencesHandler({
         return errorResponse(
           400,
           "malformed_request",
-          "Choose one to three distinct Target Currencies."
+          "Choose one to three distinct Target Currencies and supported experience settings."
         );
       }
       await preferences.save(payload);

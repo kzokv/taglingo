@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "../src/App";
 import type { CurrencyCode } from "../src/domain/currencies";
 import type { GuestReferenceRate } from "../src/fx/referenceRate";
-import type { MemberPreferences } from "../src/member/memberPreferencesApi";
+import {
+  DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
+  type MemberPreferences
+} from "../src/member/memberPreferencesApi";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 
 function fixtureRate(
@@ -74,7 +77,8 @@ const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
 const memberPreferences: MemberPreferences = {
   ownerId: "user_browser_fixture",
   sourceCurrency: "JPY",
-  targetCurrencies: ["USD", "TWD", "EUR"]
+  targetCurrencies: ["USD", "TWD", "EUR"],
+  ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
 };
 const memberMode =
   new URLSearchParams(window.location.search).get("mode") === "member";

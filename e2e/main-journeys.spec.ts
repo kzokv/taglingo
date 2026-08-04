@@ -380,3 +380,58 @@ test("Approved Member completes a deterministic three-currency journey", async (
     page.getByRole("region", { name: /approved member conversions/i })
   ).toContainText("Reference estimate; your payment rate may differ.");
 });
+
+test("Approved Member keeps all-currency camera access and confirms a Focused Price when synchronized", async ({
+  page
+}) => {
+  await page.addInitScript(() => {
+    const nowMs = Date.now();
+    window.localStorage.setItem(
+      "taglingo.guest-camera-allowance.v1",
+      JSON.stringify({
+        version: 1,
+        successfulUsageTimestamps: Array.from(
+          { length: 10 },
+          (_, index) => nowMs - index * 1_000
+        )
+      })
+    );
+  });
+  await page.goto("/e2e/harness.html?mode=member");
+
+  await expect(page.getByText("Approved Member mode")).toBeVisible();
+  const sourceCurrency = page.getByRole("combobox", {
+    name: /source currency/i
+  });
+  await sourceCurrency.selectOption("CAD");
+  await expect(page.getByRole("button", { name: /open camera/i })).toBeEnabled();
+  await expect(
+    page.getByRole("complementary", { name: /guest camera allowance/i })
+  ).toHaveCount(0);
+
+  await sourceCurrency.selectOption("JPY");
+  const settings = page.getByRole("region", {
+    name: /recognition experience settings/i
+  });
+  await settings
+    .getByRole("combobox", { name: /when a focused price appears/i })
+    .selectOption("confirm");
+  await page.getByRole("button", { name: /try without camera/i }).click();
+
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("waiting for confirmation");
+  await expect(page.getByText("USD 27.80")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: /confirm focused price · jpy 4,142/i })
+    .click();
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(
+        window.localStorage.getItem("taglingo.guest-camera-allowance.v1") ??
+          "null"
+      )?.successfulUsageTimestamps.length
+    )
+  ).toBe(10);
+});

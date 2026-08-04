@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { SOURCE_CURRENCIES } from "../domain/currencies";
 import {
   createMemberPreferencesHandler,
+  DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
+  normalizeMemberPreferences,
   type MemberPreferenceStore,
   type MembershipStore
 } from "./memberPreferencesApi";
@@ -34,6 +36,61 @@ function dependencies() {
 }
 
 describe("member preference API", () => {
+  it("normalizes only the exact legacy three-key contract", () => {
+    expect(
+      normalizeMemberPreferences(
+        {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"]
+        },
+        "user_member"
+      )
+    ).toEqual({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD"],
+      ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+    });
+    expect(
+      normalizeMemberPreferences(
+        {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "unsupported",
+          focusedPriceBehavior: "automatic"
+        },
+        "user_member"
+      )
+    ).toBeNull();
+  });
+
+  it("returns null when the persistence boundary yields an invalid full row", async () => {
+    const { memberships, preferences } = dependencies();
+    vi.mocked(preferences.find).mockResolvedValue({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD"],
+      manualEntryPromotion: "unsupported",
+      focusedPriceBehavior: "automatic"
+    } as never);
+    const handle = createMemberPreferencesHandler({
+      authenticate: vi.fn().mockResolvedValue({
+        kind: "authenticated",
+        userId: "user_member",
+        sessionId: "sess_member"
+      }),
+      memberships,
+      preferences
+    });
+
+    const response = await handle(request());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ preferences: null });
+  });
+
   it("accepts every Source Currency without changing Target limits", async () => {
     for (const { code } of SOURCE_CURRENCIES) {
       const { memberships, preferences } = dependencies();
@@ -52,7 +109,8 @@ describe("member preference API", () => {
         request("PUT", {
           ownerId: "user_member",
           sourceCurrency: code,
-          targetCurrencies: targets
+          targetCurrencies: targets,
+          ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
         })
       );
 
@@ -60,7 +118,8 @@ describe("member preference API", () => {
       expect(preferences.save).toHaveBeenCalledWith({
         ownerId: "user_member",
         sourceCurrency: code,
-        targetCurrencies: targets
+        targetCurrencies: targets,
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
       });
     }
   });
@@ -156,7 +215,9 @@ describe("member preference API", () => {
     vi.mocked(preferences.find).mockResolvedValue({
       ownerId: "user_member",
       sourceCurrency: "JPY",
-      targetCurrencies: ["USD", "TWD", "EUR"]
+      targetCurrencies: ["USD", "TWD", "EUR"],
+      manualEntryPromotion: "after-3-seconds",
+      focusedPriceBehavior: "confirm"
     });
     const handle = createMemberPreferencesHandler({
       authenticate: vi.fn().mockResolvedValue({
@@ -175,7 +236,9 @@ describe("member preference API", () => {
       preferences: {
         ownerId: "user_member",
         sourceCurrency: "JPY",
-        targetCurrencies: ["USD", "TWD", "EUR"]
+        targetCurrencies: ["USD", "TWD", "EUR"],
+        manualEntryPromotion: "after-3-seconds",
+        focusedPriceBehavior: "confirm"
       }
     });
     expect(preferences.find).toHaveBeenCalledWith("user_member");
@@ -195,7 +258,9 @@ describe("member preference API", () => {
     const memberPreferences = {
       ownerId: "user_member",
       sourceCurrency: "JPY",
-      targetCurrencies: ["USD", "TWD", "EUR"]
+      targetCurrencies: ["USD", "TWD", "EUR"],
+      manualEntryPromotion: "after-10-seconds" as const,
+      focusedPriceBehavior: "automatic" as const
     };
 
     const response = await handle(request("PUT", memberPreferences));
@@ -227,7 +292,8 @@ describe("member preference API", () => {
       request("PUT", {
         ownerId: "user_member",
         sourceCurrency: "JPY",
-        targetCurrencies: targets
+        targetCurrencies: targets,
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
       })
     );
 
@@ -260,7 +326,49 @@ describe("member preference API", () => {
         ownerId: "user_member",
         sourceCurrency: "JPY",
         targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
         ...extra
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(preferences.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing settings", {}],
+    [
+      "invalid Manual Price Entry promotion",
+      {
+        manualEntryPromotion: "after-4-seconds",
+        focusedPriceBehavior: "automatic"
+      }
+    ],
+    [
+      "invalid Focused Price behavior",
+      {
+        manualEntryPromotion: "after-5-seconds",
+        focusedPriceBehavior: "always-trust"
+      }
+    ]
+  ])("rejects %s as a closed preference contract", async (_case, settings) => {
+    const { memberships, preferences } = dependencies();
+    const handle = createMemberPreferencesHandler({
+      authenticate: vi.fn().mockResolvedValue({
+        kind: "authenticated",
+        userId: "user_member",
+        sessionId: "sess_member"
+      }),
+      memberships,
+      preferences
+    });
+
+    const response = await handle(
+      request("PUT", {
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"],
+        ...settings
       })
     );
 
