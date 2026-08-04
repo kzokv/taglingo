@@ -258,6 +258,45 @@ h1 em {
   color: #ffd59a;
 }
 
+.recognition-experience-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(152, 224, 192, 0.22);
+  border-radius: 14px;
+  background: rgba(152, 224, 192, 0.055);
+}
+
+.recognition-experience-settings > div > strong,
+.recognition-experience-settings p {
+  margin: 0;
+}
+
+.recognition-experience-settings > div > p,
+.recognition-experience-settings .fixed-recognition-rules {
+  margin-top: 4px;
+  color: #aeb7b6;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.recognition-experience-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.recognition-experience-settings.compact {
+  border-color: var(--line);
+  background: rgba(19, 30, 38, 0.025);
+}
+
+.recognition-experience-settings.compact > div > p,
+.recognition-experience-settings.compact .fixed-recognition-rules {
+  color: var(--muted);
+}
+
 .target-currency-picker {
   position: relative;
 }

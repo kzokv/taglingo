@@ -47,7 +47,9 @@ describe("Cloudflare member infrastructure", () => {
       first: vi.fn().mockResolvedValue({
         clerk_user_id: "user_member",
         source_currency: "JPY",
-        target_currencies: '["USD","TWD","EUR"]'
+        target_currencies: '["USD","TWD","EUR"]',
+        manual_entry_promotion: "after-3-seconds",
+        focused_price_behavior: "confirm"
       })
     });
     const upsert = statement();
@@ -63,14 +65,37 @@ describe("Cloudflare member infrastructure", () => {
     expect(preferences).toEqual({
       ownerId: "user_member",
       sourceCurrency: "JPY",
-      targetCurrencies: ["USD", "TWD", "EUR"]
+      targetCurrencies: ["USD", "TWD", "EUR"],
+      manualEntryPromotion: "after-3-seconds",
+      focusedPriceBehavior: "confirm"
     });
 
     await store.save(preferences!);
     expect(upsert.bind).toHaveBeenCalledWith(
       "user_member",
       "JPY",
-      '["USD","TWD","EUR"]'
+      '["USD","TWD","EUR"]',
+      "after-3-seconds",
+      "confirm"
     );
+  });
+
+  it("fails safe for a full row with invalid experience settings", async () => {
+    const select = statement({
+      first: vi.fn().mockResolvedValue({
+        clerk_user_id: "user_member",
+        source_currency: "JPY",
+        target_currencies: '["USD"]',
+        manual_entry_promotion: "corrupt",
+        focused_price_behavior: null
+      })
+    });
+    const database: D1Database = {
+      prepare: vi.fn().mockReturnValue(select)
+    };
+
+    await expect(
+      createD1MemberPreferenceStore(database).find("user_member")
+    ).resolves.toBeNull();
   });
 });

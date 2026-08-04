@@ -5,6 +5,7 @@ import {
   loadMemberPreferencesFromApi,
   saveMemberPreferencesToApi
 } from "./memberPreferencesClient";
+import { DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS } from "./memberPreferencesApi";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,7 +16,8 @@ describe("member preference client", () => {
     const preferences = {
       ownerId: "user_member",
       sourceCurrency: "JPY" as const,
-      targetCurrencies: ["TWD" as const]
+      targetCurrencies: ["TWD" as const],
+      ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
     };
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -50,7 +52,9 @@ describe("member preference client", () => {
     const preferences = {
       ownerId: "user_member",
       sourceCurrency: "JPY" as const,
-      targetCurrencies: ["USD" as const, "TWD" as const]
+      targetCurrencies: ["USD" as const, "TWD" as const],
+      manualEntryPromotion: "only-on-request" as const,
+      focusedPriceBehavior: "confirm" as const
     };
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -74,7 +78,9 @@ describe("member preference client", () => {
     const preferences = {
       ownerId: "user_member",
       sourceCurrency: "JPY" as const,
-      targetCurrencies: ["USD" as const, "TWD" as const, "EUR" as const]
+      targetCurrencies: ["USD" as const, "TWD" as const, "EUR" as const],
+      manualEntryPromotion: "after-10-seconds" as const,
+      focusedPriceBehavior: "automatic" as const
     };
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -150,5 +156,50 @@ describe("member preference client", () => {
         kind: "unavailable"
       })
     );
+  });
+
+  it("rejects invalid full synchronized experience settings instead of treating them as legacy", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        preferences: {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "unsupported",
+          focusedPriceBehavior: null
+        }
+      })
+    );
+
+    await expect(
+      loadMemberPreferencesFromApi(
+        "user_member",
+        new AbortController().signal
+      )
+    ).rejects.toEqual(expect.objectContaining({ kind: "unavailable" }));
+  });
+
+  it("migrates an exact legacy three-key response to safe defaults", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        preferences: {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"]
+        }
+      })
+    );
+
+    await expect(
+      loadMemberPreferencesFromApi(
+        "user_member",
+        new AbortController().signal
+      )
+    ).resolves.toEqual({
+      ownerId: "user_member",
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD"],
+      ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+    });
   });
 });

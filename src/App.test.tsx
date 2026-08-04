@@ -16,7 +16,10 @@ import type {
   GuestCameraAllowanceStore
 } from "./domain/guestCameraAllowance";
 import type { GuestReferenceRate } from "./fx/referenceRate";
-import type { MemberPreferences } from "./member/memberPreferencesApi";
+import {
+  DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
+  type MemberPreferences
+} from "./member/memberPreferencesApi";
 import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
 import type {
   OcrRecognizer,
@@ -1773,7 +1776,8 @@ describe("Approved Member journey", () => {
         loadMemberPreferences={vi.fn().mockResolvedValue({
           ownerId: "user_member",
           sourceCurrency: "CAD",
-          targetCurrencies: ["USD"]
+          targetCurrencies: ["USD"],
+          ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
         })}
         guestCameraAllowanceStore={allowanceStore}
       />
@@ -1789,6 +1793,680 @@ describe("Approved Member journey", () => {
     expect(
       screen.queryByRole("complementary", { name: /guest camera allowance/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("synchronizes only the two closed Recognition Experience Settings", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const saveMemberPreferences = vi.fn(
+      async (preferences: MemberPreferences) => preferences
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "after-3-seconds",
+          focusedPriceBehavior: "confirm"
+        })}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    const settings = screen.getByRole("region", {
+      name: /recognition experience settings/i
+    });
+    const promotion = within(settings).getByRole("combobox", {
+      name: /show manual price entry/i
+    });
+    const focusedBehavior = within(settings).getByRole("combobox", {
+      name: /when a focused price appears/i
+    });
+    expect(within(promotion).getAllByRole("option")).toHaveLength(4);
+    expect(within(focusedBehavior).getAllByRole("option")).toHaveLength(2);
+    expect(settings).toHaveTextContent(
+      /confidence, evidence, notation, geometry, preprocessing, and stability are not shopper-editable/i
+    );
+
+    await user.selectOptions(promotion, "after-10-seconds");
+    await waitFor(() =>
+      expect(saveMemberPreferences).toHaveBeenLastCalledWith(
+        {
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "after-10-seconds",
+          focusedPriceBehavior: "confirm"
+        },
+        expect.any(AbortSignal)
+      )
+    );
+  });
+
+  it("uses the synchronized three-second Manual Price Entry promotion", async () => {
+    vi.useFakeTimers();
+    const pendingCamera = createDeferred<MediaStream>();
+    useMediaDevices(vi.fn(() => pendingCamera.promise));
+    const loaded = createDeferred<MemberPreferences | null>();
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn(() => loaded.promise)}
+      />
+    );
+    await act(async () => {
+      loaded.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"],
+        manualEntryPromotion: "after-3-seconds",
+        focusedPriceBehavior: "automatic"
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+
+    act(() => vi.advanceTimersByTime(2_999));
+    expect(
+      within(composer).queryByRole("textbox", { name: /jpy amount/i })
+    ).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(
+      within(composer).getByRole("textbox", { name: /jpy amount/i })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps request-only Manual Price Entry collapsed after camera failure", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(
+      vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "only-on-request",
+          focusedPriceBehavior: "automatic"
+        })}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    expect(
+      within(composer).queryByRole("textbox", { name: /jpy amount/i })
+    ).not.toBeInTheDocument();
+    expect(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toBeEnabled();
+  });
+
+  it("aborts an account A load and never renders its stale preferences after switching to B", async () => {
+    useMediaDevices(vi.fn());
+    const accountA = createDeferred<MemberPreferences | null>();
+    const accountB = createDeferred<MemberPreferences | null>();
+    const signals = new Map<string, AbortSignal>();
+    const loadMemberPreferences = vi.fn(
+      (ownerId: string, signal: AbortSignal) => {
+        signals.set(ownerId, signal);
+        return ownerId === "user_a" ? accountA.promise : accountB.promise;
+      }
+    );
+    const loadGuestRate = vi.fn().mockResolvedValue(DEFAULT_RATE);
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_a",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    await screen.findAllByText(/checking member access/i);
+
+    view.rerender(
+      <App
+        memberSession={{
+          userId: "user_b",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={loadGuestRate}
+      />
+    );
+    expect(signals.get("user_a")).toHaveProperty("aborted", true);
+    expect(screen.queryByText(/approved member mode/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("JPY");
+
+    await act(async () => {
+      accountA.resolve({
+        ownerId: "user_a",
+        sourceCurrency: "EUR",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).not.toHaveValue("EUR");
+    expect(loadGuestRate.mock.calls.some(([source]) => source === "EUR")).toBe(
+      false
+    );
+
+    await act(async () => {
+      accountB.resolve({
+        ownerId: "user_b",
+        sourceCurrency: "CAD",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("CAD");
+  });
+
+  it("aborts an account A save and ignores its stale completion after switching to B", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const accountASave = createDeferred<MemberPreferences>();
+    const accountBLoad = createDeferred<MemberPreferences | null>();
+    let accountASaveSignal: AbortSignal | null = null;
+    const loadMemberPreferences = vi.fn((ownerId: string) =>
+      ownerId === "user_a"
+        ? Promise.resolve({
+            ownerId: "user_a",
+            sourceCurrency: "JPY" as const,
+            targetCurrencies: ["USD" as const],
+            ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+          })
+        : accountBLoad.promise
+    );
+    const saveMemberPreferences = vi.fn(
+      (preferences: MemberPreferences, signal: AbortSignal) => {
+        accountASaveSignal = signal;
+        return accountASave.promise;
+      }
+    );
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_a",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /source currency/i }),
+      "EUR"
+    );
+    await waitFor(() => expect(saveMemberPreferences).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <App
+        memberSession={{
+          userId: "user_b",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    expect(accountASaveSignal).toHaveProperty("aborted", true);
+    expect(screen.queryByText(/approved member mode/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      accountASave.resolve({
+        ownerId: "user_a",
+        sourceCurrency: "EUR",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).not.toHaveValue("EUR");
+
+    await act(async () => {
+      accountBLoad.resolve({
+        ownerId: "user_b",
+        sourceCurrency: "CAD",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(await screen.findByText(/approved member mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("CAD");
+  });
+
+  it("aborts a pending member load on sign-out and ignores its completion", async () => {
+    useMediaDevices(vi.fn());
+    const pending = createDeferred<MemberPreferences | null>();
+    let loadSignal: AbortSignal | null = null;
+    const loadMemberPreferences = vi.fn(
+      (_ownerId: string, signal: AbortSignal) => {
+        loadSignal = signal;
+        return pending.promise;
+      }
+    );
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+      />
+    );
+    await screen.findAllByText(/checking member access/i);
+
+    view.rerender(
+      <App memberSession={null} loadMemberPreferences={loadMemberPreferences} />
+    );
+    expect(loadSignal).toHaveProperty("aborted", true);
+    await act(async () => {
+      pending.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "EUR",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(screen.queryByText(/approved member mode/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", {
+        name: /recognition experience settings/i
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it("aborts a pending member save on sign-out and ignores its completion", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const pendingSave = createDeferred<MemberPreferences>();
+    let saveSignal: AbortSignal | null = null;
+    const saveMemberPreferences = vi.fn(
+      (_preferences: MemberPreferences, signal: AbortSignal) => {
+        saveSignal = signal;
+        return pendingSave.promise;
+      }
+    );
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+        })}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /source currency/i }),
+      "EUR"
+    );
+    await waitFor(() => expect(saveMemberPreferences).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <App
+        memberSession={null}
+        saveMemberPreferences={saveMemberPreferences}
+      />
+    );
+    expect(saveSignal).toHaveProperty("aborted", true);
+    await act(async () => {
+      pendingSave.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "EUR",
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
+      });
+    });
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /source currency/i })
+    ).toHaveValue("JPY");
+    expect(screen.queryByText(/approved member mode/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps an only-on-request Manual Price Entry collapsed", async () => {
+    vi.useFakeTimers();
+    const pendingCamera = createDeferred<MediaStream>();
+    useMediaDevices(vi.fn(() => pendingCamera.promise));
+    const loaded = createDeferred<MemberPreferences | null>();
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn(() => loaded.promise)}
+      />
+    );
+    await act(async () => {
+      loaded.resolve({
+        ownerId: "user_member",
+        sourceCurrency: "JPY",
+        targetCurrencies: ["USD"],
+        manualEntryPromotion: "only-on-request",
+        focusedPriceBehavior: "automatic"
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(
+      within(composer).queryByRole("textbox", { name: /jpy amount/i })
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    );
+    expect(
+      within(composer).getByRole("textbox", { name: /jpy amount/i })
+    ).toBeInTheDocument();
+  });
+
+  it("waits for explicit confirmation before using a member Focused Price", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "after-5-seconds",
+          focusedPriceBehavior: "confirm"
+        })}
+        loadGuestRate={async () => DEFAULT_RATE}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+    await within(
+      screen.getByRole("region", { name: /recognition summary/i })
+    ).findByText(/^focused price · jpy 4,142$/i);
+
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/waiting for confirmation/i);
+    expect(screen.queryByText("USD 27.80")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: /confirm focused price · jpy 4,142/i
+      })
+    );
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+
+    view.rerender(
+      <App memberSession={null} loadGuestRate={async () => DEFAULT_RATE} />
+    );
+    expect(await screen.findByText(/guest mode/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", {
+        name: /recognition experience settings/i
+      })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+    await within(
+      screen.getByRole("region", { name: /recognition summary/i })
+    ).findByText(/^focused price · jpy 4,142$/i);
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent(/focused price in use/i);
+  });
+
+  it("invalidates a same-currency confirmation when account A switches to B", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const loadMemberPreferences = vi.fn(async (ownerId: string) => ({
+      ownerId,
+      sourceCurrency: "JPY" as const,
+      targetCurrencies: ["USD" as const],
+      manualEntryPromotion: "after-5-seconds" as const,
+      focusedPriceBehavior: "confirm" as const
+    }));
+    const view = render(
+      <App
+        memberSession={{
+          userId: "user_a",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={async () => DEFAULT_RATE}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+    await screen.findByRole("button", {
+      name: /confirm focused price · jpy 4,142/i
+    });
+    await user.click(
+      screen.getByRole("button", {
+        name: /confirm focused price · jpy 4,142/i
+      })
+    );
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+
+    view.rerender(
+      <App
+        memberSession={{
+          userId: "user_b",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={loadMemberPreferences}
+        loadGuestRate={async () => DEFAULT_RATE}
+      />
+    );
+
+    await waitFor(() =>
+      expect(loadMemberPreferences).toHaveBeenCalledWith(
+        "user_b",
+        expect.any(AbortSignal)
+      )
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: /price used for conversion/i })
+      ).toHaveTextContent(/waiting for confirmation/i)
+    );
+    expect(screen.queryByText("USD 27.80")).not.toBeInTheDocument();
+  });
+
+  it("requires a new confirmation when focus returns from A to B to A", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
+    const successfulRecognition = async (
+      _image: unknown,
+      pass: RecognitionPassIdentity
+    ) =>
+      [
+          recognizedObservation(
+            "4,142円",
+            96,
+            { x: 64, y: 40, width: 160, height: 80 },
+            pass
+          ),
+          recognizedObservation(
+            "980円",
+            89,
+            { x: 330, y: 200, width: 120, height: 70 },
+            pass
+          )
+        ];
+    const recognize = vi.fn(successfulRecognition);
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      recognize,
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn().mockResolvedValue({
+          ownerId: "user_member",
+          sourceCurrency: "JPY",
+          targetCurrencies: ["USD"],
+          manualEntryPromotion: "after-5-seconds",
+          focusedPriceBehavior: "confirm"
+        })}
+        loadGuestRate={async () => DEFAULT_RATE}
+        createRecognizer={() => recognizer}
+      />
+    );
+    await screen.findByText(/approved member mode/i);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    vi.spyOn(video.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 390,
+      height: 844,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      toJSON: () => ({})
+    });
+    fireEvent.loadedMetadata(video);
+
+    const status = screen.getByRole("status", {
+      name: /price used for conversion/i
+    });
+    await waitFor(
+      () => expect(status).toHaveTextContent(/waiting for confirmation/i),
+      { timeout: 3_000 }
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /confirm focused price · jpy 4,142/i
+      })
+    );
+    expect(screen.getByText("USD 27.80")).toBeInTheDocument();
+
+    const detectedPrices = screen.getByRole("list", {
+      name: /detected prices/i
+    });
+    await user.click(
+      within(detectedPrices).getByRole("button", { name: /jpy 980/i })
+    );
+    await waitFor(() =>
+      expect(status).toHaveTextContent(/waiting for confirmation/i)
+    );
+    await user.click(
+      within(detectedPrices).getByRole("button", { name: /jpy 4,142/i })
+    );
+
+    await waitFor(() =>
+      expect(status).toHaveTextContent(/waiting for confirmation/i)
+    );
+    expect(screen.queryByText("USD 27.80")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: /confirm focused price · jpy 4,142/i
+      })
+    );
+    recognize.mockRejectedValue(new Error("runtime interrupted"));
+    await screen.findByRole("alert", {}, { timeout: 3_000 });
+    recognize.mockImplementation(successfulRecognition);
+    await user.click(
+      screen.getByRole("button", { name: /try recognition again/i })
+    );
+    await waitFor(
+      () => expect(status).toHaveTextContent(/waiting for confirmation/i),
+      { timeout: 3_000 }
+    );
+    expect(screen.queryByText("USD 27.80")).not.toBeInTheDocument();
+  }, 15_000);
+
+  it("describes the signed-in membership check without flashing Guest mode", async () => {
+    const user = userEvent.setup();
+    useMediaDevices(vi.fn());
+    const pending = createDeferred<MemberPreferences | null>();
+
+    render(
+      <App
+        memberSession={{
+          userId: "user_member",
+          getSessionToken: getTestMemberSessionToken
+        }}
+        loadMemberPreferences={vi.fn(() => pending.promise)}
+      />
+    );
+
+    expect(screen.getAllByText(/checking member access/i)).toHaveLength(2);
+    expect(screen.queryByText(/guest mode/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /try without camera/i }));
+
+    expect(screen.getByText(/checking member access/i)).toBeInTheDocument();
+    expect(screen.queryByText(/guest · 1/i)).not.toBeInTheDocument();
   });
 
   it("creates a synchronized preference row only after active membership is confirmed", async () => {
@@ -1813,7 +2491,8 @@ describe("Approved Member journey", () => {
       {
         ownerId: "user_member",
         sourceCurrency: "JPY",
-        targetCurrencies: ["USD"]
+        targetCurrencies: ["USD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
       },
       expect.any(AbortSignal)
     );
@@ -1879,7 +2558,9 @@ describe("Approved Member journey", () => {
     const loadMemberPreferences = vi.fn().mockResolvedValue({
       ownerId: "user_member",
       sourceCurrency: "JPY",
-      targetCurrencies: ["USD"]
+      targetCurrencies: ["USD"],
+      manualEntryPromotion: "only-on-request",
+      focusedPriceBehavior: "confirm"
     });
     const saveMemberPreferences = vi.fn(
       async (preferences: MemberPreferences) => preferences
@@ -1917,7 +2598,9 @@ describe("Approved Member journey", () => {
         {
           ownerId: "user_member",
           sourceCurrency: "JPY",
-          targetCurrencies: ["USD", "TWD"]
+          targetCurrencies: ["USD", "TWD"],
+          manualEntryPromotion: "only-on-request",
+          focusedPriceBehavior: "confirm"
         },
         expect.any(AbortSignal)
       )
@@ -1937,6 +2620,11 @@ describe("Approved Member journey", () => {
         name: /target currencies: 1 selected · usd/i
       })
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", {
+        name: /recognition experience settings/i
+      })
+    ).not.toBeInTheDocument();
     expect(saveMemberPreferences).toHaveBeenCalledTimes(1);
   });
 
@@ -1980,7 +2668,8 @@ describe("Approved Member journey", () => {
       saved.resolve({
         ownerId: "user_member",
         sourceCurrency: "JPY",
-        targetCurrencies: ["USD", "TWD"]
+        targetCurrencies: ["USD", "TWD"],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
       });
     });
     await waitFor(() =>

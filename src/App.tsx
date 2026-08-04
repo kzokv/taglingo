@@ -63,7 +63,13 @@ import {
 } from "./fx/useGuestRate";
 import { convertWithReferenceRate } from "./fx/referenceRate";
 import { createMemberRateLoader } from "./fx/memberRateClient";
-import type { MemberPreferences } from "./member/memberPreferencesApi";
+import {
+  DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
+  normalizeMemberPreferences,
+  type FocusedPriceBehavior,
+  type ManualEntryPromotion,
+  type MemberPreferences
+} from "./member/memberPreferencesApi";
 import {
   loadMemberPreferencesFromApi,
   MemberPreferencesRequestError,
@@ -105,6 +111,8 @@ type ExperienceMode = "welcome" | "camera" | "demo" | "manual";
 interface ExperiencePreferences {
   sourceCurrency: SourceCurrencyCode;
   targetCurrencies: CurrencyCode[];
+  manualEntryPromotion: ManualEntryPromotion;
+  focusedPriceBehavior: FocusedPriceBehavior;
 }
 
 type MemberAccessStatus =
@@ -117,6 +125,21 @@ type MemberAccessStatus =
 type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 const MANUAL_ENTRY_PROMOTION_DELAY_MS = 5_000;
+
+function manualEntryPromotionDelay(
+  promotion: ManualEntryPromotion
+): number | null {
+  switch (promotion) {
+    case "after-3-seconds":
+      return 3_000;
+    case "after-5-seconds":
+      return MANUAL_ENTRY_PROMOTION_DELAY_MS;
+    case "after-10-seconds":
+      return 10_000;
+    case "only-on-request":
+      return null;
+  }
+}
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
 > = {
@@ -283,7 +306,7 @@ function CurrencySettings({
     const targetCurrencies = preferences.targetCurrencies.map((target) =>
       target === sourceCurrency ? preferences.sourceCurrency : target
     );
-    onChange({ sourceCurrency, targetCurrencies });
+    onChange({ ...preferences, sourceCurrency, targetCurrencies });
   };
   const toggleTarget = (target: CurrencyCode) => {
     const isSelected = preferences.targetCurrencies.includes(target);
@@ -419,6 +442,68 @@ function CurrencySettings({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function RecognitionExperienceSettings({
+  preferences,
+  onChange,
+  compact = false
+}: {
+  preferences: ExperiencePreferences;
+  onChange: (preferences: ExperiencePreferences) => void;
+  compact?: boolean;
+}) {
+  return (
+    <section
+      className={`recognition-experience-settings ${compact ? "compact" : ""}`}
+      aria-label="Recognition Experience Settings"
+    >
+      <div>
+        <strong>Recognition Experience Settings</strong>
+        <p>These choices synchronize across your Approved Member devices.</p>
+      </div>
+      <div className="recognition-experience-fields">
+        <label className="field">
+          <span>Show Manual Price Entry</span>
+          <select
+            name={compact ? "cameraManualEntryPromotion" : "manualEntryPromotion"}
+            value={preferences.manualEntryPromotion}
+            onChange={(event) =>
+              onChange({
+                ...preferences,
+                manualEntryPromotion: event.target.value as ManualEntryPromotion
+              })
+            }
+          >
+            <option value="after-3-seconds">After 3 seconds</option>
+            <option value="after-5-seconds">After 5 seconds</option>
+            <option value="after-10-seconds">After 10 seconds</option>
+            <option value="only-on-request">Only when I ask</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>When a Focused Price appears</span>
+          <select
+            name={compact ? "cameraFocusedPriceBehavior" : "focusedPriceBehavior"}
+            value={preferences.focusedPriceBehavior}
+            onChange={(event) =>
+              onChange({
+                ...preferences,
+                focusedPriceBehavior: event.target.value as FocusedPriceBehavior
+              })
+            }
+          >
+            <option value="automatic">Convert automatically</option>
+            <option value="confirm">Ask before using it</option>
+          </select>
+        </label>
+      </div>
+      <p className="fixed-recognition-rules">
+        Recognition rules stay fixed. Confidence, evidence, notation, geometry,
+        preprocessing, and stability are not shopper-editable.
+      </p>
+    </section>
   );
 }
 
@@ -840,7 +925,8 @@ function CameraSurface({
   onRecognitionHealthChange,
   onOpenPrivacySettings,
   onClosePrivacySettings,
-  onFocusedPrice
+  onFocusedPrice,
+  confirmationContextKey
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -868,6 +954,7 @@ function CameraSurface({
   onOpenPrivacySettings: () => void;
   onClosePrivacySettings: () => void;
   onFocusedPrice: () => void;
+  confirmationContextKey: string;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
@@ -876,6 +963,15 @@ function CameraSurface({
   const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
   const [manualEntryExpanded, setManualEntryExpanded] = useState(false);
   const [enteredPriceInUse, setEnteredPriceInUse] = useState(false);
+  const [confirmedFocusedPriceOccurrence, setConfirmedFocusedPriceOccurrence] =
+    useState<{
+      confirmationContextKey: string;
+      recognitionRestartKey: number;
+      focusChangeCount: number;
+      focusedPriceIdentity: string;
+      occurrenceRevision: number;
+    } | null>(null);
+  const [focusOccurrenceRevision, setFocusOccurrenceRevision] = useState(0);
   const manualPromotionHandledRef = useRef(false);
   const manualEntryPromotedRef = useRef(false);
   const demoRecognition = useDemoRecognition(
@@ -892,6 +988,8 @@ function CameraSurface({
     recognitionRestartKey
   });
   const recognition = demo ? demoRecognition : cameraRecognition;
+  const currentFocusedPriceIdentity = recognition.focusedPrice?.identity ?? null;
+  const focusTransitionKey = `${confirmationContextKey}:${recognitionRestartKey}:${recognition.focusChangeCount}:${currentFocusedPriceIdentity ?? "none"}`;
   const previewBounds = preview?.getBoundingClientRect();
   const detectedPricePreviewSize = demo
     ? { width: 1_000, height: 1_000 }
@@ -907,9 +1005,15 @@ function CameraSurface({
   }, [demo, onFocusedPrice, recognition.focusedPrice]);
 
   useEffect(() => {
+    setConfirmedFocusedPriceOccurrence(null);
+    setFocusOccurrenceRevision((revision) => revision + 1);
+  }, [focusTransitionKey]);
+
+  useEffect(() => {
     setEnteredPrice(null);
     setManualEntryExpanded(false);
     setEnteredPriceInUse(false);
+    setConfirmedFocusedPriceOccurrence(null);
     manualPromotionHandledRef.current = false;
     manualEntryPromotedRef.current = false;
   }, [preferences.sourceCurrency]);
@@ -919,11 +1023,14 @@ function CameraSurface({
       recognition.phase === "error" ||
       isCameraFailureStatus(snapshot.status)
     ) {
+      if (preferences.manualEntryPromotion === "only-on-request") {
+        return;
+      }
       manualPromotionHandledRef.current = true;
       manualEntryPromotedRef.current = true;
       setManualEntryExpanded(true);
     }
-  }, [recognition.phase, snapshot.status]);
+  }, [preferences.manualEntryPromotion, recognition.phase, snapshot.status]);
 
   useEffect(() => {
     if (recognition.focusedPrice) {
@@ -933,13 +1040,23 @@ function CameraSurface({
     if (manualEntryExpanded || manualPromotionHandledRef.current) {
       return;
     }
+    const promotionDelayMs = manualEntryPromotionDelay(
+      preferences.manualEntryPromotion
+    );
+    if (promotionDelayMs === null) {
+      return;
+    }
     const promotion = window.setTimeout(() => {
       manualPromotionHandledRef.current = true;
       manualEntryPromotedRef.current = true;
       setManualEntryExpanded(true);
-    }, MANUAL_ENTRY_PROMOTION_DELAY_MS);
+    }, promotionDelayMs);
     return () => window.clearTimeout(promotion);
-  }, [manualEntryExpanded, recognition.focusedPrice]);
+  }, [
+    manualEntryExpanded,
+    preferences.manualEntryPromotion,
+    recognition.focusedPrice
+  ]);
 
   useEffect(() => {
     onRecognitionHealthRecord({
@@ -1022,6 +1139,32 @@ function CameraSurface({
         recognition.focusedPrice.currency
       )}`
     : null;
+  const focusedPriceCanBeUsed =
+    recognition.focusedPrice !== null &&
+    (preferences.focusedPriceBehavior === "automatic" ||
+      (confirmedFocusedPriceOccurrence?.confirmationContextKey ===
+        confirmationContextKey &&
+        confirmedFocusedPriceOccurrence.recognitionRestartKey ===
+          recognitionRestartKey &&
+        confirmedFocusedPriceOccurrence.focusChangeCount ===
+          recognition.focusChangeCount &&
+        confirmedFocusedPriceOccurrence.focusedPriceIdentity ===
+          currentFocusedPriceIdentity &&
+        confirmedFocusedPriceOccurrence.occurrenceRevision ===
+          focusOccurrenceRevision));
+  const useFocusedPrice = () => {
+    if (!recognition.focusedPrice) {
+      return;
+    }
+    setConfirmedFocusedPriceOccurrence({
+      confirmationContextKey,
+      recognitionRestartKey,
+      focusChangeCount: recognition.focusChangeCount,
+      focusedPriceIdentity: recognition.focusedPrice.identity,
+      occurrenceRevision: focusOccurrenceRevision
+    });
+    setEnteredPriceInUse(false);
+  };
   const priceInUse = (() => {
     if (enteredPriceInUse && enteredPrice) {
       return {
@@ -1031,10 +1174,10 @@ function CameraSurface({
         switchLabel: recognition.focusedPrice
           ? `Use Focused Price · ${focusedPriceLabel}`
           : null,
-        switchToEnteredPrice: false
+        onSwitch: useFocusedPrice
       };
     }
-    if (recognition.focusedPrice) {
+    if (recognition.focusedPrice && focusedPriceCanBeUsed) {
       return {
         price: recognition.focusedPrice,
         title: "Focused Price in use",
@@ -1042,7 +1185,16 @@ function CameraSurface({
         switchLabel: enteredPrice
           ? `Use Entered Price · ${enteredPriceLabel}`
           : null,
-        switchToEnteredPrice: true
+        onSwitch: () => setEnteredPriceInUse(true)
+      };
+    }
+    if (recognition.focusedPrice) {
+      return {
+        price: null,
+        title: "Focused Price waiting for confirmation",
+        detail: "Confirm this camera-derived price before conversion.",
+        switchLabel: `Confirm Focused Price · ${focusedPriceLabel}`,
+        onSwitch: useFocusedPrice
       };
     }
     return {
@@ -1052,7 +1204,7 @@ function CameraSurface({
       switchLabel: enteredPrice
         ? `Use Entered Price · ${enteredPriceLabel}`
         : null,
-      switchToEnteredPrice: true
+      onSwitch: () => setEnteredPriceInUse(true)
     };
   })();
 
@@ -1111,6 +1263,13 @@ function CameraSurface({
           compact
           sourceCurrencyDisabled={!demo}
         />
+        {isApprovedMember ? (
+          <RecognitionExperienceSettings
+            preferences={preferences}
+            onChange={onPreferencesChange}
+            compact
+          />
+        ) : null}
         {memberStatus}
         <StatusPanel
           status={snapshot.status}
@@ -1153,9 +1312,7 @@ function CameraSurface({
             <button
               className="text-button"
               type="button"
-              onClick={() =>
-                setEnteredPriceInUse(priceInUse.switchToEnteredPrice)
-              }
+              onClick={priceInUse.onSwitch}
             >
               {priceInUse.switchLabel}
             </button>
@@ -1647,10 +1804,15 @@ export default function App({
   const [memberSaveStatus, setMemberSaveStatus] =
     useState<MemberSaveStatus>("idle");
   const memberSaveRef = useRef<AbortController | null>(null);
+  const memberLoadGenerationRef = useRef(0);
+  const memberSaveGenerationRef = useRef(0);
   const pendingMemberPreferencesRef = useRef<MemberPreferences | null>(null);
   useEffect(() => setUseGuestMode(false), [memberUserId]);
   useEffect(() => {
+    const loadGeneration = memberLoadGenerationRef.current + 1;
+    memberLoadGenerationRef.current = loadGeneration;
     memberSaveRef.current?.abort();
+    memberSaveGenerationRef.current += 1;
     pendingMemberPreferencesRef.current = null;
     setMemberSaveStatus("idle");
     if (!memberUserId) {
@@ -1665,27 +1827,50 @@ export default function App({
     setSynchronizedMemberPreferences(null);
     void loadMemberPreferences(memberUserId, controller.signal)
       .then(async (saved) => {
-        if (controller.signal.aborted) {
+        if (
+          controller.signal.aborted ||
+          memberLoadGenerationRef.current !== loadGeneration
+        ) {
           return;
+        }
+        const normalizedSaved = saved
+          ? normalizeMemberPreferences(saved, memberUserId)
+          : null;
+        if (saved && !normalizedSaved) {
+          throw new Error("Invalid synchronized member preferences.");
         }
         const restored =
-          saved ?? {
+          normalizedSaved ?? {
             ownerId: memberUserId,
             sourceCurrency: guestPreferences.sourceCurrency,
-            targetCurrencies: [guestPreferences.targetCurrency]
+            targetCurrencies: [guestPreferences.targetCurrency],
+            ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
           };
-        const synchronized = saved
+        const synchronized = normalizedSaved
           ? restored
           : await saveMemberPreferences(restored, controller.signal);
-        if (controller.signal.aborted) {
+        if (
+          controller.signal.aborted ||
+          memberLoadGenerationRef.current !== loadGeneration
+        ) {
           return;
         }
-        setMemberPreferences(synchronized);
-        setSynchronizedMemberPreferences(synchronized);
+        const normalizedSynchronized = normalizeMemberPreferences(
+          synchronized,
+          memberUserId
+        );
+        if (!normalizedSynchronized) {
+          throw new Error("Invalid saved member preferences.");
+        }
+        setMemberPreferences(normalizedSynchronized);
+        setSynchronizedMemberPreferences(normalizedSynchronized);
         setMemberAccessStatus("approved");
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          memberLoadGenerationRef.current === loadGeneration
+        ) {
           setMemberAccessStatus(
             error instanceof MemberPreferencesRequestError &&
               error.kind === "inactive-membership"
@@ -1696,7 +1881,12 @@ export default function App({
           setSynchronizedMemberPreferences(null);
         }
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (memberLoadGenerationRef.current === loadGeneration) {
+        memberLoadGenerationRef.current += 1;
+      }
+    };
   }, [
     guestPreferences.sourceCurrency,
     guestPreferences.targetCurrency,
@@ -1705,17 +1895,29 @@ export default function App({
     memberUserId,
     saveMemberPreferences
   ]);
+  const currentMemberPreferences =
+    memberPreferences?.ownerId === memberUserId ? memberPreferences : null;
+  const currentSynchronizedMemberPreferences =
+    synchronizedMemberPreferences?.ownerId === memberUserId
+      ? synchronizedMemberPreferences
+      : null;
+  const effectiveMemberAccessStatus =
+    memberUserId &&
+    memberAccessStatus === "approved" &&
+    currentMemberPreferences === null
+      ? "loading"
+      : memberAccessStatus;
   const isApprovedMember =
     Boolean(memberUserId) &&
     !useGuestMode &&
-    memberAccessStatus === "approved" &&
-    memberPreferences !== null;
+    effectiveMemberAccessStatus === "approved" &&
+    currentMemberPreferences !== null;
   const confirmationContextKey =
     memberUserId && !useGuestMode ? `member:${memberUserId}` : "guest";
   const shouldUseGuestCameraAllowance =
     !memberUserId ||
     useGuestMode ||
-    memberAccessStatus === "inactive";
+    effectiveMemberAccessStatus === "inactive";
   useEffect(() => {
     if (!shouldUseGuestCameraAllowance) {
       setGuestCameraAllowance(null);
@@ -1744,12 +1946,15 @@ export default function App({
   }, [allowanceStore, guestCameraAllowance, shouldUseGuestCameraAllowance]);
   const preferences: ExperiencePreferences = isApprovedMember
     ? {
-        sourceCurrency: memberPreferences.sourceCurrency,
-        targetCurrencies: memberPreferences.targetCurrencies
+        sourceCurrency: currentMemberPreferences.sourceCurrency,
+        targetCurrencies: currentMemberPreferences.targetCurrencies,
+        manualEntryPromotion: currentMemberPreferences.manualEntryPromotion,
+        focusedPriceBehavior: currentMemberPreferences.focusedPriceBehavior
       }
     : {
         sourceCurrency: guestPreferences.sourceCurrency,
-        targetCurrencies: [guestPreferences.targetCurrency]
+        targetCurrencies: [guestPreferences.targetCurrency],
+        ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
       };
   const guestCameraAllowanceAvailable =
     guestCameraAllowance !== null && !guestCameraAllowance.isExhausted;
@@ -1764,11 +1969,15 @@ export default function App({
     guestCameraAllowanceAvailable: true
   });
   const ratePreferences: ExperiencePreferences =
-    isApprovedMember && synchronizedMemberPreferences
+    isApprovedMember && currentSynchronizedMemberPreferences
       ? {
-          sourceCurrency: synchronizedMemberPreferences.sourceCurrency,
+          sourceCurrency: currentSynchronizedMemberPreferences.sourceCurrency,
           targetCurrencies:
-            synchronizedMemberPreferences.targetCurrencies
+            currentSynchronizedMemberPreferences.targetCurrencies,
+          manualEntryPromotion:
+            currentSynchronizedMemberPreferences.manualEntryPromotion,
+          focusedPriceBehavior:
+            currentSynchronizedMemberPreferences.focusedPriceBehavior
         }
       : preferences;
   const sessionRef = useRef<CameraSession | null>(null);
@@ -1852,19 +2061,35 @@ export default function App({
     pendingMemberPreferencesRef.current = preferences;
     memberSaveRef.current?.abort();
     const controller = new AbortController();
+    const saveGeneration = memberSaveGenerationRef.current + 1;
+    memberSaveGenerationRef.current = saveGeneration;
     memberSaveRef.current = controller;
     setMemberSaveStatus("saving");
     void saveMemberPreferences(preferences, controller.signal)
       .then((saved) => {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          memberSaveGenerationRef.current === saveGeneration
+        ) {
+          const normalized = normalizeMemberPreferences(
+            saved,
+            preferences.ownerId
+          );
+          if (!normalized) {
+            setMemberSaveStatus("error");
+            return;
+          }
           pendingMemberPreferencesRef.current = null;
-          setMemberPreferences(saved);
-          setSynchronizedMemberPreferences(saved);
+          setMemberPreferences(normalized);
+          setSynchronizedMemberPreferences(normalized);
           setMemberSaveStatus("idle");
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          memberSaveGenerationRef.current === saveGeneration
+        ) {
           setMemberSaveStatus("error");
         }
       });
@@ -1954,7 +2179,11 @@ export default function App({
     sessionRef.current?.stop();
     cameraUsageGenerationRef.current += 1;
     cameraUsageSessionRef.current = null;
-    setMode(cameraAvailable ? "demo" : "manual");
+    setMode(
+      cameraAvailable || effectiveMemberAccessStatus === "loading"
+        ? "demo"
+        : "manual"
+    );
   };
 
   const closeExperience = (
@@ -1984,7 +2213,9 @@ export default function App({
   }, []);
   const memberStatus = (
     <MemberStatusPanel
-      accessStatus={useGuestMode ? "guest-choice" : memberAccessStatus}
+      accessStatus={
+        useGuestMode ? "guest-choice" : effectiveMemberAccessStatus
+      }
       saveStatus={memberSaveStatus}
       onRetryAccess={() => setMemberAccessAttempt((attempt) => attempt + 1)}
       onRetrySave={() => {
@@ -2000,7 +2231,7 @@ export default function App({
       <ManualPriceEntrySurface
         preferences={preferences}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={memberAccessStatus}
+        memberAccessStatus={effectiveMemberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         onClose={closeExperience}
@@ -2023,7 +2254,7 @@ export default function App({
           sourceCurrency: preferences.sourceCurrency
         }}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={memberAccessStatus}
+        memberAccessStatus={effectiveMemberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         recognitionRuntime={recognitionRuntime}
@@ -2040,6 +2271,7 @@ export default function App({
         onOpenPrivacySettings={() => setPrivacySettingsOpen(true)}
         onClosePrivacySettings={() => setPrivacySettingsOpen(false)}
         onFocusedPrice={recordFocusedPrice}
+        confirmationContextKey={confirmationContextKey}
       />
     );
   }
@@ -2064,11 +2296,11 @@ export default function App({
         <span className="guest-badge">
           {isApprovedMember
             ? "Approved Member mode"
-            : memberAccessStatus === "loading" && memberUserId
+            : effectiveMemberAccessStatus === "loading" && memberUserId
               ? CHECKING_MEMBER_ACCESS_LABEL
-              : memberAccessStatus === "unavailable"
+              : effectiveMemberAccessStatus === "unavailable"
                 ? "Member access unavailable"
-                : memberAccessStatus === "inactive"
+                : effectiveMemberAccessStatus === "inactive"
                   ? "Signed in · Guest limits"
                   : useGuestMode
                     ? "Signed in · Guest limits"
@@ -2120,8 +2352,14 @@ export default function App({
           preferences={preferences}
           onChange={updatePreferences}
           isApprovedMember={isApprovedMember}
-          memberAccessStatus={memberAccessStatus}
+          memberAccessStatus={effectiveMemberAccessStatus}
         />
+        {isApprovedMember ? (
+          <RecognitionExperienceSettings
+            preferences={preferences}
+            onChange={updatePreferences}
+          />
+        ) : null}
         {!isApprovedMember && guestCameraAllowance ? (
           <GuestCameraAllowanceNote
             sourceCurrency={preferences.sourceCurrency}
@@ -2171,7 +2409,8 @@ export default function App({
               <span aria-hidden="true">→</span>
             </button>
           )}
-          {cameraAvailable && preferences.sourceCurrency === "JPY" ? (
+          {(cameraAvailable || effectiveMemberAccessStatus === "loading") &&
+          preferences.sourceCurrency === "JPY" ? (
             <button className="secondary-button" type="button" onClick={openDemo}>
               Try without camera
             </button>
