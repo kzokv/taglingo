@@ -4,6 +4,7 @@ import {
   createFrozenTrialRecord,
   createQualificationManifest,
   retireHeldOutFixture,
+  scoreProfileQualification,
   scoreQualification,
   type FixtureManifestEntry,
   type QualificationChallenge,
@@ -107,6 +108,7 @@ function successfulInput(
   entry: FixtureManifestEntry,
   overrides: Partial<TrialCaptureInput> = {}
 ): TrialCaptureInput {
+  const fixtureIndex = manifest.fixtures.findIndex(({ id }) => id === entry.id);
   const positive = POSITIVE_STRATA.includes(
     entry.stratum as (typeof POSITIVE_STRATA)[number]
   );
@@ -116,6 +118,13 @@ function successfulInput(
   } as const;
   return {
     fixtureId: entry.id,
+    trialId: `qualification-trial-${fixtureIndex}`,
+    captureArtifactHash: `sha256:${(fixtureIndex + 1)
+      .toString(16)
+      .padStart(64, "0")}`,
+    capturedAt: new Date(
+      Date.parse("2026-07-01T00:00:00.000Z") + fixtureIndex * 60_000
+    ).toISOString(),
     stratum: entry.stratum,
     configuration: manifest.configuration,
     device: manifest.device,
@@ -328,6 +337,8 @@ describe("privacy-safe frozen records", () => {
     expect(mismatch.focusTransitions[0].classification).toBe("incorrect");
     expect(Object.keys(record).sort()).toEqual([
       "browser",
+      "captureArtifactHash",
+      "capturedAt",
       "configuration",
       "device",
       "fixtureId",
@@ -335,7 +346,8 @@ describe("privacy-safe frozen records", () => {
       "geometry",
       "stratum",
       "terminalOutcome",
-      "timings"
+      "timings",
+      "trialId"
     ]);
     expect(Object.isFrozen(record)).toBe(true);
     expect(Object.isFrozen(record.focusTransitions)).toBe(true);
@@ -396,9 +408,36 @@ describe("privacy-safe frozen records", () => {
       createFrozenTrialRecord(manifest, { ...positive, geometry: null })
     ).toThrow(/timing and score/i);
   });
+
+  it("rejects an invalid content-free capture artifact identity", () => {
+    const manifest = validManifest();
+    const input = successfulInput(manifest, manifest.fixtures[0]);
+
+    expect(() =>
+      createFrozenTrialRecord(manifest, {
+        ...input,
+        captureArtifactHash: "sha256:not-a-digest"
+      })
+    ).toThrow(/capture artifact hash/i);
+  });
 });
 
 describe("qualification scorer", () => {
+  it("keeps the profile Manual-Entry-only when performance evidence is missing", () => {
+    const manifest = validManifest();
+    const report = scoreProfileQualification(
+      manifest,
+      recordsFor(manifest),
+      null
+    );
+
+    expect(report.reliability.qualified).toBe(true);
+    expect(report.performance.performanceEligible).toBe(false);
+    expect(report.qualified).toBe(false);
+    expect(report.manualPriceEntryAvailable).toBe(true);
+    expect(report.disposition).toMatch(/Manual Price Entry/i);
+  });
+
   it("passes exactly at aggregate thresholds and reports exact bounds and latencies", () => {
     const manifest = validManifest();
     const failuresUsed = new Map(POSITIVE_STRATA.map((stratum) => [stratum, 0]));
@@ -619,5 +658,22 @@ describe("qualification scorer", () => {
     expect(() => scoreQualification(manifest, [...records, records[0]])).toThrow(
       /one independent trial/i
     );
+  });
+
+  it("requires a unique content-free capture identity for every fixture", () => {
+    const manifest = validManifest();
+    const records = recordsFor(manifest);
+    const duplicateIdentity = {
+      ...records[1],
+      trialId: records[0].trialId
+    };
+
+    expect(() =>
+      scoreQualification(manifest, [
+        records[0],
+        duplicateIdentity,
+        ...records.slice(2)
+      ])
+    ).toThrow(/unique content-free capture identity/i);
   });
 });

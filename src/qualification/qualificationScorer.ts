@@ -8,6 +8,11 @@ import {
   isPositiveStratum
 } from "./qualificationPolicy";
 import { validateQualificationManifest } from "./qualificationManifest";
+import {
+  scorePerformanceQualification,
+  type PerformanceQualificationEvidence,
+  type PerformanceQualificationReport
+} from "./qualificationPerformance";
 import { validateFrozenTrialRecord } from "./qualificationTrial";
 import type {
   FrozenTrialRecord,
@@ -18,6 +23,16 @@ import type {
   TrialFailureReason,
   TrialTerminalOutcome
 } from "./qualificationTypes";
+
+export interface ProfileQualificationReport {
+  readonly version: "profile-qualification-report.v1";
+  readonly qualified: boolean;
+  readonly evidenceAligned: boolean;
+  readonly manualPriceEntryAvailable: true;
+  readonly disposition: string;
+  readonly reliability: QualificationReport;
+  readonly performance: PerformanceQualificationReport;
+}
 
 function terminalFailure(
   outcome: TrialTerminalOutcome
@@ -118,16 +133,29 @@ export function scoreQualification(
 ): QualificationReport {
   validateQualificationManifest(manifest);
   const byFixture = new Map<string, FrozenTrialRecord>();
+  const trialIds = new Set<string>();
+  const captureArtifactHashes = new Set<string>();
+  const captureTimestamps = new Set<string>();
   for (const record of records) {
     if (byFixture.has(record.fixtureId)) {
       throw new Error(
         `One independent trial is allowed for fixture ${record.fixtureId}; replays do not increase the denominator.`
       );
     }
-    byFixture.set(
-      record.fixtureId,
-      validateFrozenTrialRecord(manifest, record)
-    );
+    const validated = validateFrozenTrialRecord(manifest, record);
+    if (
+      trialIds.has(validated.trialId) ||
+      captureArtifactHashes.has(validated.captureArtifactHash) ||
+      captureTimestamps.has(validated.capturedAt)
+    ) {
+      throw new Error(
+        "Qualification requires a unique content-free capture identity for every fixture trial."
+      );
+    }
+    trialIds.add(validated.trialId);
+    captureArtifactHashes.add(validated.captureArtifactHash);
+    captureTimestamps.add(validated.capturedAt);
+    byFixture.set(record.fixtureId, validated);
   }
 
   const positiveByStratum = Object.fromEntries(
@@ -269,4 +297,61 @@ export function scoreQualification(
     failures
   };
   return deepFreeze(report);
+}
+
+export function scoreProfileQualification(
+  manifest: QualificationManifest,
+  records: readonly FrozenTrialRecord[],
+  performanceEvidence: PerformanceQualificationEvidence | null = null
+): ProfileQualificationReport {
+  const reliability = scoreQualification(manifest, records);
+  const performance = scorePerformanceQualification(
+    manifest,
+    performanceEvidence
+  );
+  const performanceByFixture = new Map(
+    performanceEvidence?.sceneRun.trials.map((trial) => [
+      trial.fixtureId,
+      trial
+    ]) ?? []
+  );
+  const recordsByFixture = new Map(
+    records.map((record) => [record.fixtureId, record])
+  );
+  const evidenceAligned =
+    performanceEvidence !== null &&
+    manifest.fixtures.every((fixture) => {
+      const trial = performanceByFixture.get(fixture.id);
+      const record = recordsByFixture.get(fixture.id);
+      if (!trial || !record) return false;
+      const firstObservedFocusMs = record.focusTransitions
+        .reduce<number | null>(
+          (earliest, { atMs }) =>
+            earliest === null || atMs < earliest ? atMs : earliest,
+          null
+        );
+      return (
+        trial.trialId === record.trialId &&
+        trial.captureArtifactHash === record.captureArtifactHash &&
+        trial.capturedAt === record.capturedAt &&
+        trial.focusOutcome ===
+          (firstObservedFocusMs === null ? "not-focused" : "focused") &&
+        trial.focusedPriceLatencyMs === firstObservedFocusMs
+      );
+    });
+  const qualified =
+    reliability.qualified &&
+    performance.performanceEligible &&
+    evidenceAligned;
+  return deepFreeze({
+    version: "profile-qualification-report.v1",
+    qualified,
+    evidenceAligned,
+    manualPriceEntryAvailable: true,
+    disposition: qualified
+      ? "Reliability and physical-device performance gates pass independently for this profile and platform."
+      : "Camera profile is ineligible on this platform; Manual Price Entry remains available.",
+    reliability,
+    performance
+  });
 }

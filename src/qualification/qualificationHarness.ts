@@ -2,7 +2,16 @@ export {
   createQualificationManifest,
   retireHeldOutFixture
 } from "./qualificationManifest";
-export { scoreQualification } from "./qualificationScorer";
+export {
+  scoreProfileQualification,
+  scoreQualification
+} from "./qualificationScorer";
+export type { ProfileQualificationReport } from "./qualificationScorer";
+export {
+  QUALIFICATION_PERFORMANCE_POLICY,
+  createPerformanceQualificationEvidence,
+  scorePerformanceQualification
+} from "./qualificationPerformance";
 export { createFrozenTrialRecord } from "./qualificationTrial";
 export type {
   ExactPrice,
@@ -10,6 +19,8 @@ export type {
   FrozenTrialRecord,
   NegativeQualificationStratum,
   PositiveQualificationStratum,
+  QualificationCaptureArtifactHash,
+  QualificationCaptureIdentity,
   QualificationBrowser,
   QualificationChallenge,
   QualificationConfiguration,
@@ -21,3 +32,16 @@ export type {
   TrialFailureReason,
   TrialTerminalOutcome
 } from "./qualificationTypes";
+export type {
+  PerformanceEvidenceKind,
+  PerformanceEvidenceHash,
+  PerformanceGateResult,
+  PerformanceQualificationEvidence,
+  PerformanceQualificationReport,
+  ScenePerformanceTrial,
+  StartupCohortReport,
+  StartupPerformanceMeasurement,
+  SustainedPerformanceCheckpoint,
+  SustainedPerformanceRun,
+  SustainedRunReport
+} from "./qualificationPerformance";

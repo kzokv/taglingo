@@ -82,7 +82,15 @@ export interface ExactPrice {
   readonly minorUnits: number;
 }
 
-export interface TrialCaptureInput {
+export type QualificationCaptureArtifactHash = `sha256:${string}`;
+
+export interface QualificationCaptureIdentity {
+  readonly trialId: string;
+  readonly captureArtifactHash: QualificationCaptureArtifactHash;
+  readonly capturedAt: string;
+}
+
+export interface TrialCaptureInput extends QualificationCaptureIdentity {
   readonly fixtureId: string;
   readonly stratum: QualificationStratum;
   readonly configuration: QualificationConfiguration;
@@ -105,7 +113,7 @@ export interface TrialCaptureInput {
   readonly terminalOutcome: TrialTerminalOutcome;
 }
 
-export interface FrozenTrialRecord {
+export interface FrozenTrialRecord extends QualificationCaptureIdentity {
   readonly fixtureId: string;
   readonly stratum: QualificationStratum;
   readonly configuration: QualificationConfiguration;
