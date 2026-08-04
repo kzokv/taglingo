@@ -13,6 +13,7 @@
     "dev": "wrangler pages dev dist",
     "dev:spa": "vite",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "recognition-health:deploy:check": "node --experimental-strip-types scripts/check-recognition-health-deployment.ts",
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",

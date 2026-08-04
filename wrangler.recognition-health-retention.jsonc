@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "taglingo-recognition-health-retention",
+  "main": "./src/recognitionHealth/recognitionHealthRetentionWorker.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "observability": {
+    "enabled": false
+  },
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "taglingo-production",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

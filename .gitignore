@@ -6,6 +6,7 @@ node_modules/
 !.dev.vars.example
 *.tsbuildinfo
 .DS_Store
+wrangler.recognition-health-retention.production.json
 public/ocr/tesseract-7.0.0/
 public/ocr/tesseract-core-7.0.0/
 public/ocr/paddleocr-js-0.4.2/
