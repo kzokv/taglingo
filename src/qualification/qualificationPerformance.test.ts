@@ -776,6 +776,61 @@ describe("mobile performance qualification", () => {
     ).toThrow(/SHA-256 capture artifact hash/i);
   });
 
+  it("rejects unknown fields throughout the closed performance evidence schema", () => {
+    const manifest = validManifest();
+    const input = passingEvidence(manifest);
+    const asEvidence = (value: unknown) =>
+      value as PerformanceQualificationEvidence;
+    const expectClosedSchemaRejection = (value: unknown) =>
+      expect(() =>
+        createPerformanceQualificationEvidence(manifest, asEvidence(value))
+      ).toThrow(/unknown or missing .* field/i);
+
+    expectClosedSchemaRejection({ ...input, priceContent: "JPY 4,142" });
+    expectClosedSchemaRejection({
+      ...input,
+      configuration: { ...input.configuration, targetCurrency: "USD" }
+    });
+    expectClosedSchemaRejection({
+      ...input,
+      starts: {
+        ...input.starts,
+        uncached: input.starts.uncached.map((sample, index) =>
+          index === 0 ? { ...sample, url: "https://example.test" } : sample
+        )
+      }
+    });
+    expectClosedSchemaRejection({
+      ...input,
+      sceneRun: {
+        trials: input.sceneRun.trials.map((trial, index) =>
+          index === 0 ? { ...trial, ocrText: "4,142円" } : trial
+        )
+      }
+    });
+    expectClosedSchemaRejection({
+      ...input,
+      sustainedRuns: input.sustainedRuns.map((run, index) =>
+        index === 0 ? { ...run, capturedFrame: "data:image/png" } : run
+      )
+    });
+    expectClosedSchemaRejection({
+      ...input,
+      sustainedRuns: input.sustainedRuns.map((run, runIndex) =>
+        runIndex === 0
+          ? {
+              ...run,
+              checkpoints: run.checkpoints.map((checkpoint, index) =>
+                index === 0
+                  ? { ...checkpoint, rawCoordinates: [1, 2, 3, 4] }
+                  : checkpoint
+              )
+            }
+          : run
+      )
+    });
+  });
+
   it("requires reliability and physical performance to pass independently", () => {
     const manifest = validManifest();
     const records = passingReliabilityRecords(manifest);

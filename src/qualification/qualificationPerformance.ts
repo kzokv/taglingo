@@ -1,4 +1,4 @@
-import { deepFreeze } from "../domain/exactObject";
+import { deepFreeze, hasExactKeys } from "../domain/exactObject";
 import {
   configurationMatches,
   validateQualificationManifest
@@ -208,6 +208,158 @@ export interface PerformanceQualificationReport {
   readonly failures: readonly PerformanceGateResult[];
 }
 
+function assertExactEvidenceShape<const Key extends string>(
+  value: unknown,
+  keys: readonly Key[],
+  description: string
+): asserts value is Record<Key, unknown> {
+  if (!hasExactKeys(value, keys)) {
+    throw new Error(`Unknown or missing ${description} field.`);
+  }
+}
+
+function assertExactEvidenceShapes(evidence: PerformanceQualificationEvidence) {
+  assertExactEvidenceShape(
+    evidence,
+    [
+      "version",
+      "evidenceKind",
+      "configuration",
+      "device",
+      "browser",
+      "network",
+      "starts",
+      "sceneRun",
+      "resources",
+      "sustainedRuns"
+    ],
+    "performance evidence"
+  );
+  assertExactEvidenceShape(
+    evidence.configuration,
+    [
+      "sourceCurrency",
+      "platform",
+      "profileId",
+      "profileVersion",
+      "profileHash",
+      "evidenceVersion",
+      "acceptedMarkerClasses",
+      "acceptedNumberFormatClasses"
+    ],
+    "performance configuration"
+  );
+  assertExactEvidenceShape(
+    evidence.device,
+    ["model", "osName", "osVersion", "releaseStatus"],
+    "performance device"
+  );
+  assertExactEvidenceShape(
+    evidence.browser,
+    ["name", "version", "releaseStatus"],
+    "performance browser"
+  );
+  assertExactEvidenceShape(
+    evidence.network,
+    ["downMbps", "roundTripMs"],
+    "performance network"
+  );
+  assertExactEvidenceShape(
+    evidence.starts,
+    ["uncached", "cached"],
+    "performance startup cohorts"
+  );
+  assertExactEvidenceShape(
+    evidence.sceneRun,
+    ["trials"],
+    "performance scene run"
+  );
+  assertExactEvidenceShape(
+    evidence.resources,
+    ["firstInstallTransferMiB", "cachedProfileStorageMiB"],
+    "performance resources"
+  );
+  if (
+    !Array.isArray(evidence.starts.uncached) ||
+    !Array.isArray(evidence.starts.cached) ||
+    !Array.isArray(evidence.sceneRun.trials) ||
+    !Array.isArray(evidence.sustainedRuns)
+  ) {
+    throw new Error("Unknown or missing performance evidence collection field.");
+  }
+  for (const sample of [
+    ...evidence.starts.uncached,
+    ...evidence.starts.cached
+  ]) {
+    assertExactEvidenceShape(
+      sample,
+      [
+        "id",
+        "appShellAndManualEntryInteractiveMs",
+        "previewAfterPermissionMs",
+        "recognitionReadyMs"
+      ],
+      "startup measurement"
+    );
+  }
+  for (const trial of evidence.sceneRun.trials) {
+    assertExactEvidenceShape(
+      trial,
+      [
+        "fixtureId",
+        "trialId",
+        "captureArtifactHash",
+        "capturedAt",
+        "guidePassDurationsMs",
+        "discoveryPassDurationsMs",
+        "searchingOrStabilizingGuideIntervalsMs",
+        "searchingOrStabilizingDiscoveryIntervalsMs",
+        "yieldsBetweenPassesMs",
+        "focusOutcome",
+        "focusedPriceLatencyMs",
+        "focusedGuideIntervalsMs",
+        "focusedDiscoveryIntervalsMs"
+      ],
+      "scene performance trial"
+    );
+  }
+  for (const run of evidence.sustainedRuns) {
+    assertExactEvidenceShape(
+      run,
+      [
+        "id",
+        "captureArtifactHash",
+        "startedAt",
+        "endedAt",
+        "cameraPreviewBaselineMiB",
+        "checkpoints"
+      ],
+      "sustained performance run"
+    );
+    if (!Array.isArray(run.checkpoints)) {
+      throw new Error("Unknown or missing sustained checkpoint collection field.");
+    }
+    for (const checkpoint of run.checkpoints) {
+      assertExactEvidenceShape(
+        checkpoint,
+        [
+          "atMs",
+          "previewFps",
+          "recognitionDurationMs",
+          "memoryMiB",
+          "batteryDrainPercentagePoints",
+          "crashes",
+          "reloads",
+          "thermalWarnings",
+          "cameraInterruptions",
+          "forcedRecoveries"
+        ],
+        "sustained performance checkpoint"
+      );
+    }
+  }
+}
+
 function percentile(values: readonly number[], probability: number) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
@@ -372,6 +524,7 @@ export function createPerformanceQualificationEvidence(
   input: PerformanceQualificationEvidence
 ): PerformanceQualificationEvidence {
   validateQualificationManifest(manifest);
+  assertExactEvidenceShapes(input);
   if (
     input.version !== "qualification-performance-evidence.v1" ||
     !["physical-device", "simulation"].includes(input.evidenceKind)
