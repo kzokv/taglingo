@@ -5,7 +5,7 @@ import {
   mapSampleBoxToPreview,
   type Size
 } from "../camera/previewGeometry";
-import { hasRecognizerAdapter } from "../domain/currencies";
+import type { SourceCurrencyCode } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 import {
   createCandidateTracker,
@@ -24,7 +24,7 @@ import {
   type RecognitionScheduler,
   type RecognitionSchedulerState
 } from "./recognitionScheduler";
-import type { RecognitionProfile } from "./recognitionProfile";
+import type { RecognitionRuntimeConfiguration } from "./recognitionRuntime";
 
 export type RecognitionPhase =
   | "waiting"
@@ -85,14 +85,14 @@ export function applyCandidateTrackingSnapshot(
 }
 
 export type CreateRecognizer = (
-  profile: RecognitionProfile,
+  runtime: RecognitionRuntimeConfiguration,
   onProgress: (progress: number, status: string) => void
 ) => OcrRecognizer;
 
 export const createBrowserRecognizer: CreateRecognizer = (
-  profile,
+  runtime,
   onProgress
-) => createOcrRecognizer(profile, { onProgress });
+) => createOcrRecognizer(runtime, { onProgress });
 
 interface CapturedRecognitionPass {
   canvas: HTMLCanvasElement;
@@ -113,7 +113,8 @@ interface CompletedRecognitionPass {
 
 export function useCameraRecognition({
   enabled,
-  profile,
+  runtime,
+  sourceCurrency,
   video,
   preview,
   captureGuide,
@@ -121,7 +122,8 @@ export function useCameraRecognition({
   recognitionRestartKey = 0
 }: {
   enabled: boolean;
-  profile: RecognitionProfile;
+  runtime: RecognitionRuntimeConfiguration;
+  sourceCurrency: SourceCurrencyCode;
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
   captureGuide: HTMLElement | null;
@@ -154,13 +156,11 @@ export function useCameraRecognition({
   }, []);
 
   useEffect(() => {
-    const sourceCurrency = profile.sourceCurrency;
     if (
       !enabled ||
       !video ||
       !preview ||
-      !captureGuide ||
-      !hasRecognizerAdapter(sourceCurrency)
+      !captureGuide
     ) {
       candidateTracker.current = null;
       setRecognition(EMPTY_RECOGNITION);
@@ -177,8 +177,8 @@ export function useCameraRecognition({
         x: initialPreviewBounds.width / 2,
         y: initialPreviewBounds.height * 0.45
       },
-      geometry: profile.geometry,
-      stabilization: profile.stabilization
+      geometry: runtime.rules.geometry,
+      stabilization: runtime.rules.stabilization
     });
     candidateTracker.current = tracker;
     let scheduler: RecognitionScheduler;
@@ -271,10 +271,11 @@ export function useCameraRecognition({
       },
       async runPass(captured, request) {
         if (!recognizer) {
-          throw new Error("Recognition pass started before profile preparation.");
+          throw new Error("Recognition pass started before runtime preparation.");
         }
         const candidates = await recognizePriceEvidence(
-          profile,
+          runtime,
+          sourceCurrency,
           recognizer,
           captured.canvas,
           {
@@ -363,7 +364,7 @@ export function useCameraRecognition({
         if (!active) {
           return;
         }
-        recognizer = createRecognizer(profile, (progress) => {
+        recognizer = createRecognizer(runtime, (progress) => {
           if (active && !prepared) {
             setRecognition((current) => ({
               ...current,
@@ -385,7 +386,7 @@ export function useCameraRecognition({
           progress: 1
         }));
         scheduler.start(
-          `${profile.id}:session-${recognitionRestartKey.toString()}`
+          `${runtime.id}:${sourceCurrency}:session-${recognitionRestartKey.toString()}`
         );
       })
       .catch(() => {
@@ -411,7 +412,8 @@ export function useCameraRecognition({
     enabled,
     preview,
     recognitionRestartKey,
-    profile,
+    runtime,
+    sourceCurrency,
     video
   ]);
 

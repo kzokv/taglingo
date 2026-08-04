@@ -18,19 +18,17 @@ import {
   type CameraStatus
 } from "./camera/cameraSession";
 import {
+  resolveFoundationCameraAccess,
+  type ResolveCameraAccess
+} from "./domain/cameraAccess";
+import {
   formatCurrencyMinorUnits,
-  hasRecognizerAdapter,
   searchTargetCurrencies,
   SOURCE_CURRENCIES,
   type CurrencyAmount,
   type CurrencyCode,
-  type RecognizerAdapterCurrencyCode,
   type SourceCurrencyCode
 } from "./domain/currencies";
-import {
-  detectPhysicalPlatform,
-  getCurrencyCapability
-} from "./domain/currencyCapabilities";
 import {
   createGuestPreferenceStore,
   type GuestPreferences
@@ -73,10 +71,9 @@ import { CameraExperienceOverlay } from "./recognition/CameraExperience";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
 import { RecognitionSummary } from "./recognition/RecognitionSummary";
 import {
-  resolveQualifiedRecognitionProfile,
-  type RecognitionProfile,
-  type ResolveRecognitionProfile
-} from "./recognition/recognitionProfile";
+  UNIVERSAL_RECOGNITION_RUNTIME,
+  type RecognitionRuntimeConfiguration
+} from "./recognition/recognitionRuntime";
 import {
   createRecognitionHealthPreferenceStore,
   createRecognitionHealthSession,
@@ -108,37 +105,6 @@ type MemberAccessStatus =
 type MemberSaveStatus = "idle" | "saving" | "error";
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 const MANUAL_ENTRY_PROMOTION_DELAY_MS = 5_000;
-type ScheduleRecognitionProfileExpiry = (
-  expiresAt: string,
-  onExpire: () => void
-) => () => void;
-
-const scheduleRecognitionProfileExpiry: ScheduleRecognitionProfileExpiry = (
-  expiresAt,
-  onExpire
-) => {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  let cancelled = false;
-  const schedule = () => {
-    if (cancelled) {
-      return;
-    }
-    const remainingMs = Date.parse(expiresAt) - Date.now();
-    if (remainingMs <= 0) {
-      onExpire();
-      return;
-    }
-    timeoutId = setTimeout(
-      schedule,
-      Math.min(remainingMs, 2_147_483_647)
-    );
-  };
-  schedule();
-  return () => {
-    cancelled = true;
-    clearTimeout(timeoutId);
-  };
-};
 const statusContent: Partial<
   Record<CameraStatus, { title: string; detail: string }>
 > = {
@@ -706,7 +672,6 @@ function ManualPriceEntrySurface({
   isApprovedMember,
   memberAccessStatus,
   rates,
-  cameraQualificationCandidate,
   onPreferencesChange,
   onClose,
   memberStatus,
@@ -716,7 +681,6 @@ function ManualPriceEntrySurface({
   isApprovedMember: boolean;
   memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
-  cameraQualificationCandidate: boolean;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   onClose: () => void;
   memberStatus: ReactNode;
@@ -757,12 +721,10 @@ function ManualPriceEntrySurface({
         {memberStatus}
 
         <div className="camera-capability-note" role="status">
-          <strong>Camera recognition is unavailable on this device.</strong>
+          <strong>Camera recognition is unavailable for this access mode.</strong>
           <p>
-            {cameraQualificationCandidate
-              ? `${preferences.sourceCurrency} is an initial camera qualification candidate; ` +
-                "Manual Price Entry remains available while evidence is pending."
-              : `${preferences.sourceCurrency} is currently Manual Price Entry only.`}
+            {preferences.sourceCurrency} remains available through unlimited
+            Manual Price Entry.
           </p>
         </div>
 
@@ -795,7 +757,7 @@ function CameraSurface({
   memberAccessStatus,
   rates,
   onPreferencesChange,
-  recognitionProfile,
+  recognitionRuntime,
   createRecognizer,
   onClose,
   onRetry,
@@ -811,14 +773,12 @@ function CameraSurface({
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
-  preferences: ExperiencePreferences & {
-    sourceCurrency: RecognizerAdapterCurrencyCode;
-  };
+  preferences: ExperiencePreferences;
   isApprovedMember: boolean;
   memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
-  recognitionProfile: RecognitionProfile;
+  recognitionRuntime: RecognitionRuntimeConfiguration;
   createRecognizer: CreateRecognizer;
   onClose: (
     outcome: RecognitionHealthTerminalOutcome,
@@ -851,7 +811,8 @@ function CameraSurface({
   );
   const cameraRecognition = useCameraRecognition({
     enabled: !demo && snapshot.status === "active",
-    profile: recognitionProfile,
+    runtime: recognitionRuntime,
+    sourceCurrency: preferences.sourceCurrency,
     video,
     preview,
     captureGuide,
@@ -1497,23 +1458,23 @@ function MemberStatusPanel({
 
 export default function App({
   createRecognizer = createBrowserRecognizer,
-  resolveRecognitionProfile = resolveQualifiedRecognitionProfile,
+  recognitionRuntime = UNIVERSAL_RECOGNITION_RUNTIME,
+  resolveCameraAccess = resolveFoundationCameraAccess,
   loadGuestRate,
   admission,
   memberSession = null,
   loadMemberPreferences = loadMemberPreferencesFromApi,
   saveMemberPreferences = saveMemberPreferencesToApi,
-  scheduleProfileExpiry = scheduleRecognitionProfileExpiry,
   submitRecognitionHealth = submitRecognitionHealthSummary
 }: {
   createRecognizer?: CreateRecognizer;
-  resolveRecognitionProfile?: ResolveRecognitionProfile;
+  recognitionRuntime?: RecognitionRuntimeConfiguration;
+  resolveCameraAccess?: ResolveCameraAccess;
   loadGuestRate?: LoadGuestRate;
   admission?: ReactNode;
   memberSession?: MemberSession | null;
   loadMemberPreferences?: LoadMemberPreferences;
   saveMemberPreferences?: SaveMemberPreferences;
-  scheduleProfileExpiry?: ScheduleRecognitionProfileExpiry;
   submitRecognitionHealth?: SubmitRecognitionHealthSummary;
 }) {
   const memberUserId = memberSession?.userId ?? null;
@@ -1666,28 +1627,10 @@ export default function App({
         sourceCurrency: guestPreferences.sourceCurrency,
         targetCurrencies: [guestPreferences.targetCurrency]
       };
-  const physicalPlatform = detectPhysicalPlatform(navigator.userAgent);
-  const currencyCapability = getCurrencyCapability(
-    preferences.sourceCurrency,
-    physicalPlatform
-  );
-  const [, refreshRecognitionProfile] = useState(0);
-  const recognitionProfile = resolveRecognitionProfile(
-    preferences.sourceCurrency,
-    physicalPlatform
-  );
-  useEffect(() => {
-    if (!recognitionProfile) {
-      return undefined;
-    }
-    return scheduleProfileExpiry(
-      recognitionProfile.evidence.expiresAt,
-      () => refreshRecognitionProfile((version) => version + 1)
-    );
-  }, [recognitionProfile, scheduleProfileExpiry]);
-  const cameraSupported =
-    hasRecognizerAdapter(preferences.sourceCurrency) &&
-    recognitionProfile !== null;
+  const cameraAvailable = resolveCameraAccess({
+    sourceCurrency: preferences.sourceCurrency,
+    isApprovedMember
+  });
   const ratePreferences: ExperiencePreferences =
     isApprovedMember && synchronizedMemberPreferences
       ? {
@@ -1705,7 +1648,7 @@ export default function App({
   useEffect(() => {
     if (
       (mode === "camera" || mode === "demo") &&
-      !cameraSupported
+      !cameraAvailable
     ) {
       if (mode === "camera") {
         finishRecognitionHealthSession("closed-without-price", "none");
@@ -1713,7 +1656,7 @@ export default function App({
       sessionRef.current?.stop();
       setMode("manual");
     }
-  }, [cameraSupported, finishRecognitionHealthSession, mode]);
+  }, [cameraAvailable, finishRecognitionHealthSession, mode]);
   useEffect(() => {
     rateSnapshotStoreRef.current.retainActivePairs(
       ratePreferences.targetCurrencies.map((target) => ({
@@ -1804,11 +1747,10 @@ export default function App({
 
     if (
       nextPreferences.sourceCurrency !== preferences.sourceCurrency &&
-      (!hasRecognizerAdapter(nextPreferences.sourceCurrency) ||
-        !resolveRecognitionProfile(
-          nextPreferences.sourceCurrency,
-          physicalPlatform
-        ))
+      !resolveCameraAccess({
+        sourceCurrency: nextPreferences.sourceCurrency,
+        isApprovedMember
+      })
     ) {
       sessionRef.current?.stop();
       setMode("manual");
@@ -1816,7 +1758,7 @@ export default function App({
   };
 
   const startCamera = async () => {
-    if (!cameraSupported) {
+    if (!cameraAvailable) {
       sessionRef.current?.stop();
       setMode("manual");
       return;
@@ -1836,7 +1778,7 @@ export default function App({
 
   const openDemo = () => {
     sessionRef.current?.stop();
-    setMode(cameraSupported ? "demo" : "manual");
+    setMode(cameraAvailable ? "demo" : "manual");
   };
 
   const closeExperience = (
@@ -1879,9 +1821,6 @@ export default function App({
         isApprovedMember={isApprovedMember}
         memberAccessStatus={memberAccessStatus}
         rates={displayedRates}
-        cameraQualificationCandidate={
-          currencyCapability.cameraQualificationCandidate
-        }
         onPreferencesChange={updatePreferences}
         onClose={closeExperience}
         memberStatus={memberStatus}
@@ -1892,9 +1831,7 @@ export default function App({
 
   if (
     mode !== "welcome" &&
-    hasRecognizerAdapter(preferences.sourceCurrency) &&
-    cameraSupported &&
-    recognitionProfile
+    cameraAvailable
   ) {
     return (
       <CameraSurface
@@ -1908,7 +1845,7 @@ export default function App({
         memberAccessStatus={memberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
-        recognitionProfile={recognitionProfile}
+        recognitionRuntime={recognitionRuntime}
         createRecognizer={createRecognizer}
         onClose={closeExperience}
         onRetry={startCamera}
@@ -1972,19 +1909,19 @@ export default function App({
           </div>
           <div>
             <h2>
-              {cameraSupported
+              {cameraAvailable
                 ? "Before we ask for camera access"
                 : "Manual Price Entry is ready"}
             </h2>
-            {cameraSupported ? (
+            {cameraAvailable ? (
               <p>
                 The rear camera helps you point naturally at retail price tags.
                 Camera frames stay on this device and are never uploaded.
               </p>
             ) : (
               <p>
-                Camera recognition is unavailable on this device. You can
-                still enter a price without granting camera access.
+                Camera recognition is unavailable for this access mode. You
+                can still enter a price without granting camera access.
               </p>
             )}
           </div>
@@ -2017,13 +1954,13 @@ export default function App({
         <div className="primary-actions">
           <button className="primary-button" type="button" onClick={startCamera}>
             <span
-              className={cameraSupported ? "button-camera" : "button-manual"}
+              className={cameraAvailable ? "button-camera" : "button-manual"}
               aria-hidden="true"
             />
-            {cameraSupported ? "Open camera" : "Enter price manually"}
+            {cameraAvailable ? "Open camera" : "Enter price manually"}
             <span aria-hidden="true">→</span>
           </button>
-          {cameraSupported ? (
+          {cameraAvailable && preferences.sourceCurrency === "JPY" ? (
             <button className="secondary-button" type="button" onClick={openDemo}>
               Try without camera
             </button>
@@ -2058,11 +1995,12 @@ export default function App({
 
       <footer>
         <p>
-          Manual Price Entry is universal. Camera availability is qualified
-          separately for each Source Currency and physical platform.
+          Manual Price Entry is universal. Camera Recognition uses one shared,
+          browser-local runtime with the selected Source Currency's notation
+          rules.
         </p>
-        {cameraSupported ? (
-          <p>Physical-device qualification applies to this camera path.</p>
+        {cameraAvailable ? (
+          <p>Recognition limitations are handled through Manual Price Entry.</p>
         ) : null}
         <button
           className="text-button"

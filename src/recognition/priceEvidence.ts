@@ -1,11 +1,16 @@
 import {
+  currencyFractionDigits,
   SOURCE_CURRENCIES,
   type CurrencyAmount,
   type SourceCurrencyCode
 } from "../domain/currencies";
+import {
+  getCurrencyNotationRules,
+  type CurrencyNotationRules
+} from "../domain/currencyNotation";
 import type { Rectangle } from "../domain/geometry";
 import type { RecognizerObservation } from "./ocrRecognizer";
-import type { RecognitionProfile } from "./recognitionProfile";
+import type { FixedRecognitionRules } from "./recognitionRuntime";
 
 type Point = RecognizerObservation["polygon"][number];
 
@@ -24,33 +29,61 @@ export interface PriceEvidenceCandidate extends CurrencyAmount {
   readonly preprocessingIdentities: readonly string[];
 }
 
+export interface PriceEvidenceConfiguration {
+  readonly sourceCurrency: SourceCurrencyCode;
+  readonly fractionDigits: number;
+  readonly notation: CurrencyNotationRules;
+  readonly thresholds: FixedRecognitionRules["thresholds"];
+  readonly fusion: FixedRecognitionRules["fusion"];
+}
+
+export function createPriceEvidenceConfiguration(
+  sourceCurrency: SourceCurrencyCode,
+  rules: FixedRecognitionRules
+): PriceEvidenceConfiguration {
+  return {
+    sourceCurrency,
+    fractionDigits: currencyFractionDigits(sourceCurrency),
+    notation: getCurrencyNotationRules(sourceCurrency),
+    thresholds: rules.thresholds,
+    fusion: rules.fusion
+  };
+}
+
 function normalize(value: string): string {
   return value
     .normalize("NFKC")
     .replaceAll(/[’‘]/gu, "'")
-    .replaceAll(/\s/gu, "");
+    .replaceAll(/\s+/gu, " ")
+    .trim();
 }
 
-function normalizedMarkers(profile: RecognitionProfile): readonly string[] {
-  return profile.notation.markers
+function normalizeGroupingSeparator(value: string): string {
+  return /\s/u.test(value) ? " " : normalize(value);
+}
+
+function normalizedMarkers(
+  configuration: PriceEvidenceConfiguration
+): readonly string[] {
+  return configuration.notation.markers
     .map(normalize)
     .sort((left, right) => right.length - left.length);
 }
 
 function removeCompatibleMarker(
   text: string,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): string | null {
   const normalizedText = normalize(text);
   const upperText = normalizedText.toLocaleUpperCase("en-US");
 
-  for (const marker of normalizedMarkers(profile)) {
+  for (const marker of normalizedMarkers(configuration)) {
     const upperMarker = marker.toLocaleUpperCase("en-US");
     if (upperText.startsWith(upperMarker)) {
-      return normalizedText.slice(marker.length);
+      return normalizedText.slice(marker.length).trim();
     }
     if (upperText.endsWith(upperMarker)) {
-      return normalizedText.slice(0, -marker.length);
+      return normalizedText.slice(0, -marker.length).trim();
     }
   }
   return null;
@@ -58,19 +91,22 @@ function removeCompatibleMarker(
 
 function isCompatibleMarker(
   text: string,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): boolean {
   const normalizedText = normalize(text).toLocaleUpperCase("en-US");
-  return normalizedMarkers(profile).some(
+  return normalizedMarkers(configuration).some(
     (marker) => marker.toLocaleUpperCase("en-US") === normalizedText
   );
 }
 
 function validGroupedInteger(
   integer: string,
-  groupingSeparators: readonly string[]
+  configuration: PriceEvidenceConfiguration
 ): boolean {
-  const normalizedSeparators = groupingSeparators.map(normalize);
+  const normalizedSeparators = [
+    configuration.notation.separators.grouping,
+    configuration.notation.separators.displayGrouping
+  ].map(normalizeGroupingSeparator);
   const usedSeparator = normalizedSeparators.find((separator) =>
     integer.includes(separator)
   );
@@ -86,44 +122,59 @@ function validGroupedInteger(
     return false;
   }
   const groups = integer.split(usedSeparator);
-  return (
+  const westernGrouping =
     /^[1-9]\d{0,2}$/u.test(groups[0]) &&
-    groups.slice(1).every((group) => /^\d{3}$/u.test(group))
+    groups.slice(1).every((group) => /^\d{3}$/u.test(group));
+  if (
+    configuration.notation.groupingStyle === "western" ||
+    westernGrouping
+  ) {
+    return westernGrouping;
+  }
+  return (
+    /^[1-9]\d?$/u.test(groups[0]) &&
+    groups.length >= 2 &&
+    groups.slice(1, -1).every((group) => /^\d{2}$/u.test(group)) &&
+    /^\d{3}$/u.test(groups.at(-1) ?? "")
   );
 }
 
 function parseMinorUnits(
   amountText: string,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): number | null {
   const amount = normalize(amountText);
-  if (!/^[\d.,']+$/u.test(amount)) {
+  if (!/^[\d.,' ]+$/u.test(amount)) {
     return null;
   }
 
-  const decimalSeparator = profile.notation.decimalSeparator;
+  const decimalSeparator = configuration.notation.separators.decimal;
   const parts = decimalSeparator ? amount.split(decimalSeparator) : [amount];
   if (parts.length > 2) {
     return null;
   }
   const [integer, fraction] = parts;
   if (
-    !validGroupedInteger(integer, profile.notation.groupingSeparators) ||
-    (profile.notation.fractionDigits === 0 && fraction !== undefined) ||
+    !validGroupedInteger(integer, configuration) ||
+    (configuration.fractionDigits === 0 && fraction !== undefined) ||
     (fraction !== undefined &&
       !new RegExp(
-        `^\\d{${profile.notation.fractionDigits.toString()}}$`,
+        `^\\d{${configuration.fractionDigits.toString()}}$`,
         "u"
       ).test(fraction))
   ) {
     return null;
   }
 
-  const normalizedInteger = profile.notation.groupingSeparators.reduce(
-    (value, separator) => value.replaceAll(normalize(separator), ""),
+  const normalizedInteger = [
+    configuration.notation.separators.grouping,
+    configuration.notation.separators.displayGrouping
+  ].reduce(
+    (value, separator) =>
+      value.replaceAll(normalizeGroupingSeparator(separator), ""),
     integer
   );
-  const scale = 10n ** BigInt(profile.notation.fractionDigits);
+  const scale = 10n ** BigInt(configuration.fractionDigits);
   const minorUnits =
     BigInt(normalizedInteger) * scale + BigInt(fraction ?? "0");
   return minorUnits <= BigInt(Number.MAX_SAFE_INTEGER)
@@ -133,15 +184,15 @@ function parseMinorUnits(
 
 function containsForeignCurrencyMarker(
   text: string,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): boolean {
-  if (isCompatibleMarker(text, profile)) {
+  if (isCompatibleMarker(text, configuration)) {
     return false;
   }
-  const compatibleAmount = removeCompatibleMarker(text, profile);
+  const compatibleAmount = removeCompatibleMarker(text, configuration);
   if (
     compatibleAmount !== null &&
-    parseMinorUnits(compatibleAmount, profile) !== null
+    parseMinorUnits(compatibleAmount, configuration) !== null
   ) {
     return false;
   }
@@ -204,7 +255,7 @@ function observationRelationship(
 function aligned(
   left: RecognizerObservation,
   right: RecognizerObservation,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): boolean {
   const {
     textHeight,
@@ -218,17 +269,17 @@ function aligned(
 
   return (
     (sameLine(left, right) || overlapRatio > 0) &&
-    overlapRatio >= profile.fusion.minimumVerticalOverlapRatio &&
-    horizontalGap <= profile.fusion.maximumGapInTextHeights * textHeight &&
+    overlapRatio >= configuration.fusion.minimumVerticalOverlapRatio &&
+    horizontalGap <= configuration.fusion.maximumGapInTextHeights * textHeight &&
     baselineDelta <=
-      textHeight * profile.fusion.maximumBaselineDeltaInTextHeights
+      textHeight * configuration.fusion.maximumBaselineDeltaInTextHeights
   );
 }
 
 function sharesContext(
   anchor: RecognizerObservation,
   context: RecognizerObservation,
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): boolean {
   if (sameLine(anchor, context)) {
     return true;
@@ -237,17 +288,18 @@ function sharesContext(
     observationRelationship(anchor, context);
   return (
     verticalOverlap > 0 &&
-    horizontalGap <= profile.fusion.maximumGapInTextHeights * textHeight * 2
+    horizontalGap <=
+      configuration.fusion.maximumGapInTextHeights * textHeight * 2
   );
 }
 
 function hasNegativeContext(
   amount: RecognizerObservation,
   observations: readonly RecognizerObservation[],
-  profile: RecognitionProfile
+  configuration: PriceEvidenceConfiguration
 ): boolean {
   const context = observations.filter((observation) =>
-    sharesContext(amount, observation, profile)
+    sharesContext(amount, observation, configuration)
   );
   if (
     NEGATIVE_CONTEXT_PATTERN.test(context.map(({ text }) => text).join(" "))
@@ -255,7 +307,7 @@ function hasNegativeContext(
     return true;
   }
   return context.some(
-    ({ text }) => containsForeignCurrencyMarker(text, profile)
+    ({ text }) => containsForeignCurrencyMarker(text, configuration)
   );
 }
 
@@ -353,17 +405,17 @@ function coalesceVariants(
 }
 
 function candidate(
-  profile: RecognitionProfile,
+  configuration: PriceEvidenceConfiguration,
   minorUnits: number,
   evidence: readonly RecognizerObservation[]
 ): PriceEvidenceCandidate | null {
   const confidence = Math.min(...evidence.map(({ confidence }) => confidence));
-  if (confidence < profile.thresholds.candidateConfidence) {
+  if (confidence < configuration.thresholds.candidateConfidence) {
     return null;
   }
   const polygon = convexHull(evidence.flatMap(({ polygon }) => polygon));
   return {
-    currency: profile.sourceCurrency,
+    currency: configuration.sourceCurrency,
     minorUnits,
     confidence,
     box: boxFor(polygon),
@@ -380,7 +432,7 @@ function candidate(
 }
 
 export function fusePriceEvidence(
-  profile: RecognitionProfile,
+  configuration: PriceEvidenceConfiguration,
   observations: readonly RecognizerObservation[]
 ): PriceEvidenceCandidate[] {
   const candidates: PriceEvidenceCandidate[] = [];
@@ -395,44 +447,50 @@ export function fusePriceEvidence(
   for (const frameObservations of observationsByFrame.values()) {
     const markers = frameObservations.filter(
       (observation) =>
-        observation.evidenceKind === "marker" &&
-        observation.confidence >= profile.thresholds.markerConfidence &&
-        isCompatibleMarker(observation.text, profile)
+        observation.confidence >= configuration.thresholds.markerConfidence &&
+        isCompatibleMarker(observation.text, configuration)
     );
 
     for (const amount of frameObservations) {
       if (
-        amount.confidence < profile.thresholds.textConfidence ||
-        hasNegativeContext(amount, frameObservations, profile)
+        amount.confidence < configuration.thresholds.textConfidence ||
+        hasNegativeContext(amount, frameObservations, configuration)
       ) {
         continue;
       }
 
-      const combinedAmount = removeCompatibleMarker(amount.text, profile);
+      const combinedAmount = removeCompatibleMarker(
+        amount.text,
+        configuration
+      );
       if (combinedAmount !== null) {
-        if (amount.confidence < profile.thresholds.markerConfidence) {
+        if (amount.confidence < configuration.thresholds.markerConfidence) {
           continue;
         }
-        const minorUnits = parseMinorUnits(combinedAmount, profile);
+        const minorUnits = parseMinorUnits(combinedAmount, configuration);
         const combinedCandidate =
           minorUnits === null
             ? null
-            : candidate(profile, minorUnits, [amount]);
+            : candidate(configuration, minorUnits, [amount]);
         if (combinedCandidate) {
           candidates.push(combinedCandidate);
         }
         continue;
       }
 
-      const minorUnits = parseMinorUnits(amount.text, profile);
+      const minorUnits = parseMinorUnits(amount.text, configuration);
       if (minorUnits === null) {
         continue;
       }
       for (const marker of markers) {
-        if (!aligned(amount, marker, profile)) {
+        if (!aligned(amount, marker, configuration)) {
           continue;
         }
-        const splitCandidate = candidate(profile, minorUnits, [amount, marker]);
+        const splitCandidate = candidate(
+          configuration,
+          minorUnits,
+          [amount, marker]
+        );
         if (splitCandidate) {
           candidates.push(splitCandidate);
         }

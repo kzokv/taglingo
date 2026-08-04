@@ -1,4 +1,4 @@
-import type { RecognitionPreprocessingStep } from "./recognitionProfile";
+import type { RecognitionPreprocessingStep } from "./recognitionConfiguration";
 
 export interface PreprocessedRecognitionFrame {
   readonly identity: string;

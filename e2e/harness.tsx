@@ -4,7 +4,6 @@ import App from "../src/App";
 import type { CurrencyCode } from "../src/domain/currencies";
 import type { GuestReferenceRate } from "../src/fx/referenceRate";
 import type { MemberPreferences } from "../src/member/memberPreferencesApi";
-import { createTestRecognitionProfile } from "../src/test/recognitionProfile";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 
 function fixtureRate(
@@ -28,7 +27,7 @@ function fixtureRate(
 
 const loadRate = async (source: CurrencyCode, target: CurrencyCode) =>
   fixtureRate(source, target);
-const createFixtureRecognizer: CreateRecognizer = (_profile, onProgress) => ({
+const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
     onProgress(1, "deterministic browser fixture ready");
   },
@@ -79,11 +78,11 @@ const memberPreferences: MemberPreferences = {
 };
 const memberMode =
   new URLSearchParams(window.location.search).get("mode") === "member";
-const fixtureRecognitionProfile = createTestRecognitionProfile({
-  id: "browser-fixture-jpy"
-});
-const resolveFixtureRecognitionProfile = (sourceCurrency: CurrencyCode) =>
-  sourceCurrency === "JPY" ? fixtureRecognitionProfile : null;
+const resolveFixtureCameraAccess = ({
+  sourceCurrency
+}: {
+  sourceCurrency: CurrencyCode;
+}) => sourceCurrency === "JPY";
 
 createRoot(document.getElementById("root")!).render(
   memberMode ? (
@@ -96,7 +95,7 @@ createRoot(document.getElementById("root")!).render(
       saveMemberPreferences={async (preferences) => preferences}
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveRecognitionProfile={resolveFixtureRecognitionProfile}
+      resolveCameraAccess={resolveFixtureCameraAccess}
       admission={
         <section aria-label="Fixture account">
           <button type="button">Sign out fixture account</button>
@@ -107,7 +106,7 @@ createRoot(document.getElementById("root")!).render(
     <App
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveRecognitionProfile={resolveFixtureRecognitionProfile}
+      resolveCameraAccess={resolveFixtureCameraAccess}
       admission={
         <section aria-label="Fixture member admission">
           <button type="button">Request fixture member access</button>

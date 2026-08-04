@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { createTestRecognitionProfile } from "../test/recognitionProfile";
+import {
+  SOURCE_CURRENCIES,
+  type SourceCurrencyCode
+} from "../domain/currencies";
+import { getCurrencyNotationRules } from "../domain/currencyNotation";
+import { parseManualPriceEntry } from "../domain/manualPriceEntry";
 import type { RecognizerObservation } from "./ocrRecognizer";
-import { fusePriceEvidence } from "./priceEvidence";
+import {
+  createPriceEvidenceConfiguration,
+  fusePriceEvidence
+} from "./priceEvidence";
+import { UNIVERSAL_RECOGNITION_RUNTIME } from "./recognitionRuntime";
 
 const line = { blockIndex: 0, paragraphIndex: 0, lineIndex: 0 };
+const configuration = (sourceCurrency: SourceCurrencyCode = "JPY") =>
+  createPriceEvidenceConfiguration(
+    sourceCurrency,
+    UNIVERSAL_RECOGNITION_RUNTIME.rules
+  );
 
 function observation({
   text,
@@ -50,8 +64,27 @@ function observation({
 }
 
 describe("Price Evidence Fusion", () => {
+  it.each(SOURCE_CURRENCIES)(
+    "applies $code Currency Notation Rules without changing the runtime",
+    ({ code }) => {
+      const marked = getCurrencyNotationRules(code).examples.marked;
+      const expected = parseManualPriceEntry(code, marked);
+      expect(expected.ok).toBe(true);
+      if (!expected.ok) return;
+
+      expect(
+        fusePriceEvidence(configuration(code), [
+          observation({ text: marked, confidence: 95, x: 10, width: 120 })
+        ])[0]
+      ).toMatchObject({
+        currency: code,
+        minorUnits: expected.enteredPrice.minorUnits
+      });
+    }
+  );
+
   it("produces exact candidates from combined and split evidence", () => {
-    const profile = createTestRecognitionProfile();
+    const profile = configuration();
 
     expect(
       fusePriceEvidence(profile, [
@@ -98,7 +131,7 @@ describe("Price Evidence Fusion", () => {
   });
 
   it("coalesces preprocessing variants from one camera frame", () => {
-    const profile = createTestRecognitionProfile();
+    const profile = configuration();
     const raw = [
       observation({ text: "4,142", confidence: 96, x: 20, width: 55 }),
       observation({
@@ -130,7 +163,7 @@ describe("Price Evidence Fusion", () => {
   });
 
   it("enforces every profile threshold at its inclusive boundary", () => {
-    const base = createTestRecognitionProfile();
+    const base = configuration();
     const profile = {
       ...base,
       thresholds: {
@@ -170,7 +203,7 @@ describe("Price Evidence Fusion", () => {
       ]
     ]
   ])("rejects %s evidence regardless of confidence", (_label, extra) => {
-    const profile = createTestRecognitionProfile();
+    const profile = configuration();
     const valid = [
       observation({ text: "4,142", confidence: 99, x: 20, width: 55 }),
       observation({
@@ -186,7 +219,7 @@ describe("Price Evidence Fusion", () => {
   });
 
   it("applies inclusive baseline, overlap, and gap rules relative to text height", () => {
-    const base = createTestRecognitionProfile();
+    const base = configuration();
     const profile = {
       ...base,
       fusion: {
@@ -222,16 +255,8 @@ describe("Price Evidence Fusion", () => {
   });
 
   it("interprets ambiguous symbols only inside the selected profile with exact minor units", () => {
-    const jpy = createTestRecognitionProfile();
-    const cny = {
-      ...createTestRecognitionProfile({ sourceCurrency: "CNY" }),
-      notation: {
-        fractionDigits: 2,
-        decimalSeparator: "." as const,
-        markers: ["CNY", "RMB", "¥", "元"],
-        groupingSeparators: [","]
-      }
-    };
+    const jpy = configuration();
+    const cny = configuration("CNY");
 
     expect(
       fusePriceEvidence(jpy, [
@@ -249,7 +274,7 @@ describe("Price Evidence Fusion", () => {
     "rejects markerless or malformed fragment %s",
     (text) => {
       expect(
-        fusePriceEvidence(createTestRecognitionProfile(), [
+        fusePriceEvidence(configuration(), [
           observation({ text, confidence: 100, x: 10, width: 90 })
         ])
       ).toEqual([]);

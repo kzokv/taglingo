@@ -6,6 +6,10 @@ import vm from "node:vm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { JPY_COMPARISON_PROFILES } from "./recognition/comparisonProfiles";
+import {
+  recognitionRuntimeAssets,
+  UNIVERSAL_RECOGNITION_RUNTIME
+} from "./recognition/recognitionRuntime";
 
 beforeAll(() => {
   execFileSync(process.execPath, ["scripts/prepare-ocr-assets.mjs"], {
@@ -21,7 +25,7 @@ function sha256(path: string): string {
 }
 
 describe("installable application metadata", () => {
-  it("lazily caches only a requested OCR language profile for later offline use", async () => {
+  it("lazily caches the universal OCR runtime for later offline use", async () => {
     const listeners = new Map<string, (event: Record<string, unknown>) => void>();
     const cachedResponses = new Map<string, Response>();
     const cache = {
@@ -107,30 +111,23 @@ describe("installable application metadata", () => {
       });
       return response;
     };
-    const activeJpyProfileAssets = [
-      "/ocr/tesseract-7.0.0/worker.min.js",
-      "/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz",
-      "/ocr/tessdata_fast-4.1.0/eng.traineddata.gz",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm.js",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-relaxedsimd-lstm.wasm.js",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm",
-      "/ocr/tesseract-core-7.0.0/tesseract-core-simd-lstm.wasm.js"
-    ];
+    const universalRuntimeAssets = recognitionRuntimeAssets(
+      UNIVERSAL_RECOGNITION_RUNTIME
+    ).map(({ path }) => path);
     context.fetch.mockResolvedValue(new Response("language model"));
-    await fetchOffline("/ocr/tessdata_fast-4.1.0/jpn.traineddata.gz");
-    await fetchOffline("/ocr/tessdata_fast-4.1.0/eng.traineddata.gz");
+    for (const asset of universalRuntimeAssets) {
+      await fetchOffline(asset);
+    }
     context.fetch.mockRejectedValue(new TypeError("offline"));
 
-    for (const asset of activeJpyProfileAssets) {
+    for (const asset of universalRuntimeAssets) {
       await expect(fetchOffline(asset)).resolves.toBeInstanceOf(Response);
     }
     expect(
       cachedResponses.has(
         "https://taglingo.test/ocr/tessdata_fast-4.1.0/chi_sim.traineddata.gz"
       )
-    ).toBe(false);
+    ).toBe(true);
 
     let offlineResponse: Promise<Response> | undefined;
     listeners.get("fetch")?.({

@@ -8,6 +8,7 @@ import {
   type OcrRecognizer
 } from "./ocrRecognizer";
 import { createPaddleOcrRecognizer } from "./paddleOcrRecognizer";
+import type { RecognitionRuntimeConfiguration } from "./recognitionRuntime";
 
 export type CreateComparisonRecognizer = (
   profile: JpyComparisonProfile
@@ -16,11 +17,25 @@ export type CreateComparisonRecognizer = (
 function defaultCreateRecognizer(
   profile: JpyComparisonProfile
 ): OcrRecognizer {
-  return profile.recognition.recognizer.engine === "paddleocr.js"
-    ? createPaddleOcrRecognizer(profile)
-    : createOcrRecognizer(profile.recognition, {
-        verifyAssets: () => verifyRecognitionAssets(profile.assets)
-      });
+  if (profile.recognition.recognizer.engine === "paddleocr.js") {
+    return createPaddleOcrRecognizer(profile);
+  }
+  const runtime: RecognitionRuntimeConfiguration = {
+    id: `${profile.id}:comparison-runtime`,
+    version: "recognition-runtime.v1",
+    recognizer: profile.recognition.recognizer,
+    preprocessing: profile.recognition.preprocessing,
+    rules: {
+      version: "fixed-recognition-rules.v1",
+      thresholds: profile.recognition.thresholds,
+      fusion: profile.recognition.fusion,
+      geometry: profile.recognition.geometry,
+      stabilization: profile.recognition.stabilization
+    }
+  };
+  return createOcrRecognizer(runtime, {
+    verifyAssets: () => verifyRecognitionAssets(profile.assets)
+  });
 }
 
 export function createComparisonTrial({

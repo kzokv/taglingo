@@ -9,37 +9,15 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Existing deterministic camera tests exercise the legacy JPY adapter without
-// making a production Camera-supported claim. The real catalog remains fully
-// manual-only until physical qualification is recorded.
-vi.mock("./domain/currencyCapabilities", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./domain/currencyCapabilities")>();
+// Existing deterministic camera journeys isolate recognition behavior from
+// the Guest policy work tracked in #81.
+vi.mock("./domain/cameraAccess", () => {
   return {
-    ...actual,
-    getCurrencyCapability: (
-      sourceCurrency: CurrencyCode,
-      platform: Parameters<typeof actual.getCurrencyCapability>[1]
-    ) => ({
-      ...actual.getCurrencyCapability(sourceCurrency, platform),
-      cameraSupported: sourceCurrency === "JPY"
-    })
-  };
-});
-
-vi.mock("./recognition/recognitionProfile", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./recognition/recognitionProfile")>();
-  const { createTestRecognitionProfile } = await import(
-    "./test/recognitionProfile"
-  );
-  const testProfile = createTestRecognitionProfile({
-    id: "desktop-test-jpy"
-  });
-  return {
-    ...actual,
-    resolveQualifiedRecognitionProfile: (sourceCurrency: CurrencyCode) =>
-      sourceCurrency === "JPY" ? testProfile : null
+    resolveFoundationCameraAccess: ({
+      sourceCurrency
+    }: {
+      sourceCurrency: CurrencyCode;
+    }) => sourceCurrency === "JPY"
   };
 });
 
@@ -48,7 +26,6 @@ import type { CurrencyCode } from "./domain/currencies";
 import type { GuestReferenceRate } from "./fx/referenceRate";
 import type { MemberPreferences } from "./member/memberPreferencesApi";
 import { MemberPreferencesRequestError } from "./member/memberPreferencesClient";
-import { createTestRecognitionProfile } from "./test/recognitionProfile";
 import type {
   OcrRecognizer,
   RecognitionPassIdentity,
@@ -340,7 +317,7 @@ describe("Manual Price Entry journey", () => {
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
   });
 
-  it("keeps an unqualified camera candidate on Manual Price Entry", async () => {
+  it("keeps a visitor without camera access on Manual Price Entry", async () => {
     const user = userEvent.setup();
     const getUserMedia = vi.fn();
     const createRecognizer = vi.fn(() => {
@@ -351,7 +328,7 @@ describe("Manual Price Entry journey", () => {
     render(
       <App
         createRecognizer={createRecognizer}
-        resolveRecognitionProfile={() => null}
+        resolveCameraAccess={() => false}
       />
     );
 
@@ -367,7 +344,7 @@ describe("Manual Price Entry journey", () => {
     );
 
     expect(
-      screen.getByText(/initial camera qualification candidate/i)
+      screen.getByText(/camera recognition is unavailable for this access mode/i)
     ).toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(createRecognizer).not.toHaveBeenCalled();
@@ -798,7 +775,7 @@ describe("Guest camera journey", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /physical-device qualification applies to this camera path/i
+        /recognition limitations are handled through Manual Price Entry/i
       )
     ).toBeInTheDocument();
     expect(getUserMedia).not.toHaveBeenCalled();
@@ -1080,7 +1057,7 @@ describe("Guest camera journey", () => {
     expect(createRecognizer).toHaveBeenCalledTimes(2);
   });
 
-  it("moves an active camera session to Manual Price Entry when its profile is demoted", async () => {
+  it("moves an active camera session to Manual Price Entry when access is revoked", async () => {
     const user = userEvent.setup();
     const { stream, track } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
@@ -1092,16 +1069,12 @@ describe("Guest camera journey", () => {
       recognize: vi.fn().mockResolvedValue([]),
       terminate: vi.fn().mockResolvedValue(undefined)
     };
-    const profile = createTestRecognitionProfile({
-      id: "demotion-test-jpy"
-    });
-    let qualified = true;
-    const resolveRecognitionProfile = () =>
-      qualified ? profile : null;
+    let cameraAllowed = true;
+    const resolveCameraAccess = () => cameraAllowed;
     const app = () => (
       <App
         createRecognizer={() => recognizer}
-        resolveRecognitionProfile={resolveRecognitionProfile}
+        resolveCameraAccess={resolveCameraAccess}
       />
     );
     const view = render(app());
@@ -1115,7 +1088,7 @@ describe("Guest camera journey", () => {
     fireEvent.loadedMetadata(video);
     await waitFor(() => expect(recognizer.prepare).toHaveBeenCalledOnce());
 
-    qualified = false;
+    cameraAllowed = false;
     view.rerender(app());
 
     expect(
@@ -1125,53 +1098,56 @@ describe("Guest camera journey", () => {
     expect(recognizer.terminate).toHaveBeenCalledOnce();
   });
 
-  it("stops an idle active camera session when its profile evidence expires", async () => {
+  it("reuses one runtime configuration across Source Currency sessions", async () => {
+    const user = userEvent.setup();
     const { stream, track } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
-    const recognizer: OcrRecognizer = {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      canvasContext()
+    );
+    const recognizers = [0, 1].map(() => ({
       prepare: vi.fn().mockResolvedValue(undefined),
       recognize: vi.fn().mockResolvedValue([]),
       terminate: vi.fn().mockResolvedValue(undefined)
-    };
-    const expiresAt = "2027-01-01T00:00:00.000Z";
-    const profile = createTestRecognitionProfile({
-      id: "expiry-test-jpy",
-      expiresAt
-    });
-    let expired = false;
-    let expireProfile!: () => void;
-    const resolveRecognitionProfile = () => (expired ? null : profile);
-    const scheduleProfileExpiry = vi.fn(
-      (_expiresAt: string, onExpire: () => void) => {
-        expireProfile = onExpire;
-        return vi.fn();
-      }
-    );
+    } satisfies OcrRecognizer));
+    const createRecognizer = vi
+      .fn()
+      .mockReturnValueOnce(recognizers[0])
+      .mockReturnValueOnce(recognizers[1]);
 
     render(
       <App
-        createRecognizer={() => recognizer}
-        resolveRecognitionProfile={resolveRecognitionProfile}
-        scheduleProfileExpiry={scheduleProfileExpiry}
+        createRecognizer={createRecognizer}
+        resolveCameraAccess={() => true}
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
-    await act(async () => {
-      await Promise.resolve();
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const video = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
     });
-    expect(screen.getByLabelText(/rear camera preview/i)).toBeInTheDocument();
-    expect(scheduleProfileExpiry).toHaveBeenCalledWith(
-      expiresAt,
-      expect.any(Function)
+    fireEvent.loadedMetadata(video);
+    await waitFor(() => expect(createRecognizer).toHaveBeenCalledOnce());
+
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /source currency/i }),
+      "USD"
     );
-
-    expired = true;
-    act(() => expireProfile());
-
-    expect(
-      screen.getByRole("textbox", { name: /jpy amount/i })
-    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    const nextVideo = await screen.findByLabelText(/rear camera preview/i);
+    Object.defineProperties(nextVideo, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 }
+    });
+    fireEvent.loadedMetadata(nextVideo);
+    await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(2));
+    expect(createRecognizer.mock.calls[0][0]).toBe(
+      createRecognizer.mock.calls[1][0]
+    );
+    expect(recognizers[0].terminate).toHaveBeenCalledOnce();
     expect(track.stop).toHaveBeenCalledOnce();
   });
 

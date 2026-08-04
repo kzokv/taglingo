@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createTestRecognitionProfile } from "../test/recognitionProfile";
 import {
   createOcrRecognizer,
   verifyRecognitionAssets,
   type OcrWorker
 } from "./ocrRecognizer";
+import { UNIVERSAL_RECOGNITION_RUNTIME } from "./recognitionRuntime";
 
 function worker() {
   return {
@@ -47,7 +47,7 @@ describe("Recognizer Adapter", () => {
     const ocrWorker = worker();
     const workerFactory = vi.fn().mockResolvedValue(ocrWorker);
     const verifyAssets = vi.fn().mockResolvedValue(undefined);
-    const recognizer = createOcrRecognizer(createTestRecognitionProfile(), {
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
       workerFactory,
       verifyAssets
     });
@@ -58,7 +58,7 @@ describe("Recognizer Adapter", () => {
     expect(workerFactory).toHaveBeenCalledOnce();
     expect(verifyAssets).toHaveBeenCalledOnce();
     expect(workerFactory).toHaveBeenCalledWith(
-      ["jpn", "eng"],
+      ["eng", "jpn", "chi_sim", "chi_tra", "kor"],
       expect.anything(),
       expect.objectContaining({
         workerPath: "/ocr/tesseract-7.0.0/worker.min.js",
@@ -70,9 +70,9 @@ describe("Recognizer Adapter", () => {
     );
   });
 
-  it("normalizes text and marker observations with polygons, timing, and pass identity", async () => {
+  it("returns currency-neutral text observations with polygons, timing, and pass identity", async () => {
     const timestamps = [10, 18];
-    const recognizer = createOcrRecognizer(createTestRecognitionProfile(), {
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
       workerFactory: vi.fn().mockResolvedValue(worker()),
       verifyAssets: vi.fn().mockResolvedValue(undefined),
       now: () => timestamps.shift() ?? 18
@@ -106,7 +106,7 @@ describe("Recognizer Adapter", () => {
       }),
       expect.objectContaining({
         text: "円",
-        evidenceKind: "marker",
+        evidenceKind: "text",
         confidence: 88,
         box: { x: 114, y: 20, width: 18, height: 32 },
         timing: { startedAtMs: 10, completedAtMs: 18, durationMs: 8 },
@@ -117,7 +117,7 @@ describe("Recognizer Adapter", () => {
 
   it("does not attempt another engine when initialization fails", async () => {
     const workerFactory = vi.fn().mockRejectedValue(new Error("unavailable"));
-    const recognizer = createOcrRecognizer(createTestRecognitionProfile(), {
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
       workerFactory,
       verifyAssets: vi.fn().mockResolvedValue(undefined)
     });
@@ -131,7 +131,7 @@ describe("Recognizer Adapter", () => {
     failedWorker.setParameters.mockRejectedValueOnce(
       new Error("parameters unavailable")
     );
-    const recognizer = createOcrRecognizer(createTestRecognitionProfile(), {
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
       workerFactory: vi.fn().mockResolvedValue(failedWorker),
       verifyAssets: vi.fn().mockResolvedValue(undefined)
     });

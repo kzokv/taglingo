@@ -1,8 +1,8 @@
 import { expect, it, vi } from "vitest";
 
-import { createTestRecognitionProfile } from "../test/recognitionProfile";
 import type { OcrRecognizer, RecognizerObservation } from "./ocrRecognizer";
 import { recognizePriceEvidence } from "./recognitionPipeline";
+import { UNIVERSAL_RECOGNITION_RUNTIME } from "./recognitionRuntime";
 
 function recognized(
   text: string,
@@ -69,7 +69,8 @@ it("runs one frame portfolio sequentially and fuses normalized variant geometry"
   };
 
   const candidates = await recognizePriceEvidence(
-    createTestRecognitionProfile(),
+    UNIVERSAL_RECOGNITION_RUNTIME,
+    "JPY",
     recognizer,
     images[0],
     { kind: "guide", frameIdentity: "frame-7" },
