@@ -436,25 +436,32 @@ export function fusePriceEvidence(
   observations: readonly RecognizerObservation[]
 ): PriceEvidenceCandidate[] {
   const candidates: PriceEvidenceCandidate[] = [];
-  const observationsByFrame = new Map<string, RecognizerObservation[]>();
+  const observationsByFrame = new Map<
+    string,
+    Map<string, RecognizerObservation[]>
+  >();
   for (const observation of observations) {
-    const frameIdentity = observation.passIdentity.frameIdentity;
-    const frameObservations = observationsByFrame.get(frameIdentity) ?? [];
-    frameObservations.push(observation);
-    observationsByFrame.set(frameIdentity, frameObservations);
+    const { frameIdentity, preprocessingIdentity } = observation.passIdentity;
+    const passes = observationsByFrame.get(frameIdentity) ?? new Map();
+    const passObservations = passes.get(preprocessingIdentity) ?? [];
+    passObservations.push(observation);
+    passes.set(preprocessingIdentity, passObservations);
+    observationsByFrame.set(frameIdentity, passes);
   }
 
-  for (const frameObservations of observationsByFrame.values()) {
-    const markers = frameObservations.filter(
+  for (const passObservations of [...observationsByFrame.values()].flatMap(
+    (passes) => [...passes.values()]
+  )) {
+    const markers = passObservations.filter(
       (observation) =>
         observation.confidence >= configuration.thresholds.markerConfidence &&
         isCompatibleMarker(observation.text, configuration)
     );
 
-    for (const amount of frameObservations) {
+    for (const amount of passObservations) {
       if (
         amount.confidence < configuration.thresholds.textConfidence ||
-        hasNegativeContext(amount, frameObservations, configuration)
+        hasNegativeContext(amount, passObservations, configuration)
       ) {
         continue;
       }

@@ -10,7 +10,7 @@
     "jsx": "react-jsx",
     "noEmit": true,
     "strict": true,
-    "types": ["node", "@playwright/test"]
+    "types": ["node", "@playwright/test", "vite/client"]
   },
   "include": ["e2e", "playwright.config.ts"]
 }

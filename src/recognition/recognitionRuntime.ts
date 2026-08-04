@@ -58,13 +58,36 @@ const HASHES = {
       "sha256:c58b46a4c796c0b8afccf77591d5b875b6896b45d402bbce8caa6f5362447b38"
   },
   models: {
-    chi_sim:
-      "sha256:7d4b727797dac9c3668dd09769c07aec3c29fef88b0e980e187f61394cedc823",
-    chi_tra:
-      "sha256:730d84d5263d9ca6c1db04af24eb37c8e750c94e6419d22e506dd3d7453f9d19",
-    eng: "sha256:afa9b778b3bfe580362a0b61308d08389c77dd3052c29a35270c827d7e75165c",
-    jpn: "sha256:daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45",
-    kor: "sha256:4c3a46d02d0faa699a0010b67e02692800a212d60c5cfca5d51a275bd2e107a9"
+    chi_sim: {
+      artifact:
+        "sha256:7d4b727797dac9c3668dd09769c07aec3c29fef88b0e980e187f61394cedc823",
+      decoded:
+        "sha256:a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730"
+    },
+    chi_tra: {
+      artifact:
+        "sha256:730d84d5263d9ca6c1db04af24eb37c8e750c94e6419d22e506dd3d7453f9d19",
+      decoded:
+        "sha256:529c5b5797d64b126065cd55f2bb4c7fd7b15790798091b1ff259941a829330b"
+    },
+    eng: {
+      artifact:
+        "sha256:afa9b778b3bfe580362a0b61308d08389c77dd3052c29a35270c827d7e75165c",
+      decoded:
+        "sha256:7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    },
+    jpn: {
+      artifact:
+        "sha256:daaef8801a960881fb7232653e3edb5964c568f8f3900452b2df142a2b237e45",
+      decoded:
+        "sha256:1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d"
+    },
+    kor: {
+      artifact:
+        "sha256:4c3a46d02d0faa699a0010b67e02692800a212d60c5cfca5d51a275bd2e107a9",
+      decoded:
+        "sha256:6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2"
+    }
   }
 } as const;
 
@@ -106,7 +129,8 @@ export const UNIVERSAL_RECOGNITION_RUNTIME: RecognitionRuntimeConfiguration =
         },
         models: UNIVERSAL_LANGUAGES.map((language) => ({
           path: `/ocr/tessdata_fast-4.1.0/${language}.traineddata.gz` as const,
-          hash: HASHES.models[language]
+          hash: HASHES.models[language].artifact,
+          decodedHash: HASHES.models[language].decoded
         }))
       },
       parameters: {
@@ -186,8 +210,11 @@ export function assertValidRecognitionRuntime(
     runtime.recognizer.languages.length === 0 ||
     !selfHosted(runtime.recognizer.assets.runtime.basePath) ||
     assets.some(
-      ({ path, hash }) =>
-        !selfHosted(path) || !/^sha256:[a-f\d]{64}$/u.test(hash)
+      ({ path, hash, decodedHash }) =>
+        !selfHosted(path) ||
+        !/^sha256:[a-f\d]{64}$/u.test(hash) ||
+        (decodedHash !== undefined &&
+          !/^sha256:[a-f\d]{64}$/u.test(decodedHash))
     ) ||
     !languageModelsMatch ||
     preprocessingIds.size !== runtime.preprocessing.length ||

@@ -29,7 +29,8 @@ function observation({
   y = 20,
   height = 20,
   lineIndex = 0,
-  preprocessingIdentity = "raw"
+  preprocessingIdentity = "raw",
+  frameIdentity = "frame-1"
 }: {
   text: string;
   evidenceKind?: RecognizerObservation["evidenceKind"];
@@ -40,6 +41,7 @@ function observation({
   height?: number;
   lineIndex?: number;
   preprocessingIdentity?: string;
+  frameIdentity?: string;
 }): RecognizerObservation {
   const box = { x, y, width, height };
   return {
@@ -57,7 +59,7 @@ function observation({
     timing: { startedAtMs: 1, completedAtMs: 2, durationMs: 1 },
     passIdentity: {
       kind: "guide",
-      frameIdentity: "frame-1",
+      frameIdentity,
       preprocessingIdentity
     }
   };
@@ -194,7 +196,7 @@ describe("Price Evidence Fusion", () => {
       "conflicting reading",
       [
         observation({
-          text: "4,147",
+          text: "¥4,147",
           confidence: 99,
           x: 20,
           width: 55,
@@ -216,6 +218,55 @@ describe("Price Evidence Fusion", () => {
     ];
 
     expect(fusePriceEvidence(profile, [...valid, ...extra])).toEqual([]);
+  });
+
+  it("never borrows a marker from another preprocessing variant", () => {
+    expect(
+      fusePriceEvidence(configuration("USD"), [
+        observation({ text: "USD", x: 10, width: 40 }),
+        observation({ text: "12.34", x: 55, width: 55 }),
+        observation({
+          text: "JSD",
+          x: 10,
+          width: 40,
+          preprocessingIdentity: "threshold"
+        }),
+        observation({
+          text: "12.54",
+          x: 55,
+          width: 55,
+          preprocessingIdentity: "threshold"
+        })
+      ])
+    ).toEqual([
+      expect.objectContaining({
+        currency: "USD",
+        minorUnits: 1234,
+        preprocessingIdentities: ["raw"]
+      })
+    ]);
+  });
+
+  it("keeps adversarial frame and preprocessing identities in distinct passes", () => {
+    const firstIdentity = {
+      frameIdentity: "frame",
+      preprocessingIdentity: "raw\u0000x"
+    };
+    const secondIdentity = {
+      frameIdentity: "frame\u0000raw",
+      preprocessingIdentity: "x"
+    };
+
+    expect(
+      fusePriceEvidence(configuration("USD"), [
+        observation({ text: "USD", x: 10, width: 40, ...firstIdentity }),
+        observation({ text: "12.34", x: 55, width: 55, ...firstIdentity }),
+        observation({ text: "EUR", x: 10, width: 40, ...secondIdentity }),
+        observation({ text: "56,78", x: 55, width: 55, ...secondIdentity })
+      ]).map(({ frameIdentity, minorUnits }) => ({ frameIdentity, minorUnits }))
+    ).toEqual([
+      { frameIdentity: "frame", minorUnits: 1234 }
+    ]);
   });
 
   it("applies inclusive baseline, overlap, and gap rules relative to text height", () => {

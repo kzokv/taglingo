@@ -1,0 +1,106 @@
+{
+  "version": "generated-recognition-corpus.v1",
+  "license": "CC0-1.0",
+  "fixtures": [
+    {
+      "id": "generated-usd-basic",
+      "file": "images/generated-usd-basic.png",
+      "origin": "generated",
+      "sourceCurrency": "USD",
+      "scripts": ["Latin"],
+      "challenges": ["currency-code-marker", "period-decimal"],
+      "asset": { "sha256": "d9885fa92f8b34aad176ecf6260a01cdcc805305a711aa42bc6d281d1f0efe98", "width": 800, "height": 240 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 1234, "region": { "x": 0, "y": 40, "width": 650, "height": 160 } }] }
+    },
+    {
+      "id": "generated-aud-marker",
+      "file": "images/generated-aud-marker.png",
+      "origin": "generated",
+      "sourceCurrency": "AUD",
+      "scripts": ["Latin"],
+      "challenges": ["currency-code-marker", "period-decimal"],
+      "asset": { "sha256": "bc8a2a13cfe4dddacb47251d3190cf514dd260958661b5b0e4888f38c47f2391", "width": 800, "height": 240 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 2345, "region": { "x": 0, "y": 40, "width": 700, "height": 160 } }] }
+    },
+    {
+      "id": "generated-eur-separator",
+      "file": "images/generated-eur-separator.png",
+      "origin": "generated",
+      "sourceCurrency": "EUR",
+      "scripts": ["Latin"],
+      "challenges": ["currency-code-marker", "comma-decimal"],
+      "asset": { "sha256": "6ded88be4eae6d011884ffb581f23bed621fda72bbcabec9683b9e2fe2df6ef8", "width": 800, "height": 240 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 5678, "region": { "x": 0, "y": 40, "width": 700, "height": 160 } }] }
+    },
+    {
+      "id": "generated-jpy-script",
+      "file": "images/generated-jpy-script.png",
+      "origin": "generated",
+      "sourceCurrency": "JPY",
+      "scripts": ["Latin", "Japanese"],
+      "challenges": ["suffix-marker", "zero-fraction-currency"],
+      "asset": { "sha256": "e6607b7e79881f5f73872f0dd0027243cfb35f2632c8a56eb25783423cc9173a", "width": 800, "height": 240 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 2500, "region": { "x": 0, "y": 40, "width": 760, "height": 160 } }] }
+    },
+    {
+      "id": "generated-twd-layout",
+      "file": "images/generated-twd-layout.png",
+      "origin": "generated",
+      "sourceCurrency": "TWD",
+      "scripts": ["Latin", "Traditional Han"],
+      "challenges": ["multiline-layout", "competing-text"],
+      "asset": { "sha256": "6a0250d803c329d2c6e43a7371b16a1a3f5269ff0c933769ff3274e6d812fb79", "width": 800, "height": 320 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 3000, "region": { "x": 0, "y": 130, "width": 700, "height": 170 } }] }
+    },
+    {
+      "id": "generated-cny-simplified",
+      "file": "images/generated-cny-simplified.png",
+      "origin": "generated",
+      "sourceCurrency": "CNY",
+      "scripts": ["Latin", "Simplified Han"],
+      "challenges": ["non-guest-camera-source-currency", "multilingual-label"],
+      "asset": { "sha256": "86b3b23cbe934398b75c876306ff9200d84f71dc0c2865d4d21ba9fffb181e14", "width": 800, "height": 320 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 8850, "region": { "x": 0, "y": 130, "width": 700, "height": 170 } }] }
+    },
+    {
+      "id": "generated-krw-hangul",
+      "file": "images/generated-krw-hangul.png",
+      "origin": "generated",
+      "sourceCurrency": "KRW",
+      "scripts": ["Latin", "Hangul"],
+      "challenges": ["non-guest-camera-source-currency", "multilingual-label", "grouping-separator"],
+      "asset": { "sha256": "c214104c34f9a5ab06804891d464046667a94414717d2d5cf3e0f31da5efbcd1", "width": 900, "height": 320 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 12000, "region": { "x": 0, "y": 130, "width": 850, "height": 170 } }] }
+    },
+    {
+      "id": "generated-multiple-prices",
+      "file": "images/generated-multiple-prices.png",
+      "origin": "generated",
+      "sourceCurrency": "USD",
+      "scripts": ["Latin"],
+      "challenges": ["multiple-prices", "multiline-layout"],
+      "asset": { "sha256": "6757cda7aef06ad3bbfe06676e1880066102ec95445d5d998c5b07af9c083c83", "width": 1000, "height": 420 },
+      "expectation": { "status": "pass", "detectedPrices": [{ "minorUnits": 425, "region": { "x": 0, "y": 30, "width": 700, "height": 150 } }, { "minorUnits": 975, "region": { "x": 0, "y": 210, "width": 700, "height": 170 } }] }
+    },
+    {
+      "id": "generated-negative-evidence",
+      "file": "images/generated-negative-evidence.png",
+      "origin": "generated",
+      "sourceCurrency": "USD",
+      "scripts": ["Latin"],
+      "challenges": ["nearby-non-price-numerals", "item-number-negative-evidence"],
+      "asset": { "sha256": "e8b9420d70225687653e80462c40bf516be0a94bac724ef031175e50126cdec7", "width": 1000, "height": 300 },
+      "expectation": { "status": "pass", "detectedPrices": [] }
+    },
+    {
+      "id": "generated-wrong-currency",
+      "file": "images/generated-wrong-currency.png",
+      "origin": "generated",
+      "sourceCurrency": "USD",
+      "scripts": ["Latin"],
+      "challenges": ["wrong-currency", "comma-decimal"],
+      "asset": { "sha256": "80c8c640e6ed00c42c265686b5c5d1996edeee9c76c6257cbd171fe5eb3e5e3e", "width": 800, "height": 240 },
+      "expectation": { "status": "pass", "detectedPrices": [] }
+    }
+  ]
+}

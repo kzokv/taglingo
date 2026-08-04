@@ -157,4 +157,44 @@ describe("Recognizer Adapter", () => {
       )
     ).rejects.toThrow(/hash mismatch/i);
   });
+
+  it("validates decoded browser bytes when HTTP applies gzip content encoding", async () => {
+    const decodedBytes = new TextEncoder().encode("decoded model bytes");
+    await expect(
+      verifyRecognitionAssets(
+        [
+          {
+            path: "/ocr/eng.traineddata.gz",
+            hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            decodedHash:
+              "sha256:e448702be15b6819d770e81d254dd0211081ae5cccef71a8c46294fc67cdabf5"
+          }
+        ],
+        {
+          fetcher: vi.fn().mockResolvedValue(
+            new Response(decodedBytes, {
+              headers: { "content-encoding": "gzip" }
+            })
+          )
+        }
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not accept the decoded hash without declared HTTP content encoding", async () => {
+    const decodedBytes = new TextEncoder().encode("decoded model bytes");
+    await expect(
+      verifyRecognitionAssets(
+        [
+          {
+            path: "/ocr/eng.traineddata.gz",
+            hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            decodedHash:
+              "sha256:e448702be15b6819d770e81d254dd0211081ae5cccef71a8c46294fc67cdabf5"
+          }
+        ],
+        { fetcher: vi.fn().mockResolvedValue(new Response(decodedBytes)) }
+      )
+    ).rejects.toThrow(/hash mismatch/i);
+  });
 });

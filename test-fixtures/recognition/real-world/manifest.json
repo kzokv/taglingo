@@ -7,17 +7,28 @@
       "sourceCurrency": "AUD",
       "kind": "real-world",
       "expectedPrices": [
-        { "text": "$9.98", "minorUnits": 998 },
-        { "text": "$10.98", "minorUnits": 1098 },
-        { "text": "$6.98", "minorUnits": 698 }
+        { "text": "$9.98", "minorUnits": 998, "region": { "x": 0, "y": 700, "width": 350, "height": 237 } },
+        { "text": "$10.98", "minorUnits": 1098, "region": { "x": 560, "y": 700, "width": 520, "height": 237 } },
+        { "text": "$6.98", "minorUnits": 698, "region": { "x": 1380, "y": 700, "width": 540, "height": 237 } }
       ],
+      "browserExpectation": {
+        "status": "known-gap",
+        "knownGap": "The current runtime detects $6.98 but misses the partially cropped $9.98 and glare-affected $10.98 shelf labels.",
+        "observedDetectedPrices": [
+          { "currency": "AUD", "minorUnits": 698, "region": { "x": 1380, "y": 700, "width": 540, "height": 237 } }
+        ],
+        "samples": [
+          { "x": 0, "y": 700, "width": 350, "height": 237 },
+          { "x": 560, "y": 700, "width": 520, "height": 237 },
+          { "x": 1380, "y": 700, "width": 540, "height": 237 }
+        ]
+      },
       "parserAssertion": "required",
       "challenges": ["multiple-prices", "glare", "nearby-non-price-numerals"],
       "asset": {
         "sha256": "77b91d0f8556b750dabb6b7f7a77fdedb9106304d6edd30b797d3800f5bdebf8",
         "width": 1920,
-        "height": 937,
-        "transformation": "Wikimedia Commons 1920px thumbnail"
+        "height": 937
       },
       "source": {
         "provider": "Wikimedia Commons",
@@ -36,16 +47,21 @@
       "sourceCurrency": "EUR",
       "kind": "real-world",
       "expectedPrices": [
-        { "text": "€1.06", "minorUnits": 106 }
+        { "text": "€1.06", "minorUnits": 106, "region": { "x": 70, "y": 40, "width": 1090, "height": 260 } }
       ],
+      "browserExpectation": {
+        "status": "known-gap",
+        "samples": [{ "x": 40, "y": 20, "width": 1140, "height": 300 }],
+        "knownGap": "The current EUR Currency Notation Rules reject the period decimal visible on this Croatian dual-currency tag.",
+        "observedDetectedPrices": []
+      },
       "parserAssertion": "pending",
       "knownGap": "The current EUR notation rule assumes comma decimals, while this Croatian dual-currency tag uses a period.",
       "challenges": ["wrong-or-secondary-currency", "low-light", "decimal-notation"],
       "asset": {
         "sha256": "1968c3d8797270b8b65f30d843f7c8de3e4fe80fbc16cc49f3d061dda1e41a5b",
         "width": 1234,
-        "height": 806,
-        "transformation": "none"
+        "height": 806
       },
       "source": {
         "provider": "Wikimedia Commons",
@@ -64,16 +80,24 @@
       "sourceCurrency": "JPY",
       "kind": "real-world",
       "expectedPrices": [
-        { "text": "2,500円", "minorUnits": 2500 },
-        { "text": "2,200円", "minorUnits": 2200 }
+        { "text": "2,500円", "minorUnits": 2500, "region": { "x": 180, "y": 160, "width": 340, "height": 210 } },
+        { "text": "2,200円", "minorUnits": 2200, "region": { "x": 300, "y": 430, "width": 360, "height": 240 } }
       ],
+      "browserExpectation": {
+        "status": "known-gap",
+        "samples": [
+          { "x": 150, "y": 140, "width": 400, "height": 250 },
+          { "x": 280, "y": 410, "width": 420, "height": 267 }
+        ],
+        "knownGap": "The current runtime does not reliably recognize the rotated handwritten Japanese sale tags.",
+        "observedDetectedPrices": []
+      },
       "parserAssertion": "required",
       "challenges": ["multiple-prices", "rotation", "handwritten", "sale-formatting"],
       "asset": {
         "sha256": "4be19023df58f05e2de48ab6a17e1d44d10df84fb07c5eb188f010d11fc2debf",
         "width": 1023,
-        "height": 677,
-        "transformation": "none"
+        "height": 677
       },
       "source": {
         "provider": "Wikimedia Commons",
@@ -92,15 +116,20 @@
       "sourceCurrency": "TWD",
       "kind": "real-world",
       "expectedPrices": [
-        { "text": "$30", "minorUnits": 3000 }
+        { "text": "$30", "minorUnits": 3000, "region": { "x": 380, "y": 560, "width": 820, "height": 460 } }
       ],
+      "browserExpectation": {
+        "status": "known-gap",
+        "knownGap": "The current runtime reads competing date numerals but does not produce the blurred $30 TWD Detected Price.",
+        "observedDetectedPrices": [],
+        "samples": [{ "x": 350, "y": 520, "width": 900, "height": 540 }]
+      },
       "parserAssertion": "required",
       "challenges": ["nearby-non-price-numerals", "ambiguous-dollar-marker", "blur"],
       "asset": {
         "sha256": "936f513357b3896f75e282338feb338e7a1bcc9daf594447daa16c5c6362de1a",
         "width": 1600,
-        "height": 1200,
-        "transformation": "none"
+        "height": 1200
       },
       "source": {
         "provider": "Wikimedia Commons",
@@ -119,15 +148,20 @@
       "sourceCurrency": "USD",
       "kind": "real-world",
       "expectedPrices": [
-        { "text": "$3.99", "minorUnits": 399 }
+        { "text": "$3.99", "minorUnits": 399, "region": { "x": 1010, "y": 620, "width": 650, "height": 470 } }
       ],
+      "browserExpectation": {
+        "status": "known-gap",
+        "knownGap": "The current runtime does not produce a Detected Price from the depth-of-field shelf tag crop.",
+        "observedDetectedPrices": [],
+        "samples": [{ "x": 990, "y": 590, "width": 700, "height": 520 }]
+      },
       "parserAssertion": "required",
       "challenges": ["multiple-prices", "depth-of-field", "nearby-non-price-numerals"],
       "asset": {
         "sha256": "5bc32df4a1aa991c19d713a248e602340fbf81c23f2b14eae3ca4d71a66c6d4c",
         "width": 1920,
-        "height": 1536,
-        "transformation": "Wikimedia Commons 1920px thumbnail"
+        "height": 1536
       },
       "source": {
         "provider": "Wikimedia Commons",
