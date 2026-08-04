@@ -6,8 +6,11 @@ represent physical-device qualification or a claim of population accuracy.
 
 `manifest.json` binds each retained image to its provenance, license, hashes,
 dimensions, selected Source Currency, expected price text, exact minor units,
-and visual challenges. The corpus contract test verifies those bindings and
-checks every annotation that the current Currency Notation Rules support.
+acceptable image regions, reviewed browser outcome, and visual challenges. The
+corpus contract test verifies those bindings and checks every annotation that
+the current Currency Notation Rules support. The browser fixture suite records
+the exact currently observed Detected Prices for known gaps so improvements or
+regressions require review rather than silently changing the baseline.
 
 An annotation may temporarily use `"parserAssertion": "pending"` only when the
 real image exposes a documented notation gap. Pending annotations remain visible

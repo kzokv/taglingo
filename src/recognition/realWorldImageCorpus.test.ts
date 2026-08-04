@@ -5,48 +5,17 @@ import { resolve } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
-import type { RecognizerAdapterCurrencyCode } from "../domain/currencies";
+import { hasRecognizerAdapter } from "../domain/currencies";
 import { localizePrices, type OcrToken } from "./priceLocalization";
-
-interface CorpusFixture {
-  id: string;
-  file: string;
-  sourceCurrency: RecognizerAdapterCurrencyCode;
-  kind: "real-world";
-  expectedPrices: { text: string; minorUnits: number }[];
-  parserAssertion: "required" | "pending";
-  knownGap?: string;
-  challenges: string[];
-  asset: {
-    sha256: string;
-    width: number;
-    height: number;
-    transformation: string;
-  };
-  source: {
-    provider: "Wikimedia Commons";
-    title: string;
-    descriptionUrl: string;
-    downloadUrl: string;
-    author: string;
-    license: "CC BY 4.0" | "CC BY-SA 2.0" | "CC BY-SA 4.0";
-    licenseUrl: string;
-    originalSha1: string;
-  };
-}
-
-interface CorpusManifest {
-  version: "real-world-recognition-corpus.v1";
-  fixtures: CorpusFixture[];
-}
+import { validateRealWorldRecognitionCorpusManifest } from "./recognitionFixtureManifest";
 
 const CORPUS_ROOT = resolve(
   process.cwd(),
   "test-fixtures/recognition/real-world"
 );
-const manifest = JSON.parse(
-  readFileSync(resolve(CORPUS_ROOT, "manifest.json"), "utf8")
-) as CorpusManifest;
+const manifest = validateRealWorldRecognitionCorpusManifest(
+  JSON.parse(readFileSync(resolve(CORPUS_ROOT, "manifest.json"), "utf8"))
+);
 const annotationToken = (text: string): OcrToken => ({
   text,
   confidence: 100,
@@ -74,6 +43,7 @@ describe("real-world recognition image corpus", () => {
     for (const fixture of manifest.fixtures) {
       expect(fixture.kind).toBe("real-world");
       expect(fixture.expectedPrices.length, fixture.id).toBeGreaterThan(0);
+      expect(fixture.browserExpectation.samples.length, fixture.id).toBeGreaterThan(0);
       expect(fixture.challenges.length, fixture.id).toBeGreaterThan(0);
       expect(fixture.source.provider).toBe("Wikimedia Commons");
       expect(fixture.source.author.trim(), fixture.id).not.toBe("");
@@ -93,6 +63,33 @@ describe("real-world recognition image corpus", () => {
       );
       if (fixture.parserAssertion === "pending") {
         expect(fixture.knownGap?.trim(), fixture.id).not.toBe("");
+      }
+      if (fixture.browserExpectation.status === "known-gap") {
+        expect(fixture.browserExpectation.knownGap?.trim(), fixture.id).not.toBe("");
+        expect(
+          fixture.browserExpectation.observedDetectedPrices,
+          fixture.id
+        ).toBeDefined();
+      }
+      for (const sample of fixture.browserExpectation.samples) {
+        expect(sample.x + sample.width, fixture.id).toBeLessThanOrEqual(
+          fixture.asset.width
+        );
+        expect(sample.y + sample.height, fixture.id).toBeLessThanOrEqual(
+          fixture.asset.height
+        );
+      }
+      for (const { region } of fixture.expectedPrices) {
+        expect(region.x, fixture.id).toBeGreaterThanOrEqual(0);
+        expect(region.y, fixture.id).toBeGreaterThanOrEqual(0);
+        expect(region.width, fixture.id).toBeGreaterThan(0);
+        expect(region.height, fixture.id).toBeGreaterThan(0);
+        expect(region.x + region.width, fixture.id).toBeLessThanOrEqual(
+          fixture.asset.width
+        );
+        expect(region.y + region.height, fixture.id).toBeLessThanOrEqual(
+          fixture.asset.height
+        );
       }
     }
   });
@@ -123,6 +120,8 @@ describe("real-world recognition image corpus", () => {
     );
 
     for (const { fixture, price } of requiredAnnotations) {
+      expect(hasRecognizerAdapter(fixture.sourceCurrency), fixture.id).toBe(true);
+      if (!hasRecognizerAdapter(fixture.sourceCurrency)) continue;
       expect(
         localizePrices(fixture.sourceCurrency, [annotationToken(price.text)])[0]
           ?.minorUnits,

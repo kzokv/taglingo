@@ -25,6 +25,9 @@ describe("universal Recognition Runtime", () => {
       expect(asset.path).toMatch(/^\/ocr\//u);
       expect(asset.hash).toMatch(/^sha256:[a-f\d]{64}$/u);
     }
+    for (const model of UNIVERSAL_RECOGNITION_RUNTIME.recognizer.assets.models) {
+      expect(model.decodedHash).toMatch(/^sha256:[a-f\d]{64}$/u);
+    }
     const serialized = JSON.stringify(UNIVERSAL_RECOGNITION_RUNTIME);
     expect(serialized).not.toContain("sourceCurrency");
     expect(serialized).not.toContain("platform");

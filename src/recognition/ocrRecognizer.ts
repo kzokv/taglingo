@@ -116,7 +116,7 @@ export async function verifyRecognitionAssets(
     fetcher?: typeof fetch;
   } = {}
 ): Promise<void> {
-  for (const { path, hash } of assets) {
+  for (const { path, hash, decodedHash } of assets) {
     const response = await fetcher(path, { credentials: "same-origin" });
     if (!response.ok) {
       throw new Error(`Recognition asset could not be loaded: ${path}`);
@@ -125,7 +125,13 @@ export async function verifyRecognitionAssets(
       "SHA-256",
       await response.arrayBuffer()
     );
-    if (`sha256:${digestToHex(digest)}` !== hash) {
+    const contentEncodings = (response.headers.get("content-encoding") ?? "")
+      .split(",")
+      .map((value) => value.trim().toLocaleLowerCase("en-US"));
+    const expectedHash = contentEncodings.includes("gzip")
+      ? decodedHash
+      : hash;
+    if (!expectedHash || `sha256:${digestToHex(digest)}` !== expectedHash) {
       throw new Error(`Recognition asset hash mismatch: ${path}`);
     }
   }

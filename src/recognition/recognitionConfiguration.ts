@@ -2,7 +2,10 @@ export type Sha256Hash = `sha256:${string}`;
 
 export interface RecognitionAsset {
   readonly path: `/${string}`;
+  /** Hash of the retained artifact bytes before HTTP content decoding. */
   readonly hash: Sha256Hash;
+  /** Hash exposed by browser fetch after declared HTTP gzip decoding. */
+  readonly decodedHash?: Sha256Hash;
 }
 
 export interface TesseractRecognizerConfiguration {
