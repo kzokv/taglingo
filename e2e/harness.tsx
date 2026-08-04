@@ -78,12 +78,6 @@ const memberPreferences: MemberPreferences = {
 };
 const memberMode =
   new URLSearchParams(window.location.search).get("mode") === "member";
-const resolveFixtureCameraAccess = ({
-  sourceCurrency
-}: {
-  sourceCurrency: CurrencyCode;
-}) => sourceCurrency === "JPY";
-
 createRoot(document.getElementById("root")!).render(
   memberMode ? (
     <App
@@ -95,7 +89,6 @@ createRoot(document.getElementById("root")!).render(
       saveMemberPreferences={async (preferences) => preferences}
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveCameraAccess={resolveFixtureCameraAccess}
       admission={
         <section aria-label="Fixture account">
           <button type="button">Sign out fixture account</button>
@@ -106,7 +99,6 @@ createRoot(document.getElementById("root")!).render(
     <App
       loadGuestRate={loadRate}
       createRecognizer={createFixtureRecognizer}
-      resolveCameraAccess={resolveFixtureCameraAccess}
       admission={
         <section aria-label="Fixture member admission">
           <button type="button">Request fixture member access</button>

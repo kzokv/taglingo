@@ -223,6 +223,41 @@ h1 em {
   margin-top: 24px;
 }
 
+.camera-allowance-note {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(152, 224, 192, 0.22);
+  border-radius: 13px;
+  background: rgba(152, 224, 192, 0.055);
+}
+
+.camera-allowance-note strong,
+.camera-allowance-note p {
+  margin: 0;
+}
+
+.camera-allowance-note strong {
+  color: var(--mint);
+  font-size: 0.76rem;
+}
+
+.camera-allowance-note p {
+  margin-top: 4px;
+  color: #aeb7b6;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.camera-allowance-note.exhausted {
+  border-color: rgba(255, 195, 107, 0.35);
+  background: rgba(255, 195, 107, 0.07);
+}
+
+.camera-allowance-note.exhausted strong,
+.camera-allowance-note.exhausted time {
+  color: #ffd59a;
+}
+
 .target-currency-picker {
   position: relative;
 }
@@ -549,6 +584,11 @@ h1 em {
   justify-content: space-between;
   background: var(--mint);
   color: var(--ink);
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .button-camera {

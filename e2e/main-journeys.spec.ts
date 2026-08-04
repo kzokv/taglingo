@@ -50,6 +50,60 @@ test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
 
+test("Guest camera policy keeps five currencies available and promotes all others to manual", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html");
+  const sourceCurrency = page.getByRole("combobox", {
+    name: /source currency/i
+  });
+
+  for (const currency of ["USD", "AUD", "JPY", "TWD", "EUR"]) {
+    await sourceCurrency.selectOption(currency);
+    await expect(page.getByRole("button", { name: /open camera/i })).toBeEnabled();
+  }
+
+  await sourceCurrency.selectOption("CAD");
+  await expect(
+    page.getByRole("heading", { name: /manual price entry/i })
+  ).toBeVisible();
+  await expect(page.getByText(/CAD remains available through unlimited/i)).toBeVisible();
+});
+
+test("Guest camera exhaustion shows its rolling refresh while manual stays unlimited", async ({
+  page
+}) => {
+  await page.addInitScript(() => {
+    const nowMs = Date.now();
+    window.localStorage.setItem(
+      "taglingo.guest-camera-allowance.v1",
+      JSON.stringify({
+        version: 1,
+        successfulUsageTimestamps: Array.from(
+          { length: 10 },
+          (_, index) => nowMs - index * 1_000
+        )
+      })
+    );
+  });
+  await page.goto("/e2e/harness.html");
+
+  await expect(
+    page.getByRole("button", { name: /open camera · allowance used/i })
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("complementary", { name: /guest camera allowance/i })
+  ).toContainText("Camera refreshes at");
+  const manual = page.getByRole("button", {
+    name: /enter price manually · unlimited/i
+  });
+  await expect(manual).toBeEnabled();
+  await manual.click();
+  await expect(
+    page.getByRole("heading", { name: /manual price entry/i })
+  ).toBeVisible();
+});
+
 test("Guest converts an Entered Price for a manual-only Source Currency", async ({
   page
 }) => {
@@ -165,6 +219,11 @@ test("Guest recovers from deterministic camera denial with Manual Price Entry", 
   await expect(
     page.getByRole("region", { name: /recognition summary/i }).locator("strong")
   ).toHaveText("No Detected Price yet");
+  expect(
+    await page.evaluate(() =>
+      window.localStorage.getItem("taglingo.guest-camera-allowance.v1")
+    )
+  ).toBeNull();
   expect(apiRequests).toEqual([]);
 });
 
@@ -183,6 +242,14 @@ test("Guest completes recognition with deterministic media and OCR", async ({
     /focused-detection/
   );
   await expect(page.getByText("USD 27.80")).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(
+        window.localStorage.getItem("taglingo.guest-camera-allowance.v1") ??
+          "null"
+      )?.successfulUsageTimestamps.length
+    )
+  ).toBe(1);
 
   const detectedPriceList = page.getByRole("list", {
     name: /detected prices/i
@@ -200,6 +267,14 @@ test("Guest completes recognition with deterministic media and OCR", async ({
     page.getByRole("region", { name: /recognition summary/i }).locator("strong")
   ).toHaveText("Focused Price · JPY 980");
   await expect(page.getByText("USD 6.58")).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(
+        window.localStorage.getItem("taglingo.guest-camera-allowance.v1") ??
+          "null"
+      )?.successfulUsageTimestamps.length
+    )
+  ).toBe(1);
 });
 
 test("anonymous recognition health stays silent until a future opted-in camera session", async ({
