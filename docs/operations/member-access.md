@@ -18,9 +18,10 @@ before it reads preference data.
 
 ## Configure the Pages Function
 
-Apply both D1 migrations in order, including
-`migrations/0002_member_preferences.sql`. Bind that database to the Pages
-Function as `DB`.
+Apply all D1 migrations in order, through
+`migrations/0003_recognition_health.sql`. This includes the member preference
+tables and the aggregate-only recognition-health table. Bind that database to
+the Pages Function as `DB`.
 
 Configure these server-side Pages values:
 

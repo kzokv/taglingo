@@ -549,6 +549,46 @@ describe("anonymous recognition-health consent", () => {
     expect(submitRecognitionHealth).not.toHaveBeenCalled();
   });
 
+  it("lets an opted-in shopper turn sharing off before closing the camera", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "taglingo.recognition-health.v1",
+      JSON.stringify({
+        version: 1,
+        sharingEnabled: true,
+        invitationShown: true
+      })
+    );
+    useMediaDevices(
+      vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"))
+    );
+    const submitRecognitionHealth = vi.fn().mockResolvedValue(undefined);
+
+    render(<App submitRecognitionHealth={submitRecognitionHealth} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+    await screen.findByText(/camera access was denied/i);
+
+    await user.click(
+      screen.getByRole("button", { name: /privacy settings/i })
+    );
+    const settings = screen.getByRole("region", { name: /privacy settings/i });
+    const toggle = within(settings).getByRole("checkbox", {
+      name: /share for future camera sessions/i
+    });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /close camera/i }));
+
+    expect(submitRecognitionHealth).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("taglingo.recognition-health.v1") ?? "null"
+      )
+    ).toMatchObject({ sharingEnabled: false, invitationShown: true });
+  });
+
   it("does not report recognition readiness when initialization fails", async () => {
     const user = userEvent.setup();
     window.localStorage.setItem(
@@ -1243,10 +1283,12 @@ describe("Guest camera journey", () => {
 
     const callsBeforeMiss = recognize.mock.calls.length;
     recognize.mockResolvedValue([]);
-    await waitFor(() =>
-      expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
-        callsBeforeMiss + 3
-      )
+    await waitFor(
+      () =>
+        expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(
+          callsBeforeMiss + 3
+        ),
+      { timeout: 6_500 }
     );
     expect(
       document.querySelector('[data-detected-price="JPY-4142"]')

@@ -802,7 +802,12 @@ function CameraSurface({
   onPlaybackError,
   memberStatus,
   onContinueAsGuest,
-  onRecognitionHealthRecord
+  onRecognitionHealthRecord,
+  recognitionHealthPreferences,
+  privacySettingsOpen,
+  onRecognitionHealthChange,
+  onOpenPrivacySettings,
+  onClosePrivacySettings
 }: {
   demo: boolean;
   snapshot: CameraSnapshot;
@@ -826,6 +831,11 @@ function CameraSurface({
   onRecognitionHealthRecord: (
     observation: RecognitionHealthObservation
   ) => void;
+  recognitionHealthPreferences: RecognitionHealthPreferences;
+  privacySettingsOpen: boolean;
+  onRecognitionHealthChange: (enabled: boolean) => void;
+  onOpenPrivacySettings: () => void;
+  onClosePrivacySettings: () => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [preview, setPreview] = useState<HTMLElement | null>(null);
@@ -1011,9 +1021,18 @@ function CameraSurface({
     <main className="camera-shell">
       <header className="camera-header">
         <TagLingoMark />
-        <button className="close-button" type="button" onClick={closeCamera}>
-          <span aria-hidden="true">×</span> Close camera
-        </button>
+        <div className="camera-header-actions">
+          <button
+            className="camera-privacy-button"
+            type="button"
+            onClick={onOpenPrivacySettings}
+          >
+            Privacy settings
+          </button>
+          <button className="close-button" type="button" onClick={closeCamera}>
+            <span aria-hidden="true">×</span> Close camera
+          </button>
+        </div>
       </header>
 
       <section ref={setPreview} className="preview" aria-label="Price camera">
@@ -1037,6 +1056,14 @@ function CameraSurface({
 
       <section className="result-sheet" aria-label="Camera controls and status">
         <div className="sheet-handle" aria-hidden="true" />
+        <RecognitionHealthPrivacy
+          preferences={recognitionHealthPreferences}
+          invitation={false}
+          settingsOpen={privacySettingsOpen}
+          onChange={onRecognitionHealthChange}
+          onDismissInvitation={() => undefined}
+          onCloseSettings={onClosePrivacySettings}
+        />
         <CurrencySettings
           preferences={preferences}
           onChange={onPreferencesChange}
@@ -1516,6 +1543,13 @@ export default function App({
     setRecognitionHealthPreferences(next);
     recognitionHealthStoreRef.current.save(next);
   };
+  const changeRecognitionHealthSharing = (sharingEnabled: boolean) => {
+    updateRecognitionHealthPreferences({
+      sharingEnabled,
+      invitationShown: true
+    });
+    setShowRecognitionHealthInvitation(false);
+  };
   const finishRecognitionHealthSession = useCallback(
     (
       outcome: RecognitionHealthTerminalOutcome,
@@ -1882,6 +1916,11 @@ export default function App({
         memberStatus={memberStatus}
         onContinueAsGuest={() => setUseGuestMode(true)}
         onRecognitionHealthRecord={recordRecognitionHealth}
+        recognitionHealthPreferences={recognitionHealthPreferences}
+        privacySettingsOpen={privacySettingsOpen}
+        onRecognitionHealthChange={changeRecognitionHealthSharing}
+        onOpenPrivacySettings={() => setPrivacySettingsOpen(true)}
+        onClosePrivacySettings={() => setPrivacySettingsOpen(false)}
       />
     );
   }
@@ -1963,13 +2002,7 @@ export default function App({
           preferences={recognitionHealthPreferences}
           invitation={showRecognitionHealthInvitation}
           settingsOpen={privacySettingsOpen}
-          onChange={(sharingEnabled) => {
-            updateRecognitionHealthPreferences({
-              sharingEnabled,
-              invitationShown: true
-            });
-            setShowRecognitionHealthInvitation(false);
-          }}
+          onChange={changeRecognitionHealthSharing}
           onDismissInvitation={() => setShowRecognitionHealthInvitation(false)}
           onCloseSettings={() => setPrivacySettingsOpen(false)}
         />
