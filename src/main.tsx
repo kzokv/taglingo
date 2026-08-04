@@ -3,6 +3,7 @@ import { StrictMode, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import CameraPolicyPrototype from "./prototypes/CameraPolicyPrototype";
 import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
 import type { MemberSession } from "./member/sessionToken";
 import {
@@ -49,7 +50,14 @@ function ClerkTagLingo() {
   );
 }
 
-const application = publishableKey ? (
+const cameraPolicyPrototypeRequested =
+  import.meta.env.DEV &&
+  new URLSearchParams(window.location.search).get("prototype") ===
+    "camera-policy";
+
+const application = cameraPolicyPrototypeRequested ? (
+  <CameraPolicyPrototype />
+) : publishableKey ? (
   <ClerkProvider
     publishableKey={publishableKey}
     signInUrl={CLERK_ACCESS_ROUTES.signIn}

@@ -32,9 +32,21 @@ _Avoid_: Highlight frame, OCR box
 The currency in which the shopper's Detected Price or Entered Price is denominated.
 _Avoid_: Input currency, scanned currency
 
-**Camera-supported Source Currency**:
-A Source Currency with a recognition profile that has passed the product's reliability and performance gates for the shopper's physical platform.
-_Avoid_: Supported currency, OCR language
+**Camera Recognition**:
+The browser-local attempt to produce Detected Prices using the shared Recognition Runtime and the explicitly selected Source Currency's Currency Notation Rules. It supports every Source Currency, subject to the shopper's camera entitlement; inability to produce a Detected Price is a session outcome handled through Manual Price Entry, not a currency capability classification.
+_Avoid_: Qualified camera, Beta camera
+
+**Camera Usage**:
+One Camera Recognition session that produces its first Focused Price. A session with no Focused Price consumes no usage, and further Detected or Focused Prices in the same session do not consume additional usage.
+_Avoid_: OCR pass, camera frame, Detected Price
+
+**Guest Camera Currency**:
+One of USD, AUD, JPY, TWD, or EUR, for which a Guest may start Camera Recognition. Other Source Currencies remain available to the Guest through unlimited Manual Price Entry.
+_Avoid_: Camera-supported Source Currency, Camera Qualification Candidate
+
+**Guest Camera Allowance**:
+Ten successful Camera Usages per browser in a rolling hour. The camera button remains disabled after the allowance is exhausted until the next usage expires; failed sessions do not consume the allowance, and Manual Price Entry remains unlimited.
+_Avoid_: OCR quota, price limit
 
 **Target Currency**:
 A currency into which the shopper's Focused Price or Entered Price is converted.
@@ -56,6 +68,14 @@ _Avoid_: Live rate, payment rate
 A set of Reference Rates that share one effective date.
 _Avoid_: Cached rates, rate response
 
-**Camera Qualification Candidate**:
-A Source Currency included in the approved roadmap for earning Camera-supported status independently on each physical platform.
-_Avoid_: Camera-supported Source Currency, experimental currency
+**Recognition Runtime**:
+The browser-local recognition capability that turns camera imagery into text and location evidence across one or more writing systems. It does not decide which currency the text represents.
+_Avoid_: Currency profile, currency recognizer
+
+**Currency Notation Rules**:
+The deterministic rules for interpreting recognized or entered text using the explicitly selected Source Currency, including compatible markers, separators, and fractional precision.
+_Avoid_: OCR model, Recognition Runtime
+
+**Recognition Experience Settings**:
+Approved Member preferences that change interaction behavior, such as when Manual Price Entry appears and whether a Focused Price is used automatically or after confirmation. They synchronize across the member's devices and cannot change confidence, evidence, stability, Currency Notation Rules, or other recognition decisions. Guests use the fixed default experience, including Manual Price Entry promotion after five seconds without a Focused Price.
+_Avoid_: Recognition thresholds, currency profile
