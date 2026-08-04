@@ -1,3 +1,4 @@
+import type { SourceCurrencyCode } from "../domain/currencies";
 import type {
   OcrRecognizer,
   RecognitionPassIdentity,
@@ -8,10 +9,11 @@ import {
   type PreprocessedRecognitionFrame
 } from "./preprocessing";
 import {
+  createPriceEvidenceConfiguration,
   fusePriceEvidence,
   type PriceEvidenceCandidate
 } from "./priceEvidence";
-import type { RecognitionProfile } from "./recognitionProfile";
+import type { RecognitionRuntimeConfiguration } from "./recognitionRuntime";
 
 type FramePassIdentity = Pick<
   RecognitionPassIdentity,
@@ -20,7 +22,7 @@ type FramePassIdentity = Pick<
 
 type PreprocessRecognitionFrame = (
   frame: HTMLCanvasElement,
-  portfolio: RecognitionProfile["preprocessing"]
+  portfolio: RecognitionRuntimeConfiguration["preprocessing"]
 ) => PreprocessedRecognitionFrame[];
 
 function normalizeGeometry(
@@ -56,7 +58,8 @@ function normalizeGeometry(
 }
 
 export async function recognizePriceEvidence(
-  profile: RecognitionProfile,
+  runtime: RecognitionRuntimeConfiguration,
+  sourceCurrency: SourceCurrencyCode,
   recognizer: OcrRecognizer,
   frame: HTMLCanvasElement,
   passIdentity: FramePassIdentity,
@@ -65,7 +68,7 @@ export async function recognizePriceEvidence(
   }: { preprocess?: PreprocessRecognitionFrame } = {}
 ): Promise<PriceEvidenceCandidate[]> {
   const observations: RecognizerObservation[] = [];
-  const variants = preprocess(frame, profile.preprocessing);
+  const variants = preprocess(frame, runtime.preprocessing);
 
   for (const variant of variants) {
     const variantPassIdentity: RecognitionPassIdentity = {
@@ -83,5 +86,8 @@ export async function recognizePriceEvidence(
     );
   }
 
-  return fusePriceEvidence(profile, observations);
+  return fusePriceEvidence(
+    createPriceEvidenceConfiguration(sourceCurrency, runtime.rules),
+    observations
+  );
 }

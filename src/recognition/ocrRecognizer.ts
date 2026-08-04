@@ -2,10 +2,12 @@ import Tesseract from "tesseract.js";
 
 import type { OcrToken } from "./priceLocalization";
 import {
-  recognitionAssets,
-  type RecognitionAsset,
-  type RecognitionProfile
-} from "./recognitionProfile";
+  type RecognitionAsset
+} from "./recognitionConfiguration";
+import {
+  recognitionRuntimeAssets,
+  type RecognitionRuntimeConfiguration
+} from "./recognitionRuntime";
 
 interface OcrWord {
   text: string;
@@ -100,10 +102,6 @@ function parentPath(path: string): string {
   return path.slice(0, path.lastIndexOf("/"));
 }
 
-function normalizeMarker(value: string): string {
-  return value.normalize("NFKC").replaceAll(/\s/gu, "").toUpperCase();
-}
-
 function digestToHex(digest: ArrayBuffer): string {
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
@@ -134,7 +132,7 @@ export async function verifyRecognitionAssets(
 }
 
 export function createOcrRecognizer(
-  profile: RecognitionProfile,
+  runtime: RecognitionRuntimeConfiguration,
   {
     onProgress = () => undefined,
     workerFactory = defaultWorkerFactory,
@@ -147,15 +145,9 @@ export function createOcrRecognizer(
     now?: () => number;
   } = {}
 ): OcrRecognizer {
-  if (profile.recognizer.engine !== "tesseract.js") {
-    throw new Error(
-      `${profile.id} must be loaded through its PaddleOCR.js adapter.`
-    );
-  }
-  const configuration = profile.recognizer;
+  const configuration = runtime.recognizer;
   let workerPromise: Promise<OcrWorker> | null = null;
-  const markerSet = new Set(profile.notation.markers.map(normalizeMarker));
-  const pinnedAssets = recognitionAssets(profile);
+  const pinnedAssets = recognitionRuntimeAssets(runtime);
 
   const getWorker = () => {
     workerPromise ??= verifyAssets(pinnedAssets)
@@ -230,9 +222,7 @@ export function createOcrRecognizer(
           lines.flatMap(({ words }, lineIndex) =>
             words.map(({ text, confidence, bbox }) => ({
               text,
-              evidenceKind: markerSet.has(normalizeMarker(text))
-                ? ("marker" as const)
-                : ("text" as const),
+              evidenceKind: "text" as const,
               confidence,
               line: { blockIndex, paragraphIndex, lineIndex },
               box: {

@@ -3,6 +3,10 @@ import {
   type CurrencyAmount,
   type SourceCurrencyCode
 } from "./currencies";
+import {
+  getCurrencyNotationRules,
+  type CurrencyNotationRules
+} from "./currencyNotation";
 
 export interface EnteredPrice extends CurrencyAmount {
   provenance: "entered";
@@ -25,79 +29,6 @@ export type ManualPriceEntryResult =
       message: string;
     };
 
-interface CurrencyNotationProfile {
-  separators: {
-    decimal: "." | ",";
-    grouping: string;
-    displayGrouping: string;
-  };
-  groupingStyle: "western" | "indian";
-  markers: readonly string[];
-  examples: {
-    amount: string;
-    marked: string;
-  };
-}
-
-const CURRENCY_NOTATION_PROFILES = {
-  AUD: profile({ decimal: ".", grouping: ",", markers: ["AUD", "A$", "AU$", "$"], amount: "1,234.56", marked: "A$1,234.56" }),
-  BRL: profile({ decimal: ",", grouping: ".", markers: ["BRL", "R$"], amount: "1.234,56", marked: "R$ 1.234,56" }),
-  CAD: profile({ decimal: ".", grouping: ",", markers: ["CAD", "C$", "CA$", "$"], amount: "1,234.56", marked: "C$1,234.56" }),
-  CHF: profile({ decimal: ".", grouping: "'", displayGrouping: "’", markers: ["CHF", "SFr.", "Fr."], amount: "1’234.56", marked: "CHF 1’234.56" }),
-  CNY: profile({ decimal: ".", grouping: ",", markers: ["CNY", "RMB", "RMB¥", "CN¥", "¥", "元"], amount: "1,234.56", marked: "¥1,234.56" }),
-  CZK: profile({ decimal: ",", grouping: " ", markers: ["CZK", "Kč"], amount: "1 234,56", marked: "1 234,56 Kč" }),
-  DKK: profile({ decimal: ",", grouping: ".", markers: ["DKK", "kr.", "kr"], amount: "1.234,56", marked: "1.234,56 kr." }),
-  EUR: profile({ decimal: ",", grouping: ".", markers: ["EUR", "€"], amount: "1.234,56", marked: "€1.234,56" }),
-  GBP: profile({ decimal: ".", grouping: ",", markers: ["GBP", "£"], amount: "1,234.56", marked: "£1,234.56" }),
-  HKD: profile({ decimal: ".", grouping: ",", markers: ["HKD", "HK$", "$"], amount: "1,234.56", marked: "HK$1,234.56" }),
-  HUF: profile({ decimal: ",", grouping: " ", markers: ["HUF", "Ft"], amount: "1 234", marked: "1 234 Ft" }),
-  IDR: profile({ decimal: ",", grouping: ".", markers: ["IDR", "Rp"], amount: "1.234", marked: "Rp 1.234" }),
-  ILS: profile({ decimal: ".", grouping: ",", markers: ["ILS", "₪"], amount: "1,234.56", marked: "₪1,234.56" }),
-  INR: profile({ decimal: ".", grouping: ",", groupingStyle: "indian", markers: ["INR", "₹", "Rs", "Rs."], amount: "1,23,456.78", marked: "₹1,23,456.78" }),
-  ISK: profile({ decimal: ",", grouping: ".", markers: ["ISK", "kr.", "kr"], amount: "1.234", marked: "1.234 kr." }),
-  JPY: profile({ decimal: ".", grouping: ",", markers: ["JPY", "¥", "円"], amount: "1,234", marked: "¥1,234" }),
-  KRW: profile({ decimal: ".", grouping: ",", markers: ["KRW", "₩", "원"], amount: "1,234", marked: "₩1,234" }),
-  MXN: profile({ decimal: ".", grouping: ",", markers: ["MXN", "MX$", "Mex$", "$"], amount: "1,234.56", marked: "MX$1,234.56" }),
-  MYR: profile({ decimal: ".", grouping: ",", markers: ["MYR", "RM"], amount: "1,234.56", marked: "RM 1,234.56" }),
-  NOK: profile({ decimal: ",", grouping: " ", markers: ["NOK", "kr"], amount: "1 234,56", marked: "1 234,56 kr" }),
-  NZD: profile({ decimal: ".", grouping: ",", markers: ["NZD", "NZ$", "$"], amount: "1,234.56", marked: "NZ$1,234.56" }),
-  PHP: profile({ decimal: ".", grouping: ",", markers: ["PHP", "₱"], amount: "1,234.56", marked: "₱1,234.56" }),
-  PLN: profile({ decimal: ",", grouping: " ", markers: ["PLN", "zł"], amount: "1 234,56", marked: "1 234,56 zł" }),
-  RON: profile({ decimal: ",", grouping: ".", markers: ["RON", "lei", "leu"], amount: "1.234,56", marked: "1.234,56 lei" }),
-  SEK: profile({ decimal: ",", grouping: " ", markers: ["SEK", "kr"], amount: "1 234,56", marked: "1 234,56 kr" }),
-  SGD: profile({ decimal: ".", grouping: ",", markers: ["SGD", "S$", "$"], amount: "1,234.56", marked: "S$1,234.56" }),
-  THB: profile({ decimal: ".", grouping: ",", markers: ["THB", "฿", "บาท"], amount: "1,234.56", marked: "฿1,234.56" }),
-  TRY: profile({ decimal: ",", grouping: ".", markers: ["TRY", "₺", "TL"], amount: "1.234,56", marked: "₺1.234,56" }),
-  TWD: profile({ decimal: ".", grouping: ",", markers: ["TWD", "NT$", "NTD", "$"], amount: "1,234.56", marked: "NT$1,234.56" }),
-  USD: profile({ decimal: ".", grouping: ",", markers: ["USD", "US$", "$"], amount: "1,234.56", marked: "$1,234.56" }),
-  ZAR: profile({ decimal: ",", grouping: " ", markers: ["ZAR", "R"], amount: "1 234,56", marked: "R 1 234,56" })
-} as const satisfies Record<SourceCurrencyCode, CurrencyNotationProfile>;
-
-function profile({
-  decimal,
-  grouping,
-  displayGrouping = grouping,
-  markers,
-  amount,
-  marked,
-  groupingStyle = "western"
-}: {
-  decimal: "." | ",";
-  grouping: string;
-  displayGrouping?: string;
-  markers: readonly string[];
-  amount: string;
-  marked: string;
-  groupingStyle?: "western" | "indian";
-}): CurrencyNotationProfile {
-  return {
-    separators: { decimal, grouping, displayGrouping },
-    groupingStyle,
-    markers,
-    examples: { amount, marked }
-  };
-}
-
 function normalize(value: string): string {
   return value
     .normalize("NFKC")
@@ -106,7 +37,7 @@ function normalize(value: string): string {
     .trim();
 }
 
-function matchesMarker(marker: string, profile: CurrencyNotationProfile): boolean {
+function matchesMarker(marker: string, profile: CurrencyNotationRules): boolean {
   const normalizedMarker = normalize(marker).toLocaleUpperCase("en-US");
   return profile.markers.some(
     (compatibleMarker) =>
@@ -116,7 +47,7 @@ function matchesMarker(marker: string, profile: CurrencyNotationProfile): boolea
 
 function validGroupedInteger(
   integer: string,
-  profile: CurrencyNotationProfile
+  profile: CurrencyNotationRules
 ): boolean {
   const separator = profile.separators.grouping;
   if (!integer.includes(separator)) {
@@ -145,7 +76,7 @@ function validGroupedInteger(
 
 function groupInteger(
   integer: string,
-  profile: CurrencyNotationProfile
+  profile: CurrencyNotationRules
 ): string {
   if (profile.groupingStyle === "indian" && integer.length > 3) {
     const trailingGroup = integer.slice(-3);
@@ -168,7 +99,7 @@ function groupInteger(
 function formatLocalizedMinorUnits(
   minorUnits: bigint,
   currency: SourceCurrencyCode,
-  profile: CurrencyNotationProfile
+  profile: CurrencyNotationRules
 ): string {
   const fractionDigits = currencyFractionDigits(currency);
   const digits = minorUnits.toString().padStart(fractionDigits + 1, "0");
@@ -184,7 +115,7 @@ export function getManualPriceEntryGuidance(currency: SourceCurrencyCode): {
   placeholder: string;
   message: string;
 } {
-  const profile = CURRENCY_NOTATION_PROFILES[currency];
+  const profile = getCurrencyNotationRules(currency);
   return {
     placeholder: profile.examples.amount,
     message: `Use ${profile.examples.amount} or ${profile.examples.marked}.`
@@ -211,7 +142,7 @@ export function parseManualPriceEntry(
     };
   }
 
-  const profile = CURRENCY_NOTATION_PROFILES[currency];
+  const profile = getCurrencyNotationRules(currency);
   const parts = /^([^\d]*)(\d(?:[\d.,' ]*\d)?)([^\d]*)$/u.exec(
     normalizedInput
   );

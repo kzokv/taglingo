@@ -1,7 +1,26 @@
 import type { SourceCurrencyCode } from "../domain/currencies";
 import type { PhysicalPlatform } from "../domain/currencyCapabilities";
 import { deepFreeze } from "../domain/exactObject";
+import {
+  recognizerAssets,
+  type RecognitionAsset,
+  type RecognitionPreprocessingStep,
+  type RecognizerConfiguration
+} from "./recognitionConfiguration";
 import { TESSERACT_LSTM_RUNTIME_FILE_NAMES } from "./tesseractRuntime";
+
+// Legacy qualification profiles remain available to the comparison harness.
+// The shopper camera path uses recognitionRuntime.ts and must not import them.
+
+export type {
+  PaddleOcrRecognizerConfiguration,
+  PreprocessingOperation,
+  RecognitionAsset,
+  RecognitionPreprocessingStep,
+  RecognizerConfiguration,
+  Sha256Hash,
+  TesseractRecognizerConfiguration
+} from "./recognitionConfiguration";
 
 export type RecognitionQualificationState =
   | "pending"
@@ -11,101 +30,8 @@ export type RecognitionQualificationState =
 
 export type RecognitionPlatform = Exclude<PhysicalPlatform, "other">;
 
-export type Sha256Hash = `sha256:${string}`;
-
-export interface RecognitionAsset {
-  readonly path: `/${string}`;
-  readonly hash: Sha256Hash;
-}
-
-export interface TesseractRecognizerConfiguration {
-  readonly engine: "tesseract.js";
-  readonly engineVersion: "7.0.0";
-  readonly engineMode: "lstm-only";
-  readonly runtime: "tesseract.js-core";
-  readonly runtimeVersion: "7.0.0";
-  readonly delivery: {
-    readonly gzipModels: true;
-    readonly workerBlobUrl: false;
-    readonly cacheMethod: "none";
-  };
-  readonly languages: readonly string[];
-  readonly assets: {
-    readonly worker: RecognitionAsset;
-    readonly runtime: {
-      readonly basePath: `/${string}`;
-      readonly files: readonly RecognitionAsset[];
-    };
-    readonly models: readonly RecognitionAsset[];
-  };
-  readonly parameters: {
-    readonly guidePageSegmentationMode: string;
-    readonly discoveryPageSegmentationMode: string;
-    readonly preserveInterwordSpaces: string;
-  };
-}
-
-export interface PaddleOcrRecognizerConfiguration {
-  readonly engine: "paddleocr.js";
-  readonly engineVersion: "0.4.2";
-  readonly runtime: "onnxruntime-web";
-  readonly runtimeVersion: "1.24.3";
-  readonly delivery: {
-    readonly worker: true;
-    readonly backend: "wasm";
-    readonly wasmPaths: `/${string}`;
-  };
-  readonly models: {
-    readonly detection: string;
-    readonly recognition: string;
-  };
-  readonly assets: {
-    readonly worker: RecognitionAsset;
-    readonly runtime: {
-      readonly basePath: `/${string}`;
-      readonly files: readonly RecognitionAsset[];
-    };
-    readonly models: readonly [RecognitionAsset, RecognitionAsset];
-  };
-  readonly parameters: {
-    readonly textDetLimitSideLen: number;
-    readonly textDetLimitType: "min" | "max";
-    readonly textDetThresh: number;
-    readonly textDetBoxThresh: number;
-    readonly textDetUnclipRatio: number;
-    readonly textRecScoreThresh: number;
-  };
-}
-
-export type RecognizerConfiguration =
-  | TesseractRecognizerConfiguration
-  | PaddleOcrRecognizerConfiguration;
-
-export type RecognitionPreprocessingStep =
-  | {
-      readonly id: string;
-      readonly operation: "raw";
-    }
-  | {
-      readonly id: string;
-      readonly operation: "grayscale-contrast";
-      readonly scale: number;
-      readonly contrast: number;
-    }
-  | {
-      readonly id: string;
-      readonly operation: "adaptive-threshold";
-      readonly scale: number;
-      readonly windowSize: number;
-      readonly bias: number;
-    };
-
-export type PreprocessingOperation =
-  RecognitionPreprocessingStep["operation"];
-
-// The profile freezes every recognition-affecting input here. The scheduler,
-// evidence-fusion, and tracking work in issues #50–#52 consume the relevant
-// portfolios and rule values without changing this qualification contract.
+// Comparison trials freeze every recognition-affecting input so research
+// evidence remains reproducible without changing the production runtime.
 export interface RecognitionProfile {
   readonly id: string;
   readonly version: "recognition-profile.v1";
@@ -160,11 +86,7 @@ export type ResolveRecognitionProfile = RecognitionProfileRegistry["resolve"];
 export function recognitionAssets(
   profile: RecognitionProfile
 ): readonly RecognitionAsset[] {
-  return [
-    profile.recognizer.assets.worker,
-    ...profile.recognizer.assets.runtime.files,
-    ...profile.recognizer.assets.models
-  ];
+  return recognizerAssets(profile.recognizer);
 }
 
 function assertValidRecognitionProfile(profile: RecognitionProfile) {

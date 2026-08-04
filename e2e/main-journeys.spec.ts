@@ -70,7 +70,7 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
     page.getByRole("heading", { name: /manual price entry/i })
   ).toBeVisible();
   await expect(
-    page.getByText(/camera recognition is unavailable on this device/i)
+    page.getByText(/camera recognition is unavailable for this access mode/i)
   ).toBeVisible();
   enteredPriceTraffic.start();
   await page.getByRole("textbox", { name: /brl amount/i }).fill("R$ 12,34");
@@ -134,7 +134,7 @@ test("Guest recovers from deterministic camera denial with Manual Price Entry", 
   await page.goto("/e2e/harness.html");
 
   await expect(
-    page.getByText(/physical-device qualification applies to this camera path/i)
+    page.getByText(/one shared, browser-local runtime/i)
   ).toBeVisible();
   const targetTrigger = page.getByRole("button", {
     name: /target currencies: 1 selected · usd/i

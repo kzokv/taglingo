@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { createTestRecognitionProfile } from "../test/recognitionProfile";
+import type { SourceCurrencyCode } from "../domain/currencies";
 import type {
   OcrRecognizer,
   RecognizerObservation
 } from "./ocrRecognizer";
+import { UNIVERSAL_RECOGNITION_RUNTIME } from "./recognitionRuntime";
 import { useCameraRecognition } from "./useCameraRecognition";
 
 function deferred<T>() {
@@ -113,13 +114,13 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
     recognize: vi.fn().mockResolvedValue([]),
     terminate: vi.fn().mockResolvedValue(undefined)
   };
-  const profile = createTestRecognitionProfile();
   const createRecognizer = () => recognizer;
 
   const { unmount } = renderHook(() =>
     useCameraRecognition({
       enabled: true,
-      profile,
+      runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+      sourceCurrency: "JPY",
       video: cameraVideo,
       preview: cameraPreview,
       captureGuide,
@@ -196,13 +197,13 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   };
   const cameraPreview = preview();
   const cameraVideo = video();
-  const profile = createTestRecognitionProfile();
   const createRecognizer = () => recognizer;
 
   const { result, unmount } = renderHook(() =>
     useCameraRecognition({
       enabled: true,
-      profile,
+      runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+      sourceCurrency: "JPY",
       video: cameraVideo,
       preview: cameraPreview,
       captureGuide: cameraPreview,
@@ -279,21 +280,21 @@ it("releases prior generations and discards their stale results", async () => {
     fourthRecognizer
   ];
   const createRecognizer = vi.fn(() => recognizers.shift()!);
-  const firstProfile = createTestRecognitionProfile({ id: "jpy-ios-v1" });
-  const secondProfile = createTestRecognitionProfile({
-    id: "usd-android-v2",
-    sourceCurrency: "USD",
-    platform: "android"
-  });
   const firstVideo = video();
   const secondVideo = video();
   const cameraPreview = preview();
+  interface HookProps {
+    sourceCurrency: SourceCurrencyCode;
+    cameraVideo: HTMLVideoElement;
+    restartKey: number;
+  }
 
   const { result, rerender, unmount } = renderHook(
-    ({ profile, cameraVideo, restartKey }) =>
+    ({ sourceCurrency, cameraVideo, restartKey }: HookProps) =>
       useCameraRecognition({
         enabled: true,
-        profile,
+        runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+        sourceCurrency,
         video: cameraVideo,
         preview: cameraPreview,
         captureGuide: cameraPreview,
@@ -302,7 +303,7 @@ it("releases prior generations and discards their stale results", async () => {
       }),
     {
       initialProps: {
-        profile: firstProfile,
+        sourceCurrency: "JPY",
         cameraVideo: firstVideo,
         restartKey: 0
       }
@@ -313,7 +314,7 @@ it("releases prior generations and discards their stale results", async () => {
     expect(firstRecognizer.recognize).toHaveBeenCalledOnce()
   );
   rerender({
-    profile: secondProfile,
+    sourceCurrency: "USD",
     cameraVideo: firstVideo,
     restartKey: 0
   });
@@ -323,7 +324,7 @@ it("releases prior generations and discards their stale results", async () => {
   await act(async () => firstRelease.resolve());
   await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(2));
   expect(createRecognizer).toHaveBeenLastCalledWith(
-    secondProfile,
+    UNIVERSAL_RECOGNITION_RUNTIME,
     expect.any(Function)
   );
 
@@ -331,7 +332,7 @@ it("releases prior generations and discards their stale results", async () => {
   expect(result.current.focusedPrice).toBeNull();
 
   rerender({
-    profile: secondProfile,
+    sourceCurrency: "USD",
     cameraVideo: secondVideo,
     restartKey: 0
   });
@@ -339,7 +340,7 @@ it("releases prior generations and discards their stale results", async () => {
   expect(secondRecognizer.terminate).toHaveBeenCalledOnce();
 
   rerender({
-    profile: secondProfile,
+    sourceCurrency: "USD",
     cameraVideo: secondVideo,
     restartKey: 1
   });

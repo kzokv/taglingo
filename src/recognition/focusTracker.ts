@@ -1,6 +1,6 @@
 import type { Rectangle } from "../domain/geometry";
 import type { DetectedPrice } from "./priceLocalization";
-import type { RecognitionProfile } from "./recognitionProfile";
+import type { FixedRecognitionRules } from "./recognitionRuntime";
 
 interface Point {
   x: number;
@@ -130,8 +130,8 @@ function smoothRectangle(
 
 export function createCandidateTracker(options: {
   captureGuideCenter: Point;
-  geometry: RecognitionProfile["geometry"];
-  stabilization: RecognitionProfile["stabilization"];
+  geometry: FixedRecognitionRules["geometry"];
+  stabilization: FixedRecognitionRules["stabilization"];
 }): CandidateTracker {
   const tracks: CandidateTrack[] = [];
   let nextIdentity = 1;
