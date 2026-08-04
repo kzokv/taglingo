@@ -1,6 +1,6 @@
 // PROTOTYPE — Final camera-access policy agreed during Wayfinder.
 // Open in development with ?prototype=camera-policy.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { SOURCE_CURRENCIES, type SourceCurrencyCode } from "../domain/currencies";
 import "./CameraPolicyPrototype.css";
@@ -17,6 +17,13 @@ const GUEST_CAMERA_CURRENCIES = new Set<SourceCurrencyCode>([
   "USD"
 ]);
 const GUEST_USAGE_LIMIT = 10;
+const PRICE_SAMPLES: Partial<Record<SourceCurrencyCode, string>> = {
+  AUD: "$9.98",
+  EUR: "€1,06",
+  JPY: "￥4,142",
+  TWD: "NT$30",
+  USD: "$3.99"
+};
 
 function CameraStage({
   scenario,
@@ -26,8 +33,9 @@ function CameraStage({
   sourceCurrency: SourceCurrencyCode;
 }) {
   const detected = scenario === "clear";
+  const sample = PRICE_SAMPLES[sourceCurrency] ?? `${sourceCurrency} 4,142`;
   const status = detected
-    ? `Focused · ${sourceCurrency} 4,142`
+    ? `Focused · ${sample}`
     : scenario === "uncertain"
       ? "Nothing reliable yet"
       : "Searching…";
@@ -39,9 +47,9 @@ function CameraStage({
         <span>Recognition stays on this device</span>
       </div>
       <div className="simulated-tag" aria-hidden="true">
-        <small>おすすめ</small>
-        <strong>￥4,142</strong>
-        <span>税込</span>
+        <small>SIMULATED TAG</small>
+        <strong>{sample}</strong>
+        <span>{sourceCurrency}</span>
       </div>
       <div className="capture-guide">
         <i />
@@ -97,15 +105,9 @@ export default function CameraPolicyPrototype() {
     shopper === "member" || (guestCurrencyAllowed && quotaAvailable);
   const remaining = Math.max(0, GUEST_USAGE_LIMIT - guestUsages);
   const detectionVisible = cameraAvailable && scenario === "clear";
-
-  useEffect(() => {
-    if (
-      shopper === "guest" &&
-      !GUEST_CAMERA_CURRENCIES.has(sourceCurrency)
-    ) {
-      setSourceCurrency("JPY");
-    }
-  }, [shopper, sourceCurrency]);
+  const effectiveFallbackSeconds = shopper === "guest" ? 5 : fallbackSeconds;
+  const priceSample =
+    PRICE_SAMPLES[sourceCurrency] ?? `${sourceCurrency} 4,142`;
 
   const cameraMessage = useMemo(() => {
     if (shopper === "member") {
@@ -174,13 +176,13 @@ export default function CameraPolicyPrototype() {
               }
             >
               {SOURCE_CURRENCIES.map((currency) => {
-                const disabled =
+                const guestManualOnly =
                   shopper === "guest" &&
                   !GUEST_CAMERA_CURRENCIES.has(currency.code);
                 return (
-                  <option key={currency.code} value={currency.code} disabled={disabled}>
+                  <option key={currency.code} value={currency.code}>
                     {currency.code} · {currency.name}
-                    {disabled ? " · Manual only for Guests" : ""}
+                    {guestManualOnly ? " · Manual only for Guests" : ""}
                   </option>
                 );
               })}
@@ -191,7 +193,7 @@ export default function CameraPolicyPrototype() {
             <span>{cameraAvailable ? "Camera available" : "Camera unavailable"}</span>
             <strong>
               {shopper === "member"
-                ? "All 31 currencies · unlimited"
+                ? `All ${SOURCE_CURRENCIES.length} currencies · unlimited`
                 : `${remaining} of ${GUEST_USAGE_LIMIT} successful usages left`}
             </strong>
             <p>{cameraMessage}</p>
@@ -279,9 +281,9 @@ export default function CameraPolicyPrototype() {
                 ? resultBehavior === "confirm" && shopper === "member"
                   ? "Focused Price · waiting for confirmation"
                   : "Focused Price · converted automatically"
-                : `Manual fallback appears after ${fallbackSeconds} seconds`}
+                : `Manual fallback appears after ${effectiveFallbackSeconds} seconds`}
             </span>
-            <strong>{detectionVisible ? `${sourceCurrency} 4,142` : "—"}</strong>
+            <strong>{detectionVisible ? priceSample : "—"}</strong>
             <p>
               Recognition uses the same universal runtime and fixed notation rules
               for Guests and Approved Members.

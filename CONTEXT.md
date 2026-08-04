@@ -33,7 +33,7 @@ The currency in which the shopper's Detected Price or Entered Price is denominat
 _Avoid_: Input currency, scanned currency
 
 **Camera Recognition**:
-The browser-local attempt to produce Detected Prices using the shared Recognition Runtime and the explicitly selected Source Currency's Currency Notation Rules. It supports every Source Currency, subject to the shopper's camera entitlement; inability to produce a Detected Price is a session outcome handled through Manual Price Entry, not a currency capability classification.
+The browser-local attempt to produce Detected Prices using the shared Recognition Runtime and the explicitly selected Source Currency's Currency Notation Rules. The target product contract supports every Source Currency, subject to the shopper's camera entitlement; inability to produce a Detected Price is a session outcome handled through Manual Price Entry, not a currency capability classification. The current adapter remains narrower until the universal Recognition Runtime is implemented.
 _Avoid_: Qualified camera, Beta camera
 
 **Camera Usage**:
