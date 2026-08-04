@@ -55,7 +55,11 @@ function CameraStage({
         <i />
         <span>{status}</span>
       </div>
-      {detected ? <div className="detection-outline">4,142</div> : null}
+      {detected ? (
+        <div className="detection-outline" aria-hidden="true">
+          {sample}
+        </div>
+      ) : null}
     </section>
   );
 }
