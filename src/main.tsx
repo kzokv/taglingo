@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import CameraPolicyPrototype from "./prototypes/CameraPolicyPrototype";
+import CameraWorkspacePrototype from "./prototypes/CameraWorkspacePrototype";
 import { createMemberPreferencesClient } from "./member/memberPreferencesClient";
 import type { MemberSession } from "./member/sessionToken";
 import {
@@ -50,12 +51,13 @@ function ClerkTagLingo() {
   );
 }
 
-const cameraPolicyPrototypeRequested =
-  import.meta.env.DEV &&
-  new URLSearchParams(window.location.search).get("prototype") ===
-    "camera-policy";
+const requestedPrototype = import.meta.env.DEV
+  ? new URLSearchParams(window.location.search).get("prototype")
+  : null;
 
-const application = cameraPolicyPrototypeRequested ? (
+const application = requestedPrototype === "camera-workspace" ? (
+  <CameraWorkspacePrototype />
+) : requestedPrototype === "camera-policy" ? (
   <CameraPolicyPrototype />
 ) : publishableKey ? (
   <ClerkProvider
