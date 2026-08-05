@@ -83,6 +83,25 @@ export function CameraExperienceOverlay({
   );
   const displayedPrices =
     recognition.phase === "focused" ? recognition.detectedPrices : [];
+  const outlineStyle = (box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) =>
+    demo
+      ? {
+          left: `${box.x / 10}%`,
+          top: `${box.y / 10}%`,
+          width: `${box.width / 10}%`,
+          height: `${box.height / 10}%`
+        }
+      : {
+          left: box.x,
+          top: box.y,
+          width: box.width,
+          height: box.height
+        };
 
   return (
     <div className="focus-stage">
@@ -93,35 +112,42 @@ export function CameraExperienceOverlay({
           <small>travel notebook</small>
         </div>
       ) : null}
+      {recognition.candidateOutlines.map((candidate) => (
+        <div
+          key={candidate.identity}
+          className="candidate-outline"
+          style={outlineStyle(candidate.box)}
+          aria-hidden="true"
+          data-candidate-outline={candidate.identity}
+          data-evidence-state="candidate"
+        >
+          <span aria-hidden="true">{candidate.label}</span>
+        </div>
+      ))}
       {displayedPrices.map((price) => {
         const focused = isFocusedPrice(recognition, price.identity);
         return (
           <button
             key={price.identity}
-            className={`detected-price ${focused ? "focused-detection" : ""}`}
-            style={
-              demo
-                ? {
-                    left: `${price.box.x / 10}%`,
-                    top: `${price.box.y / 10}%`,
-                    width: `${price.box.width / 10}%`,
-                    height: `${price.box.height / 10}%`
-                  }
-                : {
-                    left: price.box.x,
-                    top: price.box.y,
-                    width: price.box.width,
-                    height: price.box.height
-                  }
-            }
+            className={`detected-price ${
+              price.state === "held" ? "held-detection" : ""
+            } ${focused ? "focused-detection" : ""}`}
+            style={outlineStyle(price.box)}
             type="button"
             aria-hidden="true"
             tabIndex={-1}
             data-detected-price={`${price.currency}-${price.minorUnits}`}
             data-detected-price-identity={price.identity}
+            data-evidence-state={price.state}
             onClick={() => recognition.selectDetectedPrice(price.identity)}
           >
-            <span aria-hidden="true">{focused ? "Focused" : "Detected"}</span>
+            <span aria-hidden="true">
+              {price.state === "held"
+                ? "Held"
+                : focused
+                  ? "Focused"
+                  : "Detected"}
+            </span>
           </button>
         );
       })}

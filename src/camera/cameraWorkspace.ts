@@ -57,11 +57,21 @@ export interface CameraWorkspaceDetectedPrice {
   minorUnits: number;
   confidence: number;
   box: Rectangle;
+  state: "fresh" | "held";
+}
+
+export interface CameraWorkspaceCandidateOutline {
+  identity: CameraWorkspaceDetectedPriceIdentity;
+  state: "candidate";
+  label: "Possible price";
+  box: Rectangle;
+  expiresAtMs: number;
 }
 
 export interface CameraWorkspaceRecognitionEvidence {
   phase: CameraWorkspaceRecognitionPhase;
   progress: number;
+  candidateOutlines: CameraWorkspaceCandidateOutline[];
   detectedPrices: CameraWorkspaceDetectedPrice[];
   explicitlyFocusedPriceIdentity: CameraWorkspaceDetectedPriceIdentity | null;
 }

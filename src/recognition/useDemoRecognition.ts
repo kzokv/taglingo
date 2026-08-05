@@ -59,6 +59,7 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     setRecognition({
       phase: "preparing",
       progress: 0,
+      candidateOutlines: [],
       detectedPrices: [],
       focusedPrice: null,
       explicitlyFocusedPriceIdentity: null,
@@ -71,8 +72,10 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     const prepared = window.setTimeout(() => {
       const snapshot = tracker.observe({
         frameIdentity: "demo-frame-1",
+        kind: "guide",
         candidates: detectedPrices,
-        coverage
+        coverage,
+        observedAtMs: 0
       });
       setRecognition((current) =>
         applyCandidateTrackingSnapshot(
@@ -84,8 +87,10 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     const stabilized = window.setTimeout(() => {
       const snapshot = tracker.observe({
         frameIdentity: "demo-frame-2",
+        kind: "guide",
         candidates: detectedPrices,
-        coverage
+        coverage,
+        observedAtMs: 80
       });
       setRecognition((current) =>
         applyCandidateTrackingSnapshot(

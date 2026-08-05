@@ -19,6 +19,7 @@ function price(
     currency: "JPY",
     minorUnits,
     confidence: 96,
+    state: "fresh",
     box
   };
 }

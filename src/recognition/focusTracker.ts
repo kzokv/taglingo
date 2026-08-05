@@ -1,4 +1,5 @@
 import type { Rectangle } from "../domain/geometry";
+import type { RecognitionPassIdentity } from "./ocrRecognizer";
 import type { DetectedPrice } from "./priceLocalization";
 import type { FixedRecognitionRules } from "./recognitionRuntime";
 
@@ -15,19 +16,32 @@ export type DetectedPriceIdentity = string & {
 
 export interface TrackedDetectedPrice extends DetectedPrice {
   readonly identity: DetectedPriceIdentity;
+  readonly state: "fresh" | "held";
+}
+
+export interface CandidateOutline {
+  readonly identity: DetectedPriceIdentity;
+  readonly state: "candidate";
+  readonly label: "Possible price";
+  readonly box: Rectangle;
+  readonly expiresAtMs: number;
 }
 
 export interface CandidateTrackingPass {
   readonly frameIdentity: string;
+  readonly kind: RecognitionPassIdentity["kind"];
   readonly candidates: readonly DetectedPrice[];
   readonly coverage: Rectangle;
+  readonly observedAtMs: number;
 }
 
 export interface CandidateTrackingSnapshot {
+  readonly candidateOutlines: CandidateOutline[];
   readonly detectedPrices: TrackedDetectedPrice[];
   readonly focusedPrice: TrackedDetectedPrice | null;
   readonly explicitlyFocusedPriceIdentity: DetectedPriceIdentity | null;
   readonly hasUnstableCandidates: boolean;
+  readonly corroborationKind: RecognitionPassIdentity["kind"] | null;
 }
 
 export interface CandidateTracker {
@@ -35,6 +49,7 @@ export interface CandidateTracker {
     pass: CandidateTrackingPass,
     currentCaptureGuideCenter?: Point
   ): CandidateTrackingSnapshot;
+  advanceTime(observedAtMs: number): CandidateTrackingSnapshot;
   select(identity: DetectedPriceIdentity): CandidateTrackingSnapshot;
 }
 
@@ -82,8 +97,12 @@ interface CandidateTrack {
   readonly sequence: number;
   price: DetectedPrice;
   readonly observedFrames: Set<string>;
+  readonly expiresAtMs: number;
+  readonly corroborationKind: RecognitionPassIdentity["kind"];
   coveredMisses: number;
 }
+
+export const CANDIDATE_OUTLINE_LIFETIME_MS = 1_500;
 
 function containsRegion(coverage: Rectangle, region: Rectangle): boolean {
   return (
@@ -105,6 +124,19 @@ function areCandidatesCompatible(
   ) {
     return false;
   }
+  const textHeight = Math.max(track.box.height, candidate.box.height);
+  return (
+    textHeight > 0 &&
+    distance(center(track.box), center(candidate.box)) <=
+      maximumDisplacementInTextHeights * textHeight
+  );
+}
+
+function hasCompatibleGeometry(
+  track: DetectedPrice,
+  candidate: DetectedPrice,
+  maximumDisplacementInTextHeights: number
+): boolean {
   const textHeight = Math.max(track.box.height, candidate.box.height);
   return (
     textHeight > 0 &&
@@ -137,15 +169,33 @@ export function createCandidateTracker(options: {
   let nextIdentity = 1;
   let explicitFocusIdentity: DetectedPriceIdentity | null = null;
   let lastGuideCenter = options.captureGuideCenter;
+  let currentTimeMs = Number.NEGATIVE_INFINITY;
 
   const snapshot = (guideCenter: Point): CandidateTrackingSnapshot => {
+    const candidateOutlines = tracks
+      .filter(
+        ({ observedFrames, expiresAtMs }) =>
+          observedFrames.size < options.stabilization.requiredDistinctFrames &&
+          expiresAtMs > currentTimeMs
+      )
+      .map(({ identity, price, expiresAtMs }) => ({
+        identity,
+        state: "candidate" as const,
+        label: "Possible price" as const,
+        box: price.box,
+        expiresAtMs
+      }));
     const detectedPrices = tracks
       .filter(
         ({ observedFrames }) =>
           observedFrames.size >=
           options.stabilization.requiredDistinctFrames
       )
-      .map(({ identity, price }) => ({ ...price, identity }));
+      .map(({ identity, price, coveredMisses }) => ({
+        ...price,
+        identity,
+        state: coveredMisses > 0 ? ("held" as const) : ("fresh" as const)
+      }));
     const explicitlyFocused = detectedPrices.find(
       ({ identity }) => identity === explicitFocusIdentity
     );
@@ -155,16 +205,34 @@ export function createCandidateTracker(options: {
     const focusedPrice =
       explicitlyFocused ?? nearestTo(detectedPrices, guideCenter);
     return {
+      candidateOutlines,
       detectedPrices,
       focusedPrice: focusedPrice ?? null,
       explicitlyFocusedPriceIdentity: explicitFocusIdentity,
-      hasUnstableCandidates: tracks.length > detectedPrices.length
+      hasUnstableCandidates: candidateOutlines.length > 0,
+      corroborationKind:
+        tracks.find(
+          ({ observedFrames, expiresAtMs }) =>
+            observedFrames.size <
+              options.stabilization.requiredDistinctFrames &&
+            expiresAtMs > currentTimeMs
+        )?.corroborationKind ?? null
     };
   };
 
   return {
     observe(pass, currentCaptureGuideCenter = options.captureGuideCenter) {
       lastGuideCenter = currentCaptureGuideCenter;
+      currentTimeMs = Math.max(currentTimeMs, pass.observedAtMs);
+      for (let index = tracks.length - 1; index >= 0; index -= 1) {
+        if (
+          tracks[index].observedFrames.size <
+            options.stabilization.requiredDistinctFrames &&
+          tracks[index].expiresAtMs <= pass.observedAtMs
+        ) {
+          tracks.splice(index, 1);
+        }
+      }
       const matchedTracks = new Set<CandidateTrack>();
       const matchedCandidateIndexes = new Set<number>();
       const compatibleTracksByCandidate = pass.candidates.map((candidate) =>
@@ -241,12 +309,30 @@ export function createCandidateTracker(options: {
       }
       pass.candidates.forEach((candidate, candidateIndex) => {
         if (!matchedCandidateIndexes.has(candidateIndex)) {
+          for (let index = tracks.length - 1; index >= 0; index -= 1) {
+            const track = tracks[index];
+            if (
+              track.observedFrames.size <
+                options.stabilization.requiredDistinctFrames &&
+              !matchedTracks.has(track) &&
+              hasCompatibleGeometry(
+                track.price,
+                candidate,
+                options.geometry.maximumDisplacementInTextHeights
+              )
+            ) {
+              tracks.splice(index, 1);
+            }
+          }
           const created = {
             identity:
               `detected-price-${nextIdentity.toString()}` as DetectedPriceIdentity,
             sequence: nextIdentity,
             price: candidate,
             observedFrames: new Set([pass.frameIdentity]),
+            expiresAtMs:
+              pass.observedAtMs + CANDIDATE_OUTLINE_LIFETIME_MS,
+            corroborationKind: pass.kind,
             coveredMisses: 0
           };
           tracks.push(created);
@@ -271,6 +357,11 @@ export function createCandidateTracker(options: {
         }
       }
       return snapshot(currentCaptureGuideCenter);
+    },
+
+    advanceTime(observedAtMs) {
+      currentTimeMs = Math.max(currentTimeMs, observedAtMs);
+      return snapshot(lastGuideCenter);
     },
 
     select(identity) {

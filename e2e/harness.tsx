@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "../src/App";
@@ -6,6 +6,7 @@ import { CameraWorkspace } from "../src/camera/CameraWorkspaceView";
 import type {
   CameraWorkspaceActions,
   CameraWorkspaceBindings,
+  CameraWorkspaceDetectedPriceIdentity,
   CameraWorkspaceState
 } from "../src/camera/cameraWorkspace";
 import type { CurrencyCode } from "../src/domain/currencies";
@@ -15,6 +16,13 @@ import {
   type MemberPreferences
 } from "../src/member/memberPreferencesApi";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
+import {
+  createCandidateTracker,
+  type CandidateTrackingSnapshot,
+  type DetectedPriceIdentity
+} from "../src/recognition/focusTracker";
+import type { DetectedPrice } from "../src/recognition/priceLocalization";
+import { createTestRecognitionProfile } from "../src/test/recognitionProfile";
 import { createCameraWorkspaceFixtureState } from "../src/test/cameraWorkspaceFixture";
 
 function fixtureRate(
@@ -161,6 +169,140 @@ function DeterministicCameraWorkspace() {
   );
 }
 
+function DeterministicEvidenceLifecycleWorkspace() {
+  const profile = createTestRecognitionProfile();
+  const tracker = useRef(
+    createCandidateTracker({
+      captureGuideCenter: { x: 500, y: 450 },
+      geometry: profile.geometry,
+      stabilization: profile.stabilization
+    })
+  ).current;
+  const price: DetectedPrice = {
+    currency: "JPY",
+    minorUnits: 4_142,
+    confidence: 96,
+    box: { x: 400, y: 320, width: 160, height: 80 }
+  };
+  const coverage = { x: 0, y: 0, width: 1_000, height: 1_000 };
+  const frame = useRef(0);
+  const [state, setState] = useState(() =>
+    createCameraWorkspaceFixtureState(fixtureRate("JPY", "USD"), {
+      recognition: {
+        phase: "searching",
+        progress: 1,
+        candidateOutlines: [],
+        detectedPrices: [],
+        explicitlyFocusedPriceIdentity: null
+      },
+      focusedPrice: null,
+      priceSelection: {
+        enteredPriceInUse: false,
+        focusedPriceConfirmed: false
+      }
+    })
+  );
+  const publish = (snapshot: CandidateTrackingSnapshot) => {
+    const detectedPrices = snapshot.detectedPrices.map((detectedPrice) => ({
+      ...detectedPrice,
+      identity:
+        detectedPrice.identity as unknown as CameraWorkspaceDetectedPriceIdentity
+    }));
+    const focusedPrice = snapshot.focusedPrice
+      ? {
+          ...snapshot.focusedPrice,
+          identity:
+            snapshot.focusedPrice
+              .identity as unknown as CameraWorkspaceDetectedPriceIdentity
+        }
+      : null;
+    setState((current) => ({
+      ...current,
+      recognition: {
+        phase: focusedPrice
+          ? "focused"
+          : snapshot.candidateOutlines.length > 0
+            ? "stabilizing"
+            : "searching",
+        progress: 1,
+        candidateOutlines: snapshot.candidateOutlines.map((candidate) => ({
+          ...candidate,
+          identity:
+            candidate.identity as unknown as CameraWorkspaceDetectedPriceIdentity
+        })),
+        detectedPrices,
+        explicitlyFocusedPriceIdentity:
+          snapshot.explicitlyFocusedPriceIdentity as unknown as
+            | CameraWorkspaceDetectedPriceIdentity
+            | null
+      },
+      focusedPrice,
+      priceSelection: {
+        ...current.priceSelection,
+        focusedPriceConfirmed: focusedPrice !== null
+      }
+    }));
+  };
+  const observe = (candidates: readonly DetectedPrice[]) => {
+    frame.current += 1;
+    publish(
+      tracker.observe({
+        frameIdentity: `lifecycle-frame-${frame.current.toString()}`,
+        kind: "guide",
+        candidates,
+        coverage,
+        observedAtMs: frame.current * 100
+      })
+    );
+  };
+  const actions: CameraWorkspaceActions = {
+    startCamera: () => undefined,
+    stopCamera: () => undefined,
+    selectPrice: (identity) =>
+      publish(
+        tracker.select(identity as unknown as DetectedPriceIdentity)
+      ),
+    changeCurrencies: () => undefined,
+    changeExperiencePreferences: () => undefined,
+    enterPrice: () => undefined,
+    setManualPriceEntryExpanded: () => undefined,
+    useEnteredPrice: () => undefined,
+    useFocusedPrice: () => undefined,
+    retryRecognition: () => undefined,
+    retryReferenceRate: () => undefined,
+    leaveWorkspace: () => undefined,
+    continueAsGuest: () => undefined,
+    retryMemberAccess: () => undefined,
+    retryMemberSave: () => undefined,
+    changeRecognitionHealthSharing: () => undefined,
+    openPrivacySettings: () => undefined,
+    closePrivacySettings: () => undefined
+  };
+  const bindings: CameraWorkspaceBindings = {
+    connectPreview: () => undefined,
+    connectVideo: () => undefined,
+    connectCaptureGuide: () => undefined,
+    reportPlaybackError: () => undefined
+  };
+
+  return (
+    <>
+      <CameraWorkspace state={state} actions={actions} bindings={bindings} />
+      <aside aria-label="Evidence fixture controls">
+        <button type="button" onClick={() => observe([price])}>
+          Observe credible evidence
+        </button>
+        <button type="button" onClick={() => observe([price])}>
+          Corroborate or reacquire
+        </button>
+        <button type="button" onClick={() => observe([])}>
+          Covered miss
+        </button>
+      </aside>
+    </>
+  );
+}
+
 const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
     onProgress(1, "deterministic browser fixture ready");
@@ -215,7 +357,9 @@ const searchParameters = new URLSearchParams(window.location.search);
 const memberMode = searchParameters.get("mode") === "member";
 const workspaceMode = searchParameters.get("workspace");
 createRoot(document.getElementById("root")!).render(
-  workspaceMode === "focused" ? (
+  workspaceMode === "lifecycle" ? (
+    <DeterministicEvidenceLifecycleWorkspace />
+  ) : workspaceMode === "focused" ? (
     <DeterministicCameraWorkspace />
   ) : memberMode ? (
     <App

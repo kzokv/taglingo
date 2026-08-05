@@ -34,9 +34,16 @@ function createTracker() {
 function pass(
   frameIdentity: string,
   candidates: readonly DetectedPrice[],
-  coverage = fullPreview
+  coverage = fullPreview,
+  observedAtMs = Number(frameIdentity.replace(/\D/gu, "")) * 100
 ) {
-  return { frameIdentity, candidates, coverage };
+  return {
+    frameIdentity,
+    kind: "guide" as const,
+    candidates,
+    coverage,
+    observedAtMs
+  };
 }
 
 describe("Candidate tracking", () => {
@@ -44,19 +51,81 @@ describe("Candidate tracking", () => {
     const tracker = createTracker();
     const price = candidate();
 
-    expect(tracker.observe(pass("frame-1", [price])).detectedPrices).toEqual(
-      []
-    );
+    const provisional = tracker.observe(pass("frame-1", [price]));
+    expect(provisional.candidateOutlines).toEqual([
+      {
+        identity: "detected-price-1",
+        state: "candidate",
+        label: "Possible price",
+        box: price.box,
+        expiresAtMs: 1_600
+      }
+    ]);
+    expect(provisional.detectedPrices).toEqual([]);
+    expect(provisional.corroborationKind).toBe("guide");
     expect(tracker.observe(pass("frame-1", [price])).detectedPrices).toEqual(
       []
     );
 
     expect(tracker.observe(pass("frame-2", [price]))).toEqual({
-      detectedPrices: [{ ...price, identity: "detected-price-1" }],
-      focusedPrice: { ...price, identity: "detected-price-1" },
+      candidateOutlines: [],
+      detectedPrices: [
+        { ...price, identity: "detected-price-1", state: "fresh" }
+      ],
+      focusedPrice: {
+        ...price,
+        identity: "detected-price-1",
+        state: "fresh"
+      },
       explicitlyFocusedPriceIdentity: null,
-      hasUnstableCandidates: false
+      hasUnstableCandidates: false,
+      corroborationKind: null
     });
+  });
+
+  it("replaces contradictory provisional evidence immediately and expires it after 1.5 seconds", () => {
+    const tracker = createTracker();
+    const first = candidate({ minorUnits: 4_142 });
+    const contradiction = candidate({ minorUnits: 4_147 });
+
+    const firstSnapshot = tracker.observe(
+      pass("frame-1", [first], fullPreview, 100)
+    );
+    const replaced = tracker.observe(
+      pass("frame-2", [contradiction], fullPreview, 200)
+    );
+
+    expect(replaced.candidateOutlines).toEqual([
+      expect.objectContaining({
+        identity: "detected-price-2",
+        state: "candidate",
+        label: "Possible price",
+        expiresAtMs: 1_700
+      })
+    ]);
+    expect(replaced.candidateOutlines[0].identity).not.toBe(
+      firstSnapshot.candidateOutlines[0].identity
+    );
+    expect(tracker.advanceTime(1_699).candidateOutlines).toHaveLength(1);
+    expect(tracker.advanceTime(1_700).candidateOutlines).toEqual([]);
+  });
+
+  it("accepts a corroborating frame captured before expiry even when its result finishes later", () => {
+    const tracker = createTracker();
+    const price = candidate();
+    tracker.observe(pass("frame-1", [price], fullPreview, 100));
+
+    expect(tracker.advanceTime(2_000).candidateOutlines).toEqual([]);
+    const corroborated = tracker.observe(
+      pass("frame-2", [price], fullPreview, 1_500)
+    );
+
+    expect(corroborated.detectedPrices).toEqual([
+      expect.objectContaining({
+        identity: "detected-price-1",
+        state: "fresh"
+      })
+    ]);
   });
 
   it("expires a stable discovery track only on its third covered miss", () => {
@@ -82,6 +151,50 @@ describe("Candidate tracking", () => {
     expect(
       tracker.observe(pass("frame-8", [], fullPreview)).detectedPrices
     ).toEqual([]);
+  });
+
+  it("holds frozen Detected Price geometry for two covered misses and reacquires its identity", () => {
+    const tracker = createTracker();
+    const price = candidate({
+      box: { x: 100, y: 100, width: 80, height: 40 }
+    });
+    tracker.observe(pass("frame-1", [price]));
+    const fresh = tracker.observe(pass("frame-2", [price]));
+    const identity = fresh.detectedPrices[0].identity;
+
+    const firstMiss = tracker.observe(pass("frame-3", [], fullPreview));
+    expect(firstMiss.detectedPrices[0]).toMatchObject({
+      identity,
+      state: "held",
+      box: price.box
+    });
+    expect(tracker.observe(pass("frame-4", [], fullPreview)).detectedPrices[0])
+      .toMatchObject({ identity, state: "held", box: price.box });
+
+    const reacquired = tracker.observe(pass("frame-5", [price], fullPreview));
+    expect(reacquired.detectedPrices[0]).toMatchObject({
+      identity,
+      state: "fresh"
+    });
+
+    tracker.observe(pass("frame-6", [], fullPreview));
+    tracker.observe(pass("frame-7", [], fullPreview));
+    expect(tracker.observe(pass("frame-8", [], fullPreview)).detectedPrices)
+      .toEqual([]);
+  });
+
+  it("does not hold a Detected Price when the pass does not cover it", () => {
+    const tracker = createTracker();
+    const price = candidate({
+      box: { x: 300, y: 100, width: 60, height: 30 }
+    });
+    tracker.observe(pass("frame-1", [price]));
+    tracker.observe(pass("frame-2", [price]));
+
+    const uncovered = tracker.observe(
+      pass("frame-3", [], { x: 100, y: 300, width: 200, height: 200 })
+    );
+    expect(uncovered.detectedPrices[0].state).toBe("fresh");
   });
 
   it("smooths compatible geometry and keeps the outline fixed during misses", () => {
@@ -119,9 +232,9 @@ describe("Candidate tracking", () => {
     const originalStable = tracker.observe(pass("frame-2", [original]));
 
     const displacedPending = tracker.observe(pass("frame-3", [displaced]));
-    expect(displacedPending.detectedPrices).toEqual(
-      originalStable.detectedPrices
-    );
+    expect(displacedPending.detectedPrices).toEqual([
+      { ...originalStable.detectedPrices[0], state: "held" }
+    ]);
     expect(displacedPending.hasUnstableCandidates).toBe(true);
 
     const bothStable = tracker.observe(pass("frame-4", [displaced]));

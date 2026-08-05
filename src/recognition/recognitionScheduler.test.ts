@@ -91,6 +91,20 @@ describe("Recognition Scheduler", () => {
     );
   });
 
+  it("prioritizes the Candidate Outline pass kind before it expires", async () => {
+    const { captures, scheduler } = schedulerHarness();
+
+    scheduler.start("session-1");
+    scheduler.setState("focused", "discovery");
+    await vi.advanceTimersByTimeAsync(999);
+    expect(captures).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(captures.at(-1)).toMatchObject({
+      kind: "discovery",
+      capturedAtMs: 1_000
+    });
+  });
+
   it("runs one slow pass at a time and replaces pending work with the newest frame", async () => {
     const slowPass = deferred<string>();
     const runPass = vi

@@ -384,6 +384,10 @@ export function CameraWorkspace({
   };
   const recognition = {
     ...state.recognition,
+    candidateOutlines: state.recognition.candidateOutlines.map((candidate) => ({
+      ...candidate,
+      identity: candidate.identity as unknown as DetectedPriceIdentity
+    })),
     detectedPrices: state.recognition.detectedPrices.map((price) => ({
       ...price,
       identity: price.identity as unknown as DetectedPriceIdentity
@@ -845,6 +849,11 @@ export function LiveCameraWorkspace({
   const recognitionEvidence = {
     phase: recognition.phase,
     progress: recognition.progress,
+    candidateOutlines: recognition.candidateOutlines.map((candidate) => ({
+      ...candidate,
+      identity:
+        candidate.identity as unknown as CameraWorkspaceDetectedPriceIdentity
+    })),
     detectedPrices: recognition.detectedPrices.map((price) => ({
       ...price,
       identity:
