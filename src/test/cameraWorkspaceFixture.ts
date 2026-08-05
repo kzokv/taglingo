@@ -1,16 +1,19 @@
-import type { CameraWorkspaceState } from "../camera/cameraWorkspace";
+import {
+  cameraWorkspaceDetectedPriceIdentity,
+  type CameraWorkspaceState
+} from "../camera/cameraWorkspace";
 import type { GuestReferenceRate } from "../fx/referenceRate";
 
 export const CAMERA_WORKSPACE_FIXTURE_PRICES = [
   {
-    identity: "workspace-price-one",
+    identity: cameraWorkspaceDetectedPriceIdentity("workspace-price-one"),
     currency: "JPY" as const,
     minorUnits: 4_142,
     confidence: 96,
     box: { x: 400, y: 320, width: 160, height: 80 }
   },
   {
-    identity: "workspace-price-two",
+    identity: cameraWorkspaceDetectedPriceIdentity("workspace-price-two"),
     currency: "JPY" as const,
     minorUnits: 980,
     confidence: 92,

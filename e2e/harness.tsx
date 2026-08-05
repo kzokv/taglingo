@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import App, { CameraWorkspace } from "../src/App";
+import App from "../src/App";
+import { CameraWorkspace } from "../src/camera/CameraWorkspaceView";
 import type {
   CameraWorkspaceActions,
   CameraWorkspaceBindings,

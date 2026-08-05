@@ -40,8 +40,19 @@ export type CameraWorkspaceRecognitionPhase =
   | "focused"
   | "error";
 
+declare const cameraWorkspaceDetectedPriceIdentityBrand: unique symbol;
+export type CameraWorkspaceDetectedPriceIdentity = string & {
+  readonly [cameraWorkspaceDetectedPriceIdentityBrand]: true;
+};
+
+export function cameraWorkspaceDetectedPriceIdentity(
+  value: string
+): CameraWorkspaceDetectedPriceIdentity {
+  return value as CameraWorkspaceDetectedPriceIdentity;
+}
+
 export interface CameraWorkspaceDetectedPrice {
-  identity: string;
+  identity: CameraWorkspaceDetectedPriceIdentity;
   currency: SourceCurrencyCode;
   minorUnits: number;
   confidence: number;
@@ -52,7 +63,7 @@ export interface CameraWorkspaceRecognitionEvidence {
   phase: CameraWorkspaceRecognitionPhase;
   progress: number;
   detectedPrices: CameraWorkspaceDetectedPrice[];
-  explicitlyFocusedPriceIdentity: string | null;
+  explicitlyFocusedPriceIdentity: CameraWorkspaceDetectedPriceIdentity | null;
 }
 
 export type CameraWorkspaceReferenceRates = Partial<
@@ -92,7 +103,7 @@ export interface CameraWorkspaceState {
 export interface CameraWorkspaceActions {
   startCamera(): void;
   stopCamera(): void;
-  selectPrice(identity: string): void;
+  selectPrice(identity: CameraWorkspaceDetectedPriceIdentity): void;
   changeCurrencies(currencies: CameraWorkspaceCurrencies): void;
   changeExperiencePreferences(
     preferences: CameraWorkspaceExperiencePreferences
