@@ -18,18 +18,20 @@ import type {
   CameraWorkspaceSaveStatus as MemberSaveStatus
 } from "./camera/cameraWorkspace";
 import {
+  LiveCameraWorkspace,
+  statusContent
+} from "./camera/CameraWorkspaceView";
+import {
   CHECKING_MEMBER_ACCESS_LABEL,
   ConversionLedger,
   CurrencySettings,
-  LiveCameraWorkspace,
   ManualPriceComposer,
   MemberStatusPanel,
   RecognitionExperienceSettings,
   RecognitionHealthPrivacy,
   TagLingoMark,
-  statusContent,
   type ExperiencePreferences
-} from "./camera/CameraWorkspaceView";
+} from "./camera/WorkspaceControls";
 import {
   createCameraUsageSession,
   type CameraUsageSession
@@ -94,6 +96,7 @@ import {
   submitRecognitionHealthSummary,
   type RecognitionHealthErrorFamily,
   type RecognitionHealthObservation,
+  type RecognitionHealthPreferences,
   type RecognitionHealthTerminalOutcome,
   type SubmitRecognitionHealthSummary
 } from "./recognitionHealth/recognitionHealth";
