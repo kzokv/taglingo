@@ -1,4 +1,8 @@
 import type { Rectangle } from "../domain/geometry";
+import type {
+  CandidateOutlineState,
+  DetectionOutlineState
+} from "../domain/priceEvidenceLifecycle";
 import type { RecognitionPassIdentity } from "./ocrRecognizer";
 import type { DetectedPrice } from "./priceLocalization";
 import type { FixedRecognitionRules } from "./recognitionRuntime";
@@ -16,12 +20,12 @@ export type DetectedPriceIdentity = string & {
 
 export interface TrackedDetectedPrice extends DetectedPrice {
   readonly identity: DetectedPriceIdentity;
-  readonly state: "fresh" | "held";
+  readonly state: DetectionOutlineState;
 }
 
 export interface CandidateOutline {
   readonly identity: DetectedPriceIdentity;
-  readonly state: "candidate";
+  readonly state: CandidateOutlineState;
   readonly label: "Possible price";
   readonly box: Rectangle;
   readonly expiresAtMs: number;
@@ -118,17 +122,23 @@ function areCandidatesCompatible(
   candidate: DetectedPrice,
   maximumDisplacementInTextHeights: number
 ): boolean {
-  if (
-    track.currency !== candidate.currency ||
-    track.minorUnits !== candidate.minorUnits
-  ) {
-    return false;
-  }
-  const textHeight = Math.max(track.box.height, candidate.box.height);
   return (
-    textHeight > 0 &&
-    distance(center(track.box), center(candidate.box)) <=
-      maximumDisplacementInTextHeights * textHeight
+    hasCompatibleAmount(track, candidate) &&
+    hasCompatibleGeometry(
+      track,
+      candidate,
+      maximumDisplacementInTextHeights
+    )
+  );
+}
+
+function hasCompatibleAmount(
+  track: DetectedPrice,
+  candidate: DetectedPrice
+): boolean {
+  return (
+    track.currency === candidate.currency &&
+    track.minorUnits === candidate.minorUnits
   );
 }
 
@@ -252,6 +262,7 @@ export function createCandidateTracker(options: {
           )
       );
       const matchedCandidateByTrack = new Map<CandidateTrack, number>();
+      const promotedTracks = new Set<CandidateTrack>();
       const assignCandidate = (
         candidateIndex: number,
         visitedTracks: Set<CandidateTrack>
@@ -289,6 +300,9 @@ export function createCandidateTracker(options: {
       }
       for (const [track, candidateIndex] of matchedCandidateByTrack) {
         const candidate = pass.candidates[candidateIndex];
+        const wasDetected =
+          track.observedFrames.size >=
+          options.stabilization.requiredDistinctFrames;
         matchedTracks.add(track);
         matchedCandidateIndexes.add(candidateIndex);
         track.coveredMisses = 0;
@@ -305,6 +319,33 @@ export function createCandidateTracker(options: {
           options.stabilization.requiredDistinctFrames
         ) {
           track.observedFrames.add(pass.frameIdentity);
+        }
+        if (
+          !wasDetected &&
+          track.observedFrames.size >=
+            options.stabilization.requiredDistinctFrames
+        ) {
+          promotedTracks.add(track);
+        }
+      }
+      const promoted = [...promotedTracks];
+      for (let index = tracks.length - 1; index >= 0; index -= 1) {
+        const track = tracks[index];
+        if (
+          !promotedTracks.has(track) &&
+          track.observedFrames.size >=
+            options.stabilization.requiredDistinctFrames &&
+          promoted.some(
+            (promotedTrack) =>
+              hasCompatibleGeometry(
+                track.price,
+                promotedTrack.price,
+                options.geometry.maximumDisplacementInTextHeights
+              ) &&
+              !hasCompatibleAmount(track.price, promotedTrack.price)
+          )
+        ) {
+          tracks.splice(index, 1);
         }
       }
       pass.candidates.forEach((candidate, candidateIndex) => {
@@ -361,6 +402,15 @@ export function createCandidateTracker(options: {
 
     advanceTime(observedAtMs) {
       currentTimeMs = Math.max(currentTimeMs, observedAtMs);
+      for (let index = tracks.length - 1; index >= 0; index -= 1) {
+        if (
+          tracks[index].observedFrames.size <
+            options.stabilization.requiredDistinctFrames &&
+          tracks[index].expiresAtMs <= currentTimeMs
+        ) {
+          tracks.splice(index, 1);
+        }
+      }
       return snapshot(lastGuideCenter);
     },
 

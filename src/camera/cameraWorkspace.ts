@@ -5,6 +5,10 @@ import type {
 } from "../domain/currencies";
 import type { EnteredPrice } from "../domain/manualPriceEntry";
 import type { Rectangle } from "../domain/geometry";
+import type {
+  CandidateOutlineState,
+  DetectionOutlineState
+} from "../domain/priceEvidenceLifecycle";
 import type { GuestRateView } from "../fx/useGuestRate";
 import type {
   FocusedPriceBehavior,
@@ -57,12 +61,12 @@ export interface CameraWorkspaceDetectedPrice {
   minorUnits: number;
   confidence: number;
   box: Rectangle;
-  state: "fresh" | "held";
+  state: DetectionOutlineState;
 }
 
 export interface CameraWorkspaceCandidateOutline {
   identity: CameraWorkspaceDetectedPriceIdentity;
-  state: "candidate";
+  state: CandidateOutlineState;
   label: "Possible price";
   box: Rectangle;
   expiresAtMs: number;

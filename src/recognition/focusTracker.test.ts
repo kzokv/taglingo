@@ -110,22 +110,60 @@ describe("Candidate tracking", () => {
     expect(tracker.advanceTime(1_700).candidateOutlines).toEqual([]);
   });
 
-  it("accepts a corroborating frame captured before expiry even when its result finishes later", () => {
+  it("keeps expiry terminal when an older captured frame finishes later", () => {
     const tracker = createTracker();
     const price = candidate();
     tracker.observe(pass("frame-1", [price], fullPreview, 100));
 
     expect(tracker.advanceTime(2_000).candidateOutlines).toEqual([]);
-    const corroborated = tracker.observe(
+    const delayed = tracker.observe(
       pass("frame-2", [price], fullPreview, 1_500)
     );
 
-    expect(corroborated.detectedPrices).toEqual([
+    expect(delayed.detectedPrices).toEqual([]);
+    expect(delayed.candidateOutlines).toEqual([
       expect.objectContaining({
-        identity: "detected-price-1",
+        identity: "detected-price-2",
+        state: "candidate"
+      })
+    ]);
+  });
+
+  it("atomically replaces an incompatible Detected Price when contradictory evidence corroborates", () => {
+    const tracker = createTracker();
+    const original = candidate({ minorUnits: 4_142 });
+    const replacement = candidate({ minorUnits: 4_147 });
+    tracker.observe(pass("frame-1", [original]));
+    const stable = tracker.observe(pass("frame-2", [original]));
+    const originalIdentity = stable.detectedPrices[0].identity;
+    tracker.select(originalIdentity);
+
+    const provisional = tracker.observe(pass("frame-3", [replacement]));
+    expect(provisional.detectedPrices).toEqual([
+      expect.objectContaining({
+        identity: originalIdentity,
+        minorUnits: 4_142,
+        state: "held"
+      })
+    ]);
+    expect(provisional.candidateOutlines).toHaveLength(1);
+
+    const replaced = tracker.observe(pass("frame-4", [replacement]));
+    expect(replaced.candidateOutlines).toEqual([]);
+    expect(replaced.detectedPrices).toEqual([
+      expect.objectContaining({
+        identity: "detected-price-2",
+        minorUnits: 4_147,
         state: "fresh"
       })
     ]);
+    expect(replaced.focusedPrice).toBe(replaced.detectedPrices[0]);
+    expect(replaced.explicitlyFocusedPriceIdentity).toBeNull();
+    const obsoleteSelection = tracker.select(originalIdentity);
+    expect(obsoleteSelection.focusedPrice).toBe(
+      obsoleteSelection.detectedPrices[0]
+    );
+    expect(obsoleteSelection.explicitlyFocusedPriceIdentity).toBeNull();
   });
 
   it("expires a stable discovery track only on its third covered miss", () => {
