@@ -179,7 +179,11 @@ function PreparationStatus({
   sourceCurrency: SourceCurrencyCode;
 }) {
   return (
-    <div className="scan-status" role="status">
+    <div
+      className="scan-status"
+      role="status"
+      aria-label="Recognition status"
+    >
       <span className="status-dot" />
       <div>
         <strong>Preparing {sourceCurrency} recognition…</strong>
@@ -221,7 +225,11 @@ function StatusPanel({
     }
 
     return (
-      <div className="scan-status" role="status">
+      <div
+        className="scan-status"
+        role="status"
+        aria-label="Recognition status"
+      >
         <span className="status-dot demo-dot" />
         <div>
           <strong>
@@ -247,7 +255,11 @@ function StatusPanel({
 
   if (recognition.phase === "error") {
     return (
-      <div className="scan-status" role="alert">
+      <div
+        className="scan-status"
+        role="alert"
+        aria-label="Recognition status"
+      >
         <span className="status-dot" />
         <div>
           <strong>Recognition could not start</strong>
@@ -272,7 +284,11 @@ function StatusPanel({
   const content = statusContent[status];
   if (!content) {
     return (
-      <div className="scan-status" role="status">
+      <div
+        className="scan-status"
+        role="status"
+        aria-label="Recognition status"
+      >
         <span className="status-dot" />
         <div>
           <strong>Camera paused</strong>
@@ -287,7 +303,11 @@ function StatusPanel({
 
   const isFailure = isCameraFailureStatus(status);
   return (
-    <div className="scan-status" role={isFailure ? "alert" : "status"}>
+    <div
+      className="scan-status"
+      role={isFailure ? "alert" : "status"}
+      aria-label="Recognition status"
+    >
       <span
         className={`status-dot ${status === "active" ? "active-dot" : ""}`}
       />
@@ -477,7 +497,7 @@ export function CameraWorkspace({
   };
 
   return (
-    <main className="camera-shell">
+    <main className="camera-shell" aria-label="Camera Workspace">
       <header className="camera-header">
         <TagLingoMark />
         <div className="camera-header-actions">
@@ -513,18 +533,107 @@ export function CameraWorkspace({
         <div
           className={`preview-fallback ${state.demo ? "demo-preview" : ""}`}
         />
+        <div
+          className="workspace-currency-edge"
+          role="group"
+          aria-label="Camera currencies"
+        >
+          <CurrencySettings
+            preferences={preferences}
+            onChange={({ sourceCurrency, targetCurrencies }) =>
+              actions.changeCurrencies({ sourceCurrency, targetCurrencies })
+            }
+            isApprovedMember={state.shopperAccess.isApprovedMember}
+            memberAccessStatus={state.shopperAccess.status}
+            compact
+            sourceCurrencyDisabled={!state.demo}
+          />
+        </div>
         <CameraExperienceOverlay
           demo={state.demo}
           recognition={recognition}
           onCaptureGuideReady={bindings.connectCaptureGuide}
         />
+        <div className="workspace-primary-edges">
+          <div className="workspace-recognition-edge">
+            <StatusPanel
+              status={state.camera.status}
+              demo={state.demo}
+              recognition={recognition}
+              sourceCurrency={state.currencies.sourceCurrency}
+              onRetry={actions.startCamera}
+              onRecognitionRetry={actions.retryRecognition}
+            />
+            <RecognitionSummary recognition={recognition} demo={state.demo} />
+            <AccessibleDetectedPriceList
+              detectedPrices={recognition.detectedPrices}
+              focusedPrice={recognition.focusedPrice}
+              explicitlyFocusedPriceIdentity={
+                recognition.explicitlyFocusedPriceIdentity
+              }
+              previewSize={state.previewSize}
+              onSelect={(identity) =>
+                actions.selectPrice(
+                  identity as unknown as CameraWorkspaceDetectedPriceIdentity
+                )
+              }
+            />
+          </div>
+          <section
+            className="workspace-conversion-edge"
+            aria-label="Focused Price conversion"
+          >
+            <section
+              className="conversion-price-source"
+              role="status"
+              aria-label="Price used for conversion"
+            >
+              <div>
+                <strong>{priceInUse.title}</strong>
+                <p>{priceInUse.detail}</p>
+              </div>
+              {priceInUse.switchLabel ? (
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={priceInUse.onSwitch}
+                >
+                  {priceInUse.switchLabel}
+                </button>
+              ) : null}
+            </section>
+            <ConversionLedger
+              price={priceInUse.price}
+              sourceCurrency={state.currencies.sourceCurrency}
+              targetCurrencies={state.currencies.targetCurrencies}
+              isApprovedMember={state.shopperAccess.isApprovedMember}
+              rates={referenceRates}
+              onContinueAsGuest={actions.continueAsGuest}
+              discloseReferenceRateDetails
+            />
+          </section>
+        </div>
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
         </div>
       </section>
 
-      <section className="result-sheet" aria-label="Camera controls and status">
+      <section className="result-sheet">
         <div className="sheet-handle" aria-hidden="true" />
+        <ManualPriceComposer
+          sourceCurrency={state.currencies.sourceCurrency}
+          enteredPrice={state.enteredPrice}
+          expanded={state.manualPriceEntry.expanded}
+          compact
+          onEnteredPriceChange={actions.enterPrice}
+          onExpandedChange={actions.setManualPriceEntryExpanded}
+        />
+      </section>
+
+      <aside
+        className="workspace-secondary-controls"
+        aria-label="Workspace details"
+      >
         <RecognitionHealthPrivacy
           preferences={state.recognitionHealth.preferences}
           invitation={false}
@@ -532,16 +641,6 @@ export function CameraWorkspace({
           onChange={actions.changeRecognitionHealthSharing}
           onDismissInvitation={() => undefined}
           onCloseSettings={actions.closePrivacySettings}
-        />
-        <CurrencySettings
-          preferences={preferences}
-          onChange={({ sourceCurrency, targetCurrencies }) =>
-            actions.changeCurrencies({ sourceCurrency, targetCurrencies })
-          }
-          isApprovedMember={state.shopperAccess.isApprovedMember}
-          memberAccessStatus={state.shopperAccess.status}
-          compact
-          sourceCurrencyDisabled={!state.demo}
         />
         {state.shopperAccess.isApprovedMember ? (
           <RecognitionExperienceSettings
@@ -565,64 +664,7 @@ export function CameraWorkspace({
           onRetryAccess={actions.retryMemberAccess}
           onRetrySave={actions.retryMemberSave}
         />
-        <StatusPanel
-          status={state.camera.status}
-          demo={state.demo}
-          recognition={recognition}
-          sourceCurrency={state.currencies.sourceCurrency}
-          onRetry={actions.startCamera}
-          onRecognitionRetry={actions.retryRecognition}
-        />
-        <RecognitionSummary recognition={recognition} demo={state.demo} />
-        <AccessibleDetectedPriceList
-          detectedPrices={recognition.detectedPrices}
-          focusedPrice={recognition.focusedPrice}
-          explicitlyFocusedPriceIdentity={
-            recognition.explicitlyFocusedPriceIdentity
-          }
-          previewSize={state.previewSize}
-          onSelect={(identity) =>
-            actions.selectPrice(
-              identity as unknown as CameraWorkspaceDetectedPriceIdentity
-            )
-          }
-        />
-        <ManualPriceComposer
-          sourceCurrency={state.currencies.sourceCurrency}
-          enteredPrice={state.enteredPrice}
-          expanded={state.manualPriceEntry.expanded}
-          compact
-          onEnteredPriceChange={actions.enterPrice}
-          onExpandedChange={actions.setManualPriceEntryExpanded}
-        />
-        <section
-          className="conversion-price-source"
-          role="status"
-          aria-label="Price used for conversion"
-        >
-          <div>
-            <strong>{priceInUse.title}</strong>
-            <p>{priceInUse.detail}</p>
-          </div>
-          {priceInUse.switchLabel ? (
-            <button
-              className="text-button"
-              type="button"
-              onClick={priceInUse.onSwitch}
-            >
-              {priceInUse.switchLabel}
-            </button>
-          ) : null}
-        </section>
-        <ConversionLedger
-          price={priceInUse.price}
-          sourceCurrency={state.currencies.sourceCurrency}
-          targetCurrencies={state.currencies.targetCurrencies}
-          isApprovedMember={state.shopperAccess.isApprovedMember}
-          rates={referenceRates}
-          onContinueAsGuest={actions.continueAsGuest}
-        />
-      </section>
+      </aside>
     </main>
   );
 }
