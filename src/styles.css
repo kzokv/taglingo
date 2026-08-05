@@ -911,7 +911,7 @@ h1 em {
   background: #0b171e;
 }
 
-.workspace-currency-edge {
+.workspace-currency-controls {
   position: absolute;
   z-index: 12;
   top: 76px;
@@ -925,16 +925,16 @@ h1 em {
   backdrop-filter: blur(14px);
 }
 
-.workspace-currency-edge .currency-grid {
+.workspace-currency-controls .currency-grid {
   margin-top: 0;
 }
 
-.workspace-currency-edge .target-currency-popover {
+.workspace-currency-controls .target-currency-popover {
   top: calc(100% + 8px);
   bottom: auto;
 }
 
-.workspace-primary-edges {
+.workspace-preview-controls {
   position: absolute;
   z-index: 9;
   right: max(16px, env(safe-area-inset-right));
@@ -948,8 +948,8 @@ h1 em {
   pointer-events: none;
 }
 
-.workspace-recognition-edge,
-.workspace-conversion-edge {
+.workspace-recognition-controls,
+.workspace-conversion-controls {
   max-height: 290px;
   padding: 12px;
   border: 1px solid rgba(246, 244, 237, 0.14);
@@ -961,20 +961,20 @@ h1 em {
   pointer-events: auto;
 }
 
-.workspace-recognition-edge .scan-status,
-.workspace-recognition-edge .accessible-price-list,
-.workspace-conversion-edge .conversion-price-source,
-.workspace-conversion-edge .conversion-card {
+.workspace-recognition-controls .scan-status,
+.workspace-recognition-controls .accessible-price-list,
+.workspace-conversion-controls .conversion-price-source,
+.workspace-conversion-controls .conversion-card {
   margin-top: 0;
 }
 
-.workspace-recognition-edge .recognition-note,
-.workspace-recognition-edge .accessible-price-list,
-.workspace-conversion-edge .conversion-ledger {
+.workspace-recognition-controls .recognition-note,
+.workspace-recognition-controls .accessible-price-list,
+.workspace-conversion-controls .conversion-ledger {
   margin-top: 10px;
 }
 
-.workspace-secondary-controls {
+.workspace-details {
   width: min(720px, calc(100% - 40px));
   margin: 0 auto;
   padding: 0 max(20px, env(safe-area-inset-right))
@@ -1829,12 +1829,12 @@ h1 em {
     grid-template-columns: 0.8fr 1.2fr;
   }
 
-  .workspace-primary-edges {
+  .workspace-preview-controls {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .workspace-recognition-edge,
-  .workspace-conversion-edge {
+  .workspace-recognition-controls,
+  .workspace-conversion-controls {
     padding: 10px;
   }
 

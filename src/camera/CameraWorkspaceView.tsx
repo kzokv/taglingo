@@ -4,7 +4,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent
+  type FormEvent,
+  type ReactNode
 } from "react";
 
 import {
@@ -123,6 +124,27 @@ export const statusContent: Partial<
   }
 };
 
+function RecognitionStatusShell({
+  children,
+  indicatorClassName = "",
+  role = "status"
+}: {
+  children: ReactNode;
+  indicatorClassName?: string;
+  role?: "alert" | "status";
+}) {
+  return (
+    <div
+      className="scan-status"
+      role={role}
+      aria-label="Recognition status"
+    >
+      <span className={`status-dot ${indicatorClassName}`.trim()} />
+      <div>{children}</div>
+    </div>
+  );
+}
+
 
 function VideoPreview({
   stream,
@@ -179,22 +201,15 @@ function PreparationStatus({
   sourceCurrency: SourceCurrencyCode;
 }) {
   return (
-    <div
-      className="scan-status"
-      role="status"
-      aria-label="Recognition status"
-    >
-      <span className="status-dot" />
-      <div>
-        <strong>Preparing {sourceCurrency} recognition…</strong>
-        <progress
-          aria-label={`Preparing ${sourceCurrency} recognition`}
-          max={1}
-          value={progress}
-        />
-        <p>{detail}</p>
-      </div>
-    </div>
+    <RecognitionStatusShell>
+      <strong>Preparing {sourceCurrency} recognition…</strong>
+      <progress
+        aria-label={`Preparing ${sourceCurrency} recognition`}
+        max={1}
+        value={progress}
+      />
+      <p>{detail}</p>
+    </RecognitionStatusShell>
   );
 }
 
@@ -225,21 +240,14 @@ function StatusPanel({
     }
 
     return (
-      <div
-        className="scan-status"
-        role="status"
-        aria-label="Recognition status"
-      >
-        <span className="status-dot demo-dot" />
-        <div>
-          <strong>
-            {recognition.focusedPrice
-              ? "Recorded observation stabilized"
-              : "Checking the recorded observation…"}
-          </strong>
-          <p>No camera was requested and no physical-device claim is made.</p>
-        </div>
-      </div>
+      <RecognitionStatusShell indicatorClassName="demo-dot">
+        <strong>
+          {recognition.focusedPrice
+            ? "Recorded observation stabilized"
+            : "Checking the recorded observation…"}
+        </strong>
+        <p>No camera was requested and no physical-device claim is made.</p>
+      </RecognitionStatusShell>
     );
   }
 
@@ -255,72 +263,52 @@ function StatusPanel({
 
   if (recognition.phase === "error") {
     return (
-      <div
-        className="scan-status"
-        role="alert"
-        aria-label="Recognition status"
-      >
-        <span className="status-dot" />
-        <div>
-          <strong>Recognition could not start</strong>
-          <p>
-            Try preparing the local model again. Manual Price Entry is ready
-            below.
-          </p>
-          <div className="status-actions">
-            <button
-              className="text-button"
-              type="button"
-              onClick={onRecognitionRetry}
-            >
-              Try recognition again
-            </button>
-          </div>
+      <RecognitionStatusShell role="alert">
+        <strong>Recognition could not start</strong>
+        <p>
+          Try preparing the local model again. Manual Price Entry is ready
+          below.
+        </p>
+        <div className="status-actions">
+          <button
+            className="text-button"
+            type="button"
+            onClick={onRecognitionRetry}
+          >
+            Try recognition again
+          </button>
         </div>
-      </div>
+      </RecognitionStatusShell>
     );
   }
 
   const content = statusContent[status];
   if (!content) {
     return (
-      <div
-        className="scan-status"
-        role="status"
-        aria-label="Recognition status"
-      >
-        <span className="status-dot" />
-        <div>
-          <strong>Camera paused</strong>
-          <p>Restart when you are ready to continue.</p>
-          <button className="text-button" type="button" onClick={onRetry}>
-            Resume camera
-          </button>
-        </div>
-      </div>
+      <RecognitionStatusShell>
+        <strong>Camera paused</strong>
+        <p>Restart when you are ready to continue.</p>
+        <button className="text-button" type="button" onClick={onRetry}>
+          Resume camera
+        </button>
+      </RecognitionStatusShell>
     );
   }
 
   const isFailure = isCameraFailureStatus(status);
   return (
-    <div
-      className="scan-status"
+    <RecognitionStatusShell
       role={isFailure ? "alert" : "status"}
-      aria-label="Recognition status"
+      indicatorClassName={status === "active" ? "active-dot" : ""}
     >
-      <span
-        className={`status-dot ${status === "active" ? "active-dot" : ""}`}
-      />
-      <div>
-        <strong>{content.title}</strong>
-        <p>{content.detail}</p>
-        {isFailure ? (
-          <button className="text-button" type="button" onClick={onRetry}>
-            Try camera again
-          </button>
-        ) : null}
-      </div>
-    </div>
+      <strong>{content.title}</strong>
+      <p>{content.detail}</p>
+      {isFailure ? (
+        <button className="text-button" type="button" onClick={onRetry}>
+          Try camera again
+        </button>
+      ) : null}
+    </RecognitionStatusShell>
   );
 }
 
@@ -534,9 +522,9 @@ export function CameraWorkspace({
           className={`preview-fallback ${state.demo ? "demo-preview" : ""}`}
         />
         <div
-          className="workspace-currency-edge"
+          className="workspace-currency-controls"
           role="group"
-          aria-label="Camera currencies"
+          aria-label="Source and Target Currencies"
         >
           <CurrencySettings
             preferences={preferences}
@@ -554,8 +542,8 @@ export function CameraWorkspace({
           recognition={recognition}
           onCaptureGuideReady={bindings.connectCaptureGuide}
         />
-        <div className="workspace-primary-edges">
-          <div className="workspace-recognition-edge">
+        <div className="workspace-preview-controls">
+          <div className="workspace-recognition-controls">
             <StatusPanel
               status={state.camera.status}
               demo={state.demo}
@@ -580,7 +568,7 @@ export function CameraWorkspace({
             />
           </div>
           <section
-            className="workspace-conversion-edge"
+            className="workspace-conversion-controls"
             aria-label="Focused Price conversion"
           >
             <section
@@ -609,7 +597,7 @@ export function CameraWorkspace({
               isApprovedMember={state.shopperAccess.isApprovedMember}
               rates={referenceRates}
               onContinueAsGuest={actions.continueAsGuest}
-              discloseReferenceRateDetails
+              collapsibleReferenceRateDetails
             />
           </section>
         </div>
@@ -631,7 +619,7 @@ export function CameraWorkspace({
       </section>
 
       <aside
-        className="workspace-secondary-controls"
+        className="workspace-details"
         aria-label="Workspace details"
       >
         <RecognitionHealthPrivacy

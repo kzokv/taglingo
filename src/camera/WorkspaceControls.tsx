@@ -463,14 +463,14 @@ function ConversionRow({
   targetCurrency,
   guestRate,
   emptyMessage,
-  discloseReferenceRateDetails
+  collapsibleReferenceRateDetails
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
   targetCurrency: CurrencyCode;
   guestRate: GuestRateView;
   emptyMessage: string;
-  discloseReferenceRateDetails: boolean;
+  collapsibleReferenceRateDetails: boolean;
 }) {
   if (guestRate.phase === "loading") {
     return (
@@ -556,7 +556,7 @@ function ConversionRow({
           {targetCurrency} {formatted}
         </strong>
       </div>
-      {discloseReferenceRateDetails ? (
+      {collapsibleReferenceRateDetails ? (
         <details className="reference-rate-details">
           <summary>About this estimate</summary>
           {referenceRateDetails}
@@ -576,7 +576,7 @@ export function ConversionLedger({
   rates,
   emptyMessage = "Point at a price to see the conversion.",
   onContinueAsGuest,
-  discloseReferenceRateDetails = false
+  collapsibleReferenceRateDetails = false
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
@@ -585,7 +585,7 @@ export function ConversionLedger({
   rates: GuestRateViews;
   emptyMessage?: string;
   onContinueAsGuest: () => void;
-  discloseReferenceRateDetails?: boolean;
+  collapsibleReferenceRateDetails?: boolean;
 }) {
   const accessFailure = targetCurrencies
     .map((targetCurrency) => rates[targetCurrency])
@@ -632,7 +632,7 @@ export function ConversionLedger({
               }
             }
             emptyMessage={emptyMessage}
-            discloseReferenceRateDetails={discloseReferenceRateDetails}
+            collapsibleReferenceRateDetails={collapsibleReferenceRateDetails}
           />
         )
       ))}

@@ -186,7 +186,7 @@ describe("Camera Workspace boundary", () => {
       phase: "waiting" as const
     },
     {
-      condition: "runtime preparation",
+      condition: "Recognition Runtime preparation",
       camera: { status: "active" as const, stream: null },
       phase: "preparing" as const
     },
