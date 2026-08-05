@@ -14,7 +14,7 @@ import {
   type MemberPreferences
 } from "../src/member/memberPreferencesApi";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
-import type { DetectedPriceIdentity } from "../src/recognition/focusTracker";
+import { createCameraWorkspaceFixtureState } from "../src/test/cameraWorkspaceFixture";
 
 function fixtureRate(
   source: CurrencyCode,
@@ -38,71 +38,8 @@ function fixtureRate(
 const loadRate = async (source: CurrencyCode, target: CurrencyCode) =>
   fixtureRate(source, target);
 
-function detectedPriceIdentity(value: string): DetectedPriceIdentity {
-  return value as DetectedPriceIdentity;
-}
-
-const injectedDetectedPrices = [
-  {
-    identity: detectedPriceIdentity("workspace-price-one"),
-    currency: "JPY" as const,
-    minorUnits: 4_142,
-    confidence: 96,
-    box: { x: 400, y: 320, width: 160, height: 80 }
-  },
-  {
-    identity: detectedPriceIdentity("workspace-price-two"),
-    currency: "JPY" as const,
-    minorUnits: 980,
-    confidence: 92,
-    box: { x: 220, y: 720, width: 140, height: 72 }
-  }
-];
-
 function injectedWorkspaceState(): CameraWorkspaceState {
-  return {
-    demo: true,
-    camera: { status: "active", stream: null },
-    recognition: {
-      phase: "focused",
-      progress: 1,
-      detectedPrices: injectedDetectedPrices,
-      explicitlyFocusedPriceIdentity: injectedDetectedPrices[0].identity,
-      completedPassCount: 3,
-      missCount: 0,
-      focusChangeCount: 1,
-      stableDetectionCount: 2
-    },
-    focusedPrice: injectedDetectedPrices[0],
-    enteredPrice: null,
-    currencies: { sourceCurrency: "JPY", targetCurrencies: ["USD"] },
-    referenceRates: {
-      USD: {
-        phase: "ready",
-        rate: fixtureRate("JPY", "USD"),
-        error: null
-      }
-    },
-    shopperAccess: {
-      status: "guest",
-      saveStatus: "idle",
-      isApprovedMember: false
-    },
-    experiencePreferences: {
-      manualEntryPromotion: "after-5-seconds",
-      focusedPriceBehavior: "automatic"
-    },
-    manualPriceEntry: { expanded: true, wasPromoted: false },
-    priceSelection: {
-      enteredPriceInUse: false,
-      focusedPriceConfirmed: true
-    },
-    recognitionHealth: {
-      preferences: { sharingEnabled: false, invitationShown: false },
-      settingsOpen: false
-    },
-    previewSize: { width: 1_000, height: 1_000 }
-  };
+  return createCameraWorkspaceFixtureState(fixtureRate("JPY", "USD"));
 }
 
 function DeterministicCameraWorkspace() {
@@ -124,8 +61,7 @@ function DeterministicCameraWorkspace() {
         ...current,
         recognition: {
           ...current.recognition,
-          explicitlyFocusedPriceIdentity: identity,
-          focusChangeCount: current.recognition.focusChangeCount + 1
+          explicitlyFocusedPriceIdentity: identity
         },
         focusedPrice:
           current.recognition.detectedPrices.find(

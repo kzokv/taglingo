@@ -4,17 +4,13 @@ import type {
   SourceCurrencyCode
 } from "../domain/currencies";
 import type { EnteredPrice } from "../domain/manualPriceEntry";
+import type { Rectangle } from "../domain/geometry";
 import type { GuestRateView } from "../fx/useGuestRate";
 import type {
   FocusedPriceBehavior,
   ManualEntryPromotion
 } from "../member/memberPreferencesApi";
-import type { RecognitionView } from "../recognition/useCameraRecognition";
-import type {
-  RecognitionHealthErrorFamily,
-  RecognitionHealthPreferences,
-  RecognitionHealthTerminalOutcome
-} from "../recognitionHealth/recognitionHealth";
+import type { RecognitionHealthPreferences } from "../recognitionHealth/recognitionHealth";
 
 export type CameraWorkspaceAccessStatus =
   | "guest"
@@ -36,10 +32,28 @@ export interface CameraWorkspaceExperiencePreferences {
   focusedPriceBehavior: FocusedPriceBehavior;
 }
 
-export type CameraWorkspaceRecognitionEvidence = Omit<
-  RecognitionView,
-  "focusedPrice"
->;
+export type CameraWorkspaceRecognitionPhase =
+  | "waiting"
+  | "preparing"
+  | "searching"
+  | "stabilizing"
+  | "focused"
+  | "error";
+
+export interface CameraWorkspaceDetectedPrice {
+  identity: string;
+  currency: SourceCurrencyCode;
+  minorUnits: number;
+  confidence: number;
+  box: Rectangle;
+}
+
+export interface CameraWorkspaceRecognitionEvidence {
+  phase: CameraWorkspaceRecognitionPhase;
+  progress: number;
+  detectedPrices: CameraWorkspaceDetectedPrice[];
+  explicitlyFocusedPriceIdentity: string | null;
+}
 
 export type CameraWorkspaceReferenceRates = Partial<
   Record<CurrencyCode, Omit<GuestRateView, "retry">>
@@ -49,7 +63,7 @@ export interface CameraWorkspaceState {
   demo: boolean;
   camera: CameraSnapshot;
   recognition: CameraWorkspaceRecognitionEvidence;
-  focusedPrice: RecognitionView["focusedPrice"];
+  focusedPrice: CameraWorkspaceDetectedPrice | null;
   enteredPrice: EnteredPrice | null;
   currencies: CameraWorkspaceCurrencies;
   referenceRates: CameraWorkspaceReferenceRates;
@@ -57,6 +71,7 @@ export interface CameraWorkspaceState {
     status: CameraWorkspaceAccessStatus;
     saveStatus: CameraWorkspaceSaveStatus;
     isApprovedMember: boolean;
+    usingGuestMode: boolean;
   };
   experiencePreferences: CameraWorkspaceExperiencePreferences;
   manualPriceEntry: {
@@ -77,9 +92,7 @@ export interface CameraWorkspaceState {
 export interface CameraWorkspaceActions {
   startCamera(): void;
   stopCamera(): void;
-  selectPrice(
-    identity: CameraWorkspaceRecognitionEvidence["detectedPrices"][number]["identity"]
-  ): void;
+  selectPrice(identity: string): void;
   changeCurrencies(currencies: CameraWorkspaceCurrencies): void;
   changeExperiencePreferences(
     preferences: CameraWorkspaceExperiencePreferences
@@ -90,10 +103,7 @@ export interface CameraWorkspaceActions {
   useFocusedPrice(): void;
   retryRecognition(): void;
   retryReferenceRate(targetCurrency: CurrencyCode): void;
-  leaveWorkspace(
-    outcome: RecognitionHealthTerminalOutcome,
-    errorFamily: RecognitionHealthErrorFamily
-  ): void;
+  leaveWorkspace(): void;
   continueAsGuest(): void;
   retryMemberAccess(): void;
   retryMemberSave(): void;

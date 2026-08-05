@@ -8,91 +8,30 @@ import type {
   CameraWorkspaceBindings,
   CameraWorkspaceState
 } from "./camera/cameraWorkspace";
-import type { DetectedPriceIdentity } from "./recognition/focusTracker";
+import type { GuestReferenceRate } from "./fx/referenceRate";
+import {
+  CAMERA_WORKSPACE_FIXTURE_PRICES,
+  createCameraWorkspaceFixtureState
+} from "./test/cameraWorkspaceFixture";
 
-function identity(value: string): DetectedPriceIdentity {
-  return value as DetectedPriceIdentity;
-}
-
-const focusedPrice = {
-  identity: identity("price-one"),
-  currency: "JPY" as const,
-  minorUnits: 4_142,
-  confidence: 96,
-  box: { x: 40, y: 50, width: 120, height: 60 }
+const referenceRate: GuestReferenceRate = {
+  source: "JPY",
+  target: "USD",
+  direction: "source-to-target",
+  value: "0.0067123",
+  provider: "Frankfurter",
+  method: "daily-blend",
+  providerPublishedDate: "2026-07-30",
+  fetchedAt: "2026-07-30T10:00:00.000Z",
+  state: "fresh",
+  attribution: "Frankfurter · deterministic workspace fixture"
 };
-const otherPrice = {
-  identity: identity("price-two"),
-  currency: "JPY" as const,
-  minorUnits: 980,
-  confidence: 92,
-  box: { x: 220, y: 280, width: 100, height: 50 }
-};
+const [focusedPrice, otherPrice] = CAMERA_WORKSPACE_FIXTURE_PRICES;
 
 function workspaceState(
   overrides: Partial<CameraWorkspaceState> = {}
 ): CameraWorkspaceState {
-  return {
-    demo: true,
-    camera: { status: "active", stream: null },
-    recognition: {
-      phase: "focused",
-      progress: 1,
-      detectedPrices: [focusedPrice, otherPrice],
-      explicitlyFocusedPriceIdentity: focusedPrice.identity,
-      completedPassCount: 3,
-      missCount: 0,
-      focusChangeCount: 1,
-      stableDetectionCount: 2
-    },
-    focusedPrice,
-    enteredPrice: null,
-    currencies: {
-      sourceCurrency: "JPY",
-      targetCurrencies: ["USD"]
-    },
-    referenceRates: {
-      USD: {
-        phase: "ready",
-        rate: {
-          source: "JPY",
-          target: "USD",
-          direction: "source-to-target",
-          value: "0.0067123",
-          provider: "Frankfurter",
-          method: "daily-blend",
-          providerPublishedDate: "2026-07-30",
-          fetchedAt: "2026-07-30T10:00:00.000Z",
-          state: "fresh",
-          attribution: "Frankfurter · deterministic workspace fixture"
-        },
-        error: null
-      }
-    },
-    shopperAccess: {
-      status: "guest",
-      saveStatus: "idle",
-      isApprovedMember: false
-    },
-    experiencePreferences: {
-      manualEntryPromotion: "after-5-seconds",
-      focusedPriceBehavior: "automatic"
-    },
-    manualPriceEntry: {
-      expanded: true,
-      wasPromoted: false
-    },
-    priceSelection: {
-      enteredPriceInUse: false,
-      focusedPriceConfirmed: true
-    },
-    recognitionHealth: {
-      preferences: { sharingEnabled: false, invitationShown: false },
-      settingsOpen: false
-    },
-    previewSize: { width: 1_000, height: 1_000 },
-    ...overrides
-  };
+  return createCameraWorkspaceFixtureState(referenceRate, overrides);
 }
 
 function workspaceActions(): CameraWorkspaceActions {
@@ -181,10 +120,7 @@ describe("Camera Workspace boundary", () => {
 
     await user.click(screen.getByRole("button", { name: /close camera/i }));
     expect(actions.stopCamera).toHaveBeenCalledOnce();
-    expect(actions.leaveWorkspace).toHaveBeenCalledWith(
-      "focused-price-obtained",
-      "none"
-    );
+    expect(actions.leaveWorkspace).toHaveBeenCalledOnce();
   });
 
   it("starts the camera through the same boundary after injected failure", () => {

@@ -89,8 +89,10 @@ import {
   createBrowserRecognizer,
   useCameraRecognition,
   type CreateRecognizer,
+  type RecognitionController,
   type RecognitionView
 } from "./recognition/useCameraRecognition";
+import type { DetectedPriceIdentity } from "./recognition/focusTracker";
 import { AccessibleDetectedPriceList } from "./recognition/AccessibleDetectedPriceList";
 import { CameraExperienceOverlay } from "./recognition/CameraExperience";
 import { useDemoRecognition } from "./recognition/useDemoRecognition";
@@ -905,43 +907,69 @@ function ManualPriceEntrySurface({
   );
 }
 
-function workspaceExit(
-  state: CameraWorkspaceState
-): [RecognitionHealthTerminalOutcome, RecognitionHealthErrorFamily] {
-  if (state.camera.status === "denied") {
-    return ["camera-permission-denied", "camera-permission"];
+function recognitionHealthResultForWorkspaceExit({
+  cameraStatus,
+  recognition,
+  enteredPriceInUse,
+  enteredPrice,
+  manualEntryWasPromoted
+}: {
+  cameraStatus: CameraStatus;
+  recognition: RecognitionView;
+  enteredPriceInUse: boolean;
+  enteredPrice: EnteredPrice | null;
+  manualEntryWasPromoted: boolean;
+}): {
+  outcome: RecognitionHealthTerminalOutcome;
+  errorFamily: RecognitionHealthErrorFamily;
+} {
+  if (cameraStatus === "denied") {
+    return {
+      outcome: "camera-permission-denied",
+      errorFamily: "camera-permission"
+    };
   }
-  if (state.camera.status === "unavailable") {
-    return ["camera-unavailable-or-interrupted", "camera-unavailable"];
+  if (cameraStatus === "unavailable") {
+    return {
+      outcome: "camera-unavailable-or-interrupted",
+      errorFamily: "camera-unavailable"
+    };
   }
-  if (
-    state.camera.status === "interrupted" ||
-    state.camera.status === "error"
-  ) {
-    return ["camera-unavailable-or-interrupted", "camera-interrupted"];
+  if (cameraStatus === "interrupted" || cameraStatus === "error") {
+    return {
+      outcome: "camera-unavailable-or-interrupted",
+      errorFamily: "camera-interrupted"
+    };
   }
-  if (state.recognition.phase === "error") {
-    return state.recognition.completedPassCount === 0
-      ? ["recognition-initialization-failed", "recognition-initialization"]
-      : ["unexpected-recognition-failure", "recognition-runtime"];
+  if (recognition.phase === "error") {
+    return recognition.completedPassCount === 0
+      ? {
+          outcome: "recognition-initialization-failed",
+          errorFamily: "recognition-initialization"
+        }
+      : {
+          outcome: "unexpected-recognition-failure",
+          errorFamily: "recognition-runtime"
+        };
   }
-  if (state.priceSelection.enteredPriceInUse && state.enteredPrice) {
-    return [
-      state.manualPriceEntry.wasPromoted
+  if (enteredPriceInUse && enteredPrice) {
+    return {
+      outcome: manualEntryWasPromoted
         ? "entered-price-after-promotion"
         : "entered-price-before-promotion",
-      "none"
-    ];
+      errorFamily: "none"
+    };
   }
-  if (state.focusedPrice) {
-    return ["focused-price-obtained", "none"];
+  if (recognition.focusedPrice) {
+    return { outcome: "focused-price-obtained", errorFamily: "none" };
   }
-  return [
-    state.recognition.completedPassCount > 0
-      ? "recognition-ended-without-stable-price"
-      : "closed-without-price",
-    "none"
-  ];
+  return {
+    outcome:
+      recognition.completedPassCount > 0
+        ? "recognition-ended-without-stable-price"
+        : "closed-without-price",
+    errorFamily: "none"
+  };
 }
 
 export function CameraWorkspace({
@@ -959,9 +987,25 @@ export function CameraWorkspace({
   };
   const recognition = {
     ...state.recognition,
-    focusedPrice: state.focusedPrice,
-    selectDetectedPrice: actions.selectPrice
-  };
+    detectedPrices: state.recognition.detectedPrices.map((price) => ({
+      ...price,
+      identity: price.identity as DetectedPriceIdentity
+    })),
+    focusedPrice: state.focusedPrice
+      ? {
+          ...state.focusedPrice,
+          identity: state.focusedPrice.identity as DetectedPriceIdentity
+        }
+      : null,
+    explicitlyFocusedPriceIdentity: state.recognition
+      .explicitlyFocusedPriceIdentity as DetectedPriceIdentity | null,
+    completedPassCount: 0,
+    missCount: 0,
+    focusChangeCount: 0,
+    stableDetectionCount: 0,
+    selectDetectedPrice: (identity: DetectedPriceIdentity) =>
+      actions.selectPrice(identity)
+  } satisfies RecognitionController;
   const referenceRates: GuestRateViews = Object.fromEntries(
     Object.entries(state.referenceRates).map(([currency, rate]) => [
       currency,
@@ -1027,9 +1071,8 @@ export function CameraWorkspace({
   })();
 
   const closeWorkspace = () => {
-    const [outcome, errorFamily] = workspaceExit(state);
     actions.stopCamera();
-    actions.leaveWorkspace(outcome, errorFamily);
+    actions.leaveWorkspace();
   };
 
   return (
@@ -1112,7 +1155,11 @@ export function CameraWorkspace({
           />
         ) : null}
         <MemberStatusPanel
-          accessStatus={state.shopperAccess.status}
+          accessStatus={
+            state.shopperAccess.usingGuestMode
+              ? "guest-choice"
+              : state.shopperAccess.status
+          }
           saveStatus={state.shopperAccess.saveStatus}
           onRetryAccess={actions.retryMemberAccess}
           onRetrySave={actions.retryMemberSave}
@@ -1127,13 +1174,13 @@ export function CameraWorkspace({
         />
         <RecognitionSummary recognition={recognition} demo={state.demo} />
         <AccessibleDetectedPriceList
-          detectedPrices={state.recognition.detectedPrices}
-          focusedPrice={state.focusedPrice}
+          detectedPrices={recognition.detectedPrices}
+          focusedPrice={recognition.focusedPrice}
           explicitlyFocusedPriceIdentity={
-            state.recognition.explicitlyFocusedPriceIdentity
+            recognition.explicitlyFocusedPriceIdentity
           }
           previewSize={state.previewSize}
-          onSelect={actions.selectPrice}
+          onSelect={(identity) => actions.selectPrice(identity)}
         />
         <ManualPriceComposer
           sourceCurrency={state.currencies.sourceCurrency}
@@ -1180,6 +1227,7 @@ function LiveCameraWorkspace({
   snapshot,
   preferences,
   isApprovedMember,
+  usingGuestMode,
   memberAccessStatus,
   rates,
   onPreferencesChange,
@@ -1206,6 +1254,7 @@ function LiveCameraWorkspace({
   snapshot: CameraSnapshot;
   preferences: ExperiencePreferences;
   isApprovedMember: boolean;
+  usingGuestMode: boolean;
   memberAccessStatus: MemberAccessStatus;
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
@@ -1388,11 +1437,13 @@ function LiveCameraWorkspace({
     });
     setEnteredPriceInUse(false);
   };
-  const {
-    focusedPrice: _focusedPrice,
-    selectDetectedPrice: _selectDetectedPrice,
-    ...recognitionEvidence
-  } = recognition;
+  const recognitionEvidence = {
+    phase: recognition.phase,
+    progress: recognition.progress,
+    detectedPrices: recognition.detectedPrices,
+    explicitlyFocusedPriceIdentity:
+      recognition.explicitlyFocusedPriceIdentity
+  };
   const workspaceReferenceRates = Object.fromEntries(
     Object.entries(rates).map(([currency, rate]) => {
       if (!rate || rate.phase === "loading") {
@@ -1415,6 +1466,16 @@ function LiveCameraWorkspace({
       ];
     })
   );
+  const leaveWorkspace = () => {
+    const result = recognitionHealthResultForWorkspaceExit({
+      cameraStatus: snapshot.status,
+      recognition,
+      enteredPriceInUse,
+      enteredPrice,
+      manualEntryWasPromoted: manualEntryPromotedRef.current
+    });
+    onClose(result.outcome, result.errorFamily);
+  };
 
   return (
     <CameraWorkspace
@@ -1432,7 +1493,8 @@ function LiveCameraWorkspace({
         shopperAccess: {
           status: memberAccessStatus,
           saveStatus: memberSaveStatus,
-          isApprovedMember
+          isApprovedMember,
+          usingGuestMode
         },
         experiencePreferences: {
           manualEntryPromotion: preferences.manualEntryPromotion,
@@ -1455,7 +1517,8 @@ function LiveCameraWorkspace({
       actions={{
         startCamera: onRetry,
         stopCamera: onStop,
-        selectPrice: recognition.selectDetectedPrice,
+        selectPrice: (identity) =>
+          recognition.selectDetectedPrice(identity as DetectedPriceIdentity),
         changeCurrencies: ({ sourceCurrency, targetCurrencies }) =>
           onPreferencesChange({
             ...preferences,
@@ -1472,7 +1535,7 @@ function LiveCameraWorkspace({
           setRecognitionRestartKey((restartKey) => restartKey + 1),
         retryReferenceRate: (targetCurrency) =>
           rates[targetCurrency]?.retry(),
-        leaveWorkspace: onClose,
+        leaveWorkspace,
         continueAsGuest: onContinueAsGuest,
         retryMemberAccess: onRetryMemberAccess,
         retryMemberSave: onRetryMemberSave,
@@ -2390,9 +2453,7 @@ export default function App({
       <ManualPriceEntrySurface
         preferences={preferences}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={
-          useGuestMode ? "guest-choice" : effectiveMemberAccessStatus
-        }
+        memberAccessStatus={effectiveMemberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         onClose={closeExperience}
@@ -2415,9 +2476,8 @@ export default function App({
           sourceCurrency: preferences.sourceCurrency
         }}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={
-          useGuestMode ? "guest-choice" : effectiveMemberAccessStatus
-        }
+        usingGuestMode={useGuestMode}
+        memberAccessStatus={effectiveMemberAccessStatus}
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         recognitionRuntime={recognitionRuntime}
