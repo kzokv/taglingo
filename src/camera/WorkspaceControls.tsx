@@ -794,4 +794,3 @@ export function MemberStatusPanel({
   }
   return null;
 }
-
