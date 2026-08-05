@@ -50,6 +50,41 @@ test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
 
+test("deterministic harness injects Camera Workspace state without recognition internals", async ({
+  page
+}) => {
+  const recognitionAssetRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/ocr/")) {
+      recognitionAssetRequests.push(request.url());
+    }
+  });
+
+  await page.goto("/e2e/harness.html?workspace=focused");
+
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 4,142");
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /price 2 of 2, jpy 980/i })
+    .click();
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 980");
+  await expect(page.getByText("USD 6.58")).toBeVisible();
+
+  const composer = page.getByRole("region", { name: /manual price entry/i });
+  await composer.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
+  await composer.getByRole("textbox", { name: /jpy amount/i }).press("Enter");
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Entered Price in use");
+  await expect(page.getByText("USD 33.56")).toBeVisible();
+  expect(recognitionAssetRequests).toEqual([]);
+});
+
 test("Guest camera policy keeps five currencies available and promotes all others to manual", async ({
   page
 }) => {

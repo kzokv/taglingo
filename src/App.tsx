@@ -17,6 +17,13 @@ import {
   type CameraSnapshot,
   type CameraStatus
 } from "./camera/cameraSession";
+import type {
+  CameraWorkspaceActions,
+  CameraWorkspaceBindings,
+  CameraWorkspaceState,
+  CameraWorkspaceAccessStatus,
+  CameraWorkspaceSaveStatus
+} from "./camera/cameraWorkspace";
 import {
   createCameraUsageSession,
   type CameraUsageSession
@@ -115,14 +122,8 @@ interface ExperiencePreferences {
   focusedPriceBehavior: FocusedPriceBehavior;
 }
 
-type MemberAccessStatus =
-  | "guest"
-  | "loading"
-  | "approved"
-  | "inactive"
-  | "guest-choice"
-  | "unavailable";
-type MemberSaveStatus = "idle" | "saving" | "error";
+type MemberAccessStatus = CameraWorkspaceAccessStatus;
+type MemberSaveStatus = CameraWorkspaceSaveStatus;
 const CHECKING_MEMBER_ACCESS_LABEL = "Checking member access";
 const MANUAL_ENTRY_PROMOTION_DELAY_MS = 5_000;
 
@@ -904,7 +905,277 @@ function ManualPriceEntrySurface({
   );
 }
 
-function CameraSurface({
+function workspaceExit(
+  state: CameraWorkspaceState
+): [RecognitionHealthTerminalOutcome, RecognitionHealthErrorFamily] {
+  if (state.camera.status === "denied") {
+    return ["camera-permission-denied", "camera-permission"];
+  }
+  if (state.camera.status === "unavailable") {
+    return ["camera-unavailable-or-interrupted", "camera-unavailable"];
+  }
+  if (
+    state.camera.status === "interrupted" ||
+    state.camera.status === "error"
+  ) {
+    return ["camera-unavailable-or-interrupted", "camera-interrupted"];
+  }
+  if (state.recognition.phase === "error") {
+    return state.recognition.completedPassCount === 0
+      ? ["recognition-initialization-failed", "recognition-initialization"]
+      : ["unexpected-recognition-failure", "recognition-runtime"];
+  }
+  if (state.priceSelection.enteredPriceInUse && state.enteredPrice) {
+    return [
+      state.manualPriceEntry.wasPromoted
+        ? "entered-price-after-promotion"
+        : "entered-price-before-promotion",
+      "none"
+    ];
+  }
+  if (state.focusedPrice) {
+    return ["focused-price-obtained", "none"];
+  }
+  return [
+    state.recognition.completedPassCount > 0
+      ? "recognition-ended-without-stable-price"
+      : "closed-without-price",
+    "none"
+  ];
+}
+
+export function CameraWorkspace({
+  state,
+  actions,
+  bindings
+}: {
+  state: CameraWorkspaceState;
+  actions: CameraWorkspaceActions;
+  bindings: CameraWorkspaceBindings;
+}) {
+  const preferences: ExperiencePreferences = {
+    ...state.currencies,
+    ...state.experiencePreferences
+  };
+  const recognition = {
+    ...state.recognition,
+    focusedPrice: state.focusedPrice,
+    selectDetectedPrice: actions.selectPrice
+  };
+  const referenceRates: GuestRateViews = Object.fromEntries(
+    Object.entries(state.referenceRates).map(([currency, rate]) => [
+      currency,
+      rate
+        ? {
+            ...rate,
+            retry: () =>
+              actions.retryReferenceRate(currency as CurrencyCode)
+          }
+        : rate
+    ])
+  );
+  const enteredPriceLabel = state.enteredPrice
+    ? `${state.enteredPrice.currency} ${state.enteredPrice.displayAmount}`
+    : null;
+  const focusedPriceLabel = state.focusedPrice
+    ? `${state.focusedPrice.currency} ${formatCurrencyMinorUnits(
+        state.focusedPrice.minorUnits,
+        state.focusedPrice.currency
+      )}`
+    : null;
+  const priceInUse = (() => {
+    if (state.priceSelection.enteredPriceInUse && state.enteredPrice) {
+      return {
+        price: state.enteredPrice,
+        title: "Entered Price in use",
+        detail: "Entered manually · not camera-derived",
+        switchLabel: state.focusedPrice
+          ? `Use Focused Price · ${focusedPriceLabel}`
+          : null,
+        onSwitch: actions.useFocusedPrice
+      };
+    }
+    if (state.focusedPrice && state.priceSelection.focusedPriceConfirmed) {
+      return {
+        price: state.focusedPrice,
+        title: "Focused Price in use",
+        detail: "Camera-derived evidence",
+        switchLabel: state.enteredPrice
+          ? `Use Entered Price · ${enteredPriceLabel}`
+          : null,
+        onSwitch: actions.useEnteredPrice
+      };
+    }
+    if (state.focusedPrice) {
+      return {
+        price: null,
+        title: "Focused Price waiting for confirmation",
+        detail: "Confirm this camera-derived price before conversion.",
+        switchLabel: `Confirm Focused Price · ${focusedPriceLabel}`,
+        onSwitch: actions.useFocusedPrice
+      };
+    }
+    return {
+      price: null,
+      title: "Waiting for a Focused Price",
+      detail: "Manual Price Entry remains available.",
+      switchLabel: state.enteredPrice
+        ? `Use Entered Price · ${enteredPriceLabel}`
+        : null,
+      onSwitch: actions.useEnteredPrice
+    };
+  })();
+
+  const closeWorkspace = () => {
+    const [outcome, errorFamily] = workspaceExit(state);
+    actions.stopCamera();
+    actions.leaveWorkspace(outcome, errorFamily);
+  };
+
+  return (
+    <main className="camera-shell">
+      <header className="camera-header">
+        <TagLingoMark />
+        <div className="camera-header-actions">
+          <button
+            className="camera-privacy-button"
+            type="button"
+            onClick={actions.openPrivacySettings}
+          >
+            Privacy settings
+          </button>
+          <button
+            className="close-button"
+            type="button"
+            onClick={closeWorkspace}
+          >
+            <span aria-hidden="true">×</span> Close camera
+          </button>
+        </div>
+      </header>
+
+      <section
+        ref={bindings.connectPreview}
+        className="preview"
+        aria-label="Price camera"
+      >
+        {state.camera.stream ? (
+          <VideoPreview
+            stream={state.camera.stream}
+            onReady={bindings.connectVideo}
+            onPlaybackError={bindings.reportPlaybackError}
+          />
+        ) : null}
+        <div
+          className={`preview-fallback ${state.demo ? "demo-preview" : ""}`}
+        />
+        <CameraExperienceOverlay
+          demo={state.demo}
+          recognition={recognition}
+          onCaptureGuideReady={bindings.connectCaptureGuide}
+        />
+        <div className="privacy-chip">
+          <span aria-hidden="true">●</span> Local preview
+        </div>
+      </section>
+
+      <section className="result-sheet" aria-label="Camera controls and status">
+        <div className="sheet-handle" aria-hidden="true" />
+        <RecognitionHealthPrivacy
+          preferences={state.recognitionHealth.preferences}
+          invitation={false}
+          settingsOpen={state.recognitionHealth.settingsOpen}
+          onChange={actions.changeRecognitionHealthSharing}
+          onDismissInvitation={() => undefined}
+          onCloseSettings={actions.closePrivacySettings}
+        />
+        <CurrencySettings
+          preferences={preferences}
+          onChange={({ sourceCurrency, targetCurrencies }) =>
+            actions.changeCurrencies({ sourceCurrency, targetCurrencies })
+          }
+          isApprovedMember={state.shopperAccess.isApprovedMember}
+          memberAccessStatus={state.shopperAccess.status}
+          compact
+          sourceCurrencyDisabled={!state.demo}
+        />
+        {state.shopperAccess.isApprovedMember ? (
+          <RecognitionExperienceSettings
+            preferences={preferences}
+            onChange={({ manualEntryPromotion, focusedPriceBehavior }) =>
+              actions.changeExperiencePreferences({
+                manualEntryPromotion,
+                focusedPriceBehavior
+              })
+            }
+            compact
+          />
+        ) : null}
+        <MemberStatusPanel
+          accessStatus={state.shopperAccess.status}
+          saveStatus={state.shopperAccess.saveStatus}
+          onRetryAccess={actions.retryMemberAccess}
+          onRetrySave={actions.retryMemberSave}
+        />
+        <StatusPanel
+          status={state.camera.status}
+          demo={state.demo}
+          recognition={recognition}
+          sourceCurrency={state.currencies.sourceCurrency}
+          onRetry={actions.startCamera}
+          onRecognitionRetry={actions.retryRecognition}
+        />
+        <RecognitionSummary recognition={recognition} demo={state.demo} />
+        <AccessibleDetectedPriceList
+          detectedPrices={state.recognition.detectedPrices}
+          focusedPrice={state.focusedPrice}
+          explicitlyFocusedPriceIdentity={
+            state.recognition.explicitlyFocusedPriceIdentity
+          }
+          previewSize={state.previewSize}
+          onSelect={actions.selectPrice}
+        />
+        <ManualPriceComposer
+          sourceCurrency={state.currencies.sourceCurrency}
+          enteredPrice={state.enteredPrice}
+          expanded={state.manualPriceEntry.expanded}
+          compact
+          onEnteredPriceChange={actions.enterPrice}
+          onExpandedChange={actions.setManualPriceEntryExpanded}
+        />
+        <section
+          className="conversion-price-source"
+          role="status"
+          aria-label="Price used for conversion"
+        >
+          <div>
+            <strong>{priceInUse.title}</strong>
+            <p>{priceInUse.detail}</p>
+          </div>
+          {priceInUse.switchLabel ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={priceInUse.onSwitch}
+            >
+              {priceInUse.switchLabel}
+            </button>
+          ) : null}
+        </section>
+        <ConversionLedger
+          price={priceInUse.price}
+          sourceCurrency={state.currencies.sourceCurrency}
+          targetCurrencies={state.currencies.targetCurrencies}
+          isApprovedMember={state.shopperAccess.isApprovedMember}
+          rates={referenceRates}
+          onContinueAsGuest={actions.continueAsGuest}
+        />
+      </section>
+    </main>
+  );
+}
+
+function LiveCameraWorkspace({
   demo,
   snapshot,
   preferences,
@@ -914,10 +1185,13 @@ function CameraSurface({
   onPreferencesChange,
   recognitionRuntime,
   createRecognizer,
+  onStop,
   onClose,
   onRetry,
   onPlaybackError,
-  memberStatus,
+  memberSaveStatus,
+  onRetryMemberAccess,
+  onRetryMemberSave,
   onContinueAsGuest,
   onRecognitionHealthRecord,
   recognitionHealthPreferences,
@@ -937,13 +1211,16 @@ function CameraSurface({
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   recognitionRuntime: RecognitionRuntimeConfiguration;
   createRecognizer: CreateRecognizer;
+  onStop: () => void;
   onClose: (
     outcome: RecognitionHealthTerminalOutcome,
     errorFamily: RecognitionHealthErrorFamily
   ) => void;
   onRetry: () => void;
   onPlaybackError: () => void;
-  memberStatus: ReactNode;
+  memberSaveStatus: MemberSaveStatus;
+  onRetryMemberAccess: () => void;
+  onRetryMemberSave: () => void;
   onContinueAsGuest: () => void;
   onRecognitionHealthRecord: (
     observation: RecognitionHealthObservation
@@ -1073,51 +1350,6 @@ function CameraSurface({
     });
   }, [onRecognitionHealthRecord, recognition]);
 
-  const closeCamera = () => {
-    if (snapshot.status === "denied") {
-      onClose("camera-permission-denied", "camera-permission");
-      return;
-    }
-    if (snapshot.status === "unavailable") {
-      onClose("camera-unavailable-or-interrupted", "camera-unavailable");
-      return;
-    }
-    if (snapshot.status === "interrupted" || snapshot.status === "error") {
-      onClose("camera-unavailable-or-interrupted", "camera-interrupted");
-      return;
-    }
-    if (recognition.phase === "error") {
-      onClose(
-        recognition.completedPassCount === 0
-          ? "recognition-initialization-failed"
-          : "unexpected-recognition-failure",
-        recognition.completedPassCount === 0
-          ? "recognition-initialization"
-          : "recognition-runtime"
-      );
-      return;
-    }
-    if (enteredPriceInUse && enteredPrice) {
-      onClose(
-        manualEntryPromotedRef.current
-          ? "entered-price-after-promotion"
-          : "entered-price-before-promotion",
-        "none"
-      );
-      return;
-    }
-    if (recognition.focusedPrice) {
-      onClose("focused-price-obtained", "none");
-      return;
-    }
-    onClose(
-      recognition.completedPassCount > 0
-        ? "recognition-ended-without-stable-price"
-        : "closed-without-price",
-      "none"
-    );
-  };
-
   const updateEnteredPrice = (nextEnteredPrice: EnteredPrice | null) => {
     setEnteredPrice(nextEnteredPrice);
     setEnteredPriceInUse(Boolean(nextEnteredPrice));
@@ -1130,15 +1362,6 @@ function CameraSurface({
     setManualEntryExpanded(expanded);
   };
 
-  const enteredPriceLabel = enteredPrice
-    ? `${enteredPrice.currency} ${enteredPrice.displayAmount}`
-    : null;
-  const focusedPriceLabel = recognition.focusedPrice
-    ? `${recognition.focusedPrice.currency} ${formatCurrencyMinorUnits(
-        recognition.focusedPrice.minorUnits,
-        recognition.focusedPrice.currency
-      )}`
-    : null;
   const focusedPriceCanBeUsed =
     recognition.focusedPrice !== null &&
     (preferences.focusedPriceBehavior === "automatic" ||
@@ -1165,169 +1388,105 @@ function CameraSurface({
     });
     setEnteredPriceInUse(false);
   };
-  const priceInUse = (() => {
-    if (enteredPriceInUse && enteredPrice) {
-      return {
-        price: enteredPrice,
-        title: "Entered Price in use",
-        detail: "Entered manually · not camera-derived",
-        switchLabel: recognition.focusedPrice
-          ? `Use Focused Price · ${focusedPriceLabel}`
-          : null,
-        onSwitch: useFocusedPrice
-      };
-    }
-    if (recognition.focusedPrice && focusedPriceCanBeUsed) {
-      return {
-        price: recognition.focusedPrice,
-        title: "Focused Price in use",
-        detail: "Camera-derived evidence",
-        switchLabel: enteredPrice
-          ? `Use Entered Price · ${enteredPriceLabel}`
-          : null,
-        onSwitch: () => setEnteredPriceInUse(true)
-      };
-    }
-    if (recognition.focusedPrice) {
-      return {
-        price: null,
-        title: "Focused Price waiting for confirmation",
-        detail: "Confirm this camera-derived price before conversion.",
-        switchLabel: `Confirm Focused Price · ${focusedPriceLabel}`,
-        onSwitch: useFocusedPrice
-      };
-    }
-    return {
-      price: null,
-      title: "Waiting for a Focused Price",
-      detail: "Manual Price Entry remains available.",
-      switchLabel: enteredPrice
-        ? `Use Entered Price · ${enteredPriceLabel}`
-        : null,
-      onSwitch: () => setEnteredPriceInUse(true)
-    };
-  })();
+  const {
+    focusedPrice: _focusedPrice,
+    selectDetectedPrice: _selectDetectedPrice,
+    ...recognitionEvidence
+  } = recognition;
+  const workspaceReferenceRates = Object.fromEntries(
+    Object.entries(rates).map(([currency, rate]) => {
+      if (!rate || rate.phase === "loading") {
+        return [currency, rate];
+      }
+      if (rate.phase === "ready") {
+        return [
+          currency,
+          { phase: rate.phase, rate: rate.rate, error: rate.error }
+        ];
+      }
+      return [
+        currency,
+        {
+          phase: rate.phase,
+          rate: rate.rate,
+          error: rate.error,
+          reason: rate.reason
+        }
+      ];
+    })
+  );
 
   return (
-    <main className="camera-shell">
-      <header className="camera-header">
-        <TagLingoMark />
-        <div className="camera-header-actions">
-          <button
-            className="camera-privacy-button"
-            type="button"
-            onClick={onOpenPrivacySettings}
-          >
-            Privacy settings
-          </button>
-          <button className="close-button" type="button" onClick={closeCamera}>
-            <span aria-hidden="true">×</span> Close camera
-          </button>
-        </div>
-      </header>
-
-      <section ref={setPreview} className="preview" aria-label="Price camera">
-        {snapshot.stream ? (
-          <VideoPreview
-            stream={snapshot.stream}
-            onReady={setVideo}
-            onPlaybackError={onPlaybackError}
-          />
-        ) : null}
-        <div className={`preview-fallback ${demo ? "demo-preview" : ""}`} />
-        <CameraExperienceOverlay
-          demo={demo}
-          recognition={recognition}
-          onCaptureGuideReady={setCaptureGuide}
-        />
-        <div className="privacy-chip">
-          <span aria-hidden="true">●</span> Local preview
-        </div>
-      </section>
-
-      <section className="result-sheet" aria-label="Camera controls and status">
-        <div className="sheet-handle" aria-hidden="true" />
-        <RecognitionHealthPrivacy
-          preferences={recognitionHealthPreferences}
-          invitation={false}
-          settingsOpen={privacySettingsOpen}
-          onChange={onRecognitionHealthChange}
-          onDismissInvitation={() => undefined}
-          onCloseSettings={onClosePrivacySettings}
-        />
-        <CurrencySettings
-          preferences={preferences}
-          onChange={onPreferencesChange}
-          isApprovedMember={isApprovedMember}
-          memberAccessStatus={memberAccessStatus}
-          compact
-          sourceCurrencyDisabled={!demo}
-        />
-        {isApprovedMember ? (
-          <RecognitionExperienceSettings
-            preferences={preferences}
-            onChange={onPreferencesChange}
-            compact
-          />
-        ) : null}
-        {memberStatus}
-        <StatusPanel
-          status={snapshot.status}
-          demo={demo}
-          recognition={recognition}
-          sourceCurrency={preferences.sourceCurrency}
-          onRetry={onRetry}
-          onRecognitionRetry={() =>
-            setRecognitionRestartKey((restartKey) => restartKey + 1)
-          }
-        />
-        <RecognitionSummary recognition={recognition} demo={demo} />
-        <AccessibleDetectedPriceList
-          detectedPrices={recognition.detectedPrices}
-          focusedPrice={recognition.focusedPrice}
-          explicitlyFocusedPriceIdentity={
-            recognition.explicitlyFocusedPriceIdentity
-          }
-          previewSize={detectedPricePreviewSize}
-          onSelect={recognition.selectDetectedPrice}
-        />
-        <ManualPriceComposer
-          sourceCurrency={preferences.sourceCurrency}
-          enteredPrice={enteredPrice}
-          expanded={manualEntryExpanded}
-          compact
-          onEnteredPriceChange={updateEnteredPrice}
-          onExpandedChange={updateManualEntryExpanded}
-        />
-        <section
-          className="conversion-price-source"
-          role="status"
-          aria-label="Price used for conversion"
-        >
-          <div>
-            <strong>{priceInUse.title}</strong>
-            <p>{priceInUse.detail}</p>
-          </div>
-          {priceInUse.switchLabel ? (
-            <button
-              className="text-button"
-              type="button"
-              onClick={priceInUse.onSwitch}
-            >
-              {priceInUse.switchLabel}
-            </button>
-          ) : null}
-        </section>
-        <ConversionLedger
-          price={priceInUse.price}
-          sourceCurrency={preferences.sourceCurrency}
-          targetCurrencies={preferences.targetCurrencies}
-          isApprovedMember={isApprovedMember}
-          rates={rates}
-          onContinueAsGuest={onContinueAsGuest}
-        />
-      </section>
-    </main>
+    <CameraWorkspace
+      state={{
+        demo,
+        camera: snapshot,
+        recognition: recognitionEvidence,
+        focusedPrice: recognition.focusedPrice,
+        enteredPrice,
+        currencies: {
+          sourceCurrency: preferences.sourceCurrency,
+          targetCurrencies: preferences.targetCurrencies
+        },
+        referenceRates: workspaceReferenceRates,
+        shopperAccess: {
+          status: memberAccessStatus,
+          saveStatus: memberSaveStatus,
+          isApprovedMember
+        },
+        experiencePreferences: {
+          manualEntryPromotion: preferences.manualEntryPromotion,
+          focusedPriceBehavior: preferences.focusedPriceBehavior
+        },
+        manualPriceEntry: {
+          expanded: manualEntryExpanded,
+          wasPromoted: manualEntryPromotedRef.current
+        },
+        priceSelection: {
+          enteredPriceInUse,
+          focusedPriceConfirmed: focusedPriceCanBeUsed
+        },
+        recognitionHealth: {
+          preferences: recognitionHealthPreferences,
+          settingsOpen: privacySettingsOpen
+        },
+        previewSize: detectedPricePreviewSize
+      }}
+      actions={{
+        startCamera: onRetry,
+        stopCamera: onStop,
+        selectPrice: recognition.selectDetectedPrice,
+        changeCurrencies: ({ sourceCurrency, targetCurrencies }) =>
+          onPreferencesChange({
+            ...preferences,
+            sourceCurrency,
+            targetCurrencies
+          }),
+        changeExperiencePreferences: (experiencePreferences) =>
+          onPreferencesChange({ ...preferences, ...experiencePreferences }),
+        enterPrice: updateEnteredPrice,
+        setManualPriceEntryExpanded: updateManualEntryExpanded,
+        useEnteredPrice: () => setEnteredPriceInUse(true),
+        useFocusedPrice,
+        retryRecognition: () =>
+          setRecognitionRestartKey((restartKey) => restartKey + 1),
+        retryReferenceRate: (targetCurrency) =>
+          rates[targetCurrency]?.retry(),
+        leaveWorkspace: onClose,
+        continueAsGuest: onContinueAsGuest,
+        retryMemberAccess: onRetryMemberAccess,
+        retryMemberSave: onRetryMemberSave,
+        changeRecognitionHealthSharing: onRecognitionHealthChange,
+        openPrivacySettings: onOpenPrivacySettings,
+        closePrivacySettings: onClosePrivacySettings
+      }}
+      bindings={{
+        connectPreview: setPreview,
+        connectVideo: setVideo,
+        connectCaptureGuide: setCaptureGuide,
+        reportPlaybackError: onPlaybackError
+      }}
+    />
   );
 }
 
@@ -2231,7 +2390,9 @@ export default function App({
       <ManualPriceEntrySurface
         preferences={preferences}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={effectiveMemberAccessStatus}
+        memberAccessStatus={
+          useGuestMode ? "guest-choice" : effectiveMemberAccessStatus
+        }
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         onClose={closeExperience}
@@ -2246,7 +2407,7 @@ export default function App({
     cameraSessionPolicyAvailable
   ) {
     return (
-      <CameraSurface
+      <LiveCameraWorkspace
         demo={mode === "demo"}
         snapshot={cameraSnapshot}
         preferences={{
@@ -2254,15 +2415,26 @@ export default function App({
           sourceCurrency: preferences.sourceCurrency
         }}
         isApprovedMember={isApprovedMember}
-        memberAccessStatus={effectiveMemberAccessStatus}
+        memberAccessStatus={
+          useGuestMode ? "guest-choice" : effectiveMemberAccessStatus
+        }
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         recognitionRuntime={recognitionRuntime}
         createRecognizer={createRecognizer}
+        onStop={() => sessionRef.current?.stop()}
         onClose={closeExperience}
         onRetry={startCamera}
         onPlaybackError={handlePlaybackError}
-        memberStatus={memberStatus}
+        memberSaveStatus={memberSaveStatus}
+        onRetryMemberAccess={() =>
+          setMemberAccessAttempt((attempt) => attempt + 1)
+        }
+        onRetryMemberSave={() => {
+          if (pendingMemberPreferencesRef.current) {
+            persistMemberPreferences(pendingMemberPreferencesRef.current);
+          }
+        }}
         onContinueAsGuest={() => setUseGuestMode(true)}
         onRecognitionHealthRecord={recordRecognitionHealth}
         recognitionHealthPreferences={recognitionHealthPreferences}
