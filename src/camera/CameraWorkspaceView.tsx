@@ -4,7 +4,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent
+  type FormEvent,
+  type ReactNode
 } from "react";
 
 import {
@@ -121,6 +122,27 @@ export const statusContent: Partial<
   }
 };
 
+function RecognitionStatusShell({
+  children,
+  indicatorClassName = "",
+  role = "status"
+}: {
+  children: ReactNode;
+  indicatorClassName?: string;
+  role?: "alert" | "status";
+}) {
+  return (
+    <div
+      className="scan-status"
+      role={role}
+      aria-label="Recognition status"
+    >
+      <span className={`status-dot ${indicatorClassName}`.trim()} />
+      <div>{children}</div>
+    </div>
+  );
+}
+
 
 function VideoPreview({
   stream,
@@ -177,18 +199,15 @@ function PreparationStatus({
   sourceCurrency: SourceCurrencyCode;
 }) {
   return (
-    <div className="scan-status" role="status">
-      <span className="status-dot" />
-      <div>
-        <strong>Preparing {sourceCurrency} recognition…</strong>
-        <progress
-          aria-label={`Preparing ${sourceCurrency} recognition`}
-          max={1}
-          value={progress}
-        />
-        <p>{detail}</p>
-      </div>
-    </div>
+    <RecognitionStatusShell>
+      <strong>Preparing {sourceCurrency} recognition…</strong>
+      <progress
+        aria-label={`Preparing ${sourceCurrency} recognition`}
+        max={1}
+        value={progress}
+      />
+      <p>{detail}</p>
+    </RecognitionStatusShell>
   );
 }
 
@@ -219,17 +238,14 @@ function StatusPanel({
     }
 
     return (
-      <div className="scan-status" role="status">
-        <span className="status-dot demo-dot" />
-        <div>
-          <strong>
-            {recognition.focusedPrice
-              ? "Recorded observation stabilized"
-              : "Checking the recorded observation…"}
-          </strong>
-          <p>No camera was requested and no physical-device claim is made.</p>
-        </div>
-      </div>
+      <RecognitionStatusShell indicatorClassName="demo-dot">
+        <strong>
+          {recognition.focusedPrice
+            ? "Recorded observation stabilized"
+            : "Checking the recorded observation…"}
+        </strong>
+        <p>No camera was requested and no physical-device claim is made.</p>
+      </RecognitionStatusShell>
     );
   }
 
@@ -245,60 +261,52 @@ function StatusPanel({
 
   if (recognition.phase === "error") {
     return (
-      <div className="scan-status" role="alert">
-        <span className="status-dot" />
-        <div>
-          <strong>Recognition could not start</strong>
-          <p>
-            Try preparing the local model again. Manual Price Entry is ready
-            below.
-          </p>
-          <div className="status-actions">
-            <button
-              className="text-button"
-              type="button"
-              onClick={onRecognitionRetry}
-            >
-              Try recognition again
-            </button>
-          </div>
+      <RecognitionStatusShell role="alert">
+        <strong>Recognition could not start</strong>
+        <p>
+          Try preparing the local model again. Manual Price Entry is ready
+          below.
+        </p>
+        <div className="status-actions">
+          <button
+            className="text-button"
+            type="button"
+            onClick={onRecognitionRetry}
+          >
+            Try recognition again
+          </button>
         </div>
-      </div>
+      </RecognitionStatusShell>
     );
   }
 
   const content = statusContent[status];
   if (!content) {
     return (
-      <div className="scan-status" role="status">
-        <span className="status-dot" />
-        <div>
-          <strong>Camera paused</strong>
-          <p>Restart when you are ready to continue.</p>
-          <button className="text-button" type="button" onClick={onRetry}>
-            Resume camera
-          </button>
-        </div>
-      </div>
+      <RecognitionStatusShell>
+        <strong>Camera paused</strong>
+        <p>Restart when you are ready to continue.</p>
+        <button className="text-button" type="button" onClick={onRetry}>
+          Resume camera
+        </button>
+      </RecognitionStatusShell>
     );
   }
 
   const isFailure = isCameraFailureStatus(status);
   return (
-    <div className="scan-status" role={isFailure ? "alert" : "status"}>
-      <span
-        className={`status-dot ${status === "active" ? "active-dot" : ""}`}
-      />
-      <div>
-        <strong>{content.title}</strong>
-        <p>{content.detail}</p>
-        {isFailure ? (
-          <button className="text-button" type="button" onClick={onRetry}>
-            Try camera again
-          </button>
-        ) : null}
-      </div>
-    </div>
+    <RecognitionStatusShell
+      role={isFailure ? "alert" : "status"}
+      indicatorClassName={status === "active" ? "active-dot" : ""}
+    >
+      <strong>{content.title}</strong>
+      <p>{content.detail}</p>
+      {isFailure ? (
+        <button className="text-button" type="button" onClick={onRetry}>
+          Try camera again
+        </button>
+      ) : null}
+    </RecognitionStatusShell>
   );
 }
 
@@ -459,7 +467,7 @@ export function CameraWorkspace({
   };
 
   return (
-    <main className="camera-shell">
+    <main className="camera-shell" aria-label="Camera Workspace">
       <header className="camera-header">
         <TagLingoMark />
         <div className="camera-header-actions">
@@ -495,18 +503,103 @@ export function CameraWorkspace({
         <div
           className={`preview-fallback ${state.demo ? "demo-preview" : ""}`}
         />
+        <div
+          className="workspace-currency-controls"
+          role="group"
+          aria-label="Source and Target Currencies"
+        >
+          <CurrencySettings
+            preferences={preferences}
+            onChange={({ sourceCurrency, targetCurrencies }) =>
+              actions.changeCurrencies({ sourceCurrency, targetCurrencies })
+            }
+            isApprovedMember={state.shopperAccess.isApprovedMember}
+            memberAccessStatus={state.shopperAccess.status}
+            compact
+            sourceCurrencyDisabled={!state.demo}
+          />
+        </div>
         <CameraExperienceOverlay
           demo={state.demo}
           recognition={recognition}
           onCaptureGuideReady={bindings.connectCaptureGuide}
         />
+        <div className="workspace-preview-controls">
+          <div className="workspace-recognition-controls">
+            <StatusPanel
+              status={state.camera.status}
+              demo={state.demo}
+              recognition={recognition}
+              sourceCurrency={state.currencies.sourceCurrency}
+              onRetry={actions.startCamera}
+              onRecognitionRetry={actions.retryRecognition}
+            />
+            <RecognitionSummary recognition={recognition} demo={state.demo} />
+            <AccessibleDetectedPriceList
+              detectedPrices={recognition.detectedPrices}
+              focusedPrice={recognition.focusedPrice}
+            explicitlyFocusedPriceIdentity={
+              recognition.explicitlyFocusedPriceIdentity
+            }
+            previewSize={state.previewSize}
+            onSelect={actions.selectPrice}
+            />
+          </div>
+          <section
+            className="workspace-conversion-controls"
+            aria-label="Focused Price conversion"
+          >
+            <section
+              className="conversion-price-source"
+              role="status"
+              aria-label="Price used for conversion"
+            >
+              <div>
+                <strong>{priceInUse.title}</strong>
+                <p>{priceInUse.detail}</p>
+              </div>
+              {priceInUse.switchLabel ? (
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={priceInUse.onSwitch}
+                >
+                  {priceInUse.switchLabel}
+                </button>
+              ) : null}
+            </section>
+            <ConversionLedger
+              price={priceInUse.price}
+              sourceCurrency={state.currencies.sourceCurrency}
+              targetCurrencies={state.currencies.targetCurrencies}
+              isApprovedMember={state.shopperAccess.isApprovedMember}
+              rates={referenceRates}
+              onContinueAsGuest={actions.continueAsGuest}
+              collapsibleReferenceRateDetails
+            />
+          </section>
+        </div>
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
         </div>
       </section>
 
-      <section className="result-sheet" aria-label="Camera controls and status">
+      <section className="result-sheet">
         <div className="sheet-handle" aria-hidden="true" />
+        <ManualPriceComposer
+          sourceCurrency={state.currencies.sourceCurrency}
+          enteredPrice={state.enteredPrice}
+          expanded={state.manualPriceEntry.expanded}
+          compact
+          onEnteredPriceChange={actions.enterPrice}
+          onExpandedChange={actions.setManualPriceEntryExpanded}
+        />
+      </section>
+
+      <aside
+        className="workspace-details"
+        aria-label="Workspace details"
+      >
         <RecognitionHealthPrivacy
           preferences={state.recognitionHealth.preferences}
           invitation={false}
@@ -514,16 +607,6 @@ export function CameraWorkspace({
           onChange={actions.changeRecognitionHealthSharing}
           onDismissInvitation={() => undefined}
           onCloseSettings={actions.closePrivacySettings}
-        />
-        <CurrencySettings
-          preferences={preferences}
-          onChange={({ sourceCurrency, targetCurrencies }) =>
-            actions.changeCurrencies({ sourceCurrency, targetCurrencies })
-          }
-          isApprovedMember={state.shopperAccess.isApprovedMember}
-          memberAccessStatus={state.shopperAccess.status}
-          compact
-          sourceCurrencyDisabled={!state.demo}
         />
         {state.shopperAccess.isApprovedMember ? (
           <RecognitionExperienceSettings
@@ -547,60 +630,7 @@ export function CameraWorkspace({
           onRetryAccess={actions.retryMemberAccess}
           onRetrySave={actions.retryMemberSave}
         />
-        <StatusPanel
-          status={state.camera.status}
-          demo={state.demo}
-          recognition={recognition}
-          sourceCurrency={state.currencies.sourceCurrency}
-          onRetry={actions.startCamera}
-          onRecognitionRetry={actions.retryRecognition}
-        />
-        <RecognitionSummary recognition={recognition} demo={state.demo} />
-        <AccessibleDetectedPriceList
-          detectedPrices={recognition.detectedPrices}
-          focusedPrice={recognition.focusedPrice}
-          explicitlyFocusedPriceIdentity={
-            recognition.explicitlyFocusedPriceIdentity
-          }
-          previewSize={state.previewSize}
-          onSelect={actions.selectPrice}
-        />
-        <ManualPriceComposer
-          sourceCurrency={state.currencies.sourceCurrency}
-          enteredPrice={state.enteredPrice}
-          expanded={state.manualPriceEntry.expanded}
-          compact
-          onEnteredPriceChange={actions.enterPrice}
-          onExpandedChange={actions.setManualPriceEntryExpanded}
-        />
-        <section
-          className="conversion-price-source"
-          role="status"
-          aria-label="Price used for conversion"
-        >
-          <div>
-            <strong>{priceInUse.title}</strong>
-            <p>{priceInUse.detail}</p>
-          </div>
-          {priceInUse.switchLabel ? (
-            <button
-              className="text-button"
-              type="button"
-              onClick={priceInUse.onSwitch}
-            >
-              {priceInUse.switchLabel}
-            </button>
-          ) : null}
-        </section>
-        <ConversionLedger
-          price={priceInUse.price}
-          sourceCurrency={state.currencies.sourceCurrency}
-          targetCurrencies={state.currencies.targetCurrencies}
-          isApprovedMember={state.shopperAccess.isApprovedMember}
-          rates={referenceRates}
-          onContinueAsGuest={actions.continueAsGuest}
-        />
-      </section>
+      </aside>
     </main>
   );
 }

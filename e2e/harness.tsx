@@ -49,15 +49,44 @@ function injectedWorkspaceState(): CameraWorkspaceState {
   return createCameraWorkspaceFixtureState(fixtureRate("JPY", "USD"));
 }
 
-function DeterministicCameraWorkspace() {
-  const [state, setState] = useState(injectedWorkspaceState);
+function DeterministicCameraWorkspace({
+  startPaused = false
+}: {
+  startPaused?: boolean;
+}) {
+  const [state, setState] = useState(() => {
+    const focusedState = injectedWorkspaceState();
+    return startPaused
+      ? {
+          ...focusedState,
+          demo: false,
+          camera: { status: "idle" as const, stream: null },
+          recognition: {
+            ...focusedState.recognition,
+            phase: "waiting" as const,
+            detectedPrices: [],
+            explicitlyFocusedPriceIdentity: null
+          },
+          focusedPrice: null,
+          priceSelection: {
+            enteredPriceInUse: false,
+            focusedPriceConfirmed: false
+          }
+        }
+      : focusedState;
+  });
   const [leftWorkspace, setLeftWorkspace] = useState(false);
   const actions: CameraWorkspaceActions = {
-    startCamera: () =>
+    startCamera: () => {
+      const focusedState = injectedWorkspaceState();
       setState((current) => ({
         ...current,
-        camera: { status: "active", stream: null }
-      })),
+        camera: { status: "active", stream: null },
+        recognition: focusedState.recognition,
+        focusedPrice: focusedState.focusedPrice,
+        priceSelection: focusedState.priceSelection
+      }));
+    },
     stopCamera: () =>
       setState((current) => ({
         ...current,
@@ -161,6 +190,11 @@ function DeterministicCameraWorkspace() {
   return leftWorkspace ? (
     <main>
       <h1>Camera Workspace left</h1>
+      <p role="status">
+        {state.camera.status === "idle"
+          ? "Camera stopped"
+          : "Camera still running"}
+      </p>
     </main>
   ) : (
     <CameraWorkspace state={state} actions={actions} bindings={bindings} />
@@ -336,8 +370,8 @@ const workspaceMode = searchParameters.get("workspace");
 createRoot(document.getElementById("root")!).render(
   workspaceMode === "lifecycle" ? (
     <DeterministicEvidenceLifecycleWorkspace />
-  ) : workspaceMode === "focused" ? (
-    <DeterministicCameraWorkspace />
+  ) : workspaceMode === "focused" || workspaceMode === "journey" ? (
+    <DeterministicCameraWorkspace startPaused={workspaceMode === "journey"} />
   ) : memberMode ? (
     <App
       memberSession={{

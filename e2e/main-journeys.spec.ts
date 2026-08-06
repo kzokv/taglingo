@@ -85,6 +85,76 @@ test("deterministic harness injects Camera Workspace state without recognition i
   expect(recognitionAssetRequests).toEqual([]);
 });
 
+test("Camera Workspace keeps primary controls on the dominant preview surface", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=journey");
+
+  const workspace = page.getByRole("main", { name: /camera workspace/i });
+  const preview = workspace.getByRole("region", { name: /price camera/i });
+  const currencies = preview.getByRole("group", {
+    name: /source and target currencies/i
+  });
+  const sourceCurrency = currencies.getByRole("combobox", {
+    name: /source currency/i
+  });
+  const targetCurrency = currencies.getByRole("button", {
+    name: /target currencies/i
+  });
+
+  await expect(preview).toBeVisible();
+  await expect(sourceCurrency).toBeVisible();
+  await expect(targetCurrency).toBeVisible();
+  await expect(
+    preview.getByText(/capture guide · recognition region/i)
+  ).toBeVisible();
+
+  const previewBounds = await preview.boundingBox();
+  const sourceBounds = await sourceCurrency.boundingBox();
+  expect(previewBounds).not.toBeNull();
+  expect(sourceBounds).not.toBeNull();
+  expect(sourceBounds!.y).toBeLessThan(
+    previewBounds!.y + previewBounds!.height / 3
+  );
+
+  await expect(
+    preview.getByRole("status", { name: /recognition status/i })
+  ).toContainText("Camera paused");
+  await preview.getByRole("button", { name: /resume camera/i }).click();
+
+  await expect(
+    preview.getByRole("status", { name: /recognition status/i })
+  ).toContainText("Camera ready");
+  await expect(
+    preview.getByRole("region", { name: /recognition summary/i })
+  ).toContainText("Focused Price · JPY 4,142");
+  await expect(
+    preview.getByRole("list", { name: /detected prices/i })
+  ).toBeVisible();
+  await expect(
+    preview.getByRole("region", { name: /focused price conversion/i })
+  ).toContainText("USD 27.80");
+  await preview
+    .getByRole("button", { name: /price 2 of 2, jpy 980/i })
+    .click();
+  await expect(
+    preview.getByRole("region", { name: /focused price conversion/i })
+  ).toContainText("USD 6.58");
+
+  const manualEntry = workspace.getByRole("region", {
+    name: /manual price entry/i
+  });
+  await expect(
+    manualEntry.getByRole("textbox", { name: /jpy amount/i })
+  ).toBeVisible();
+
+  await workspace.getByRole("button", { name: /close camera/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /camera workspace left/i })
+  ).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Camera stopped");
+});
+
 test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired, and removed journey", async ({
   page
 }) => {

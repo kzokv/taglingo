@@ -862,7 +862,7 @@ h1 em {
 
 .camera-header {
   position: absolute;
-  z-index: 5;
+  z-index: 20;
   top: 0;
   left: 0;
   display: flex;
@@ -905,10 +905,81 @@ h1 em {
 
 .preview {
   position: relative;
-  height: min(66svh, 680px);
-  min-height: 430px;
+  height: min(78svh, 780px);
+  min-height: 620px;
   overflow: hidden;
   background: #0b171e;
+}
+
+.workspace-currency-controls {
+  position: absolute;
+  z-index: 12;
+  top: 76px;
+  left: max(20px, env(safe-area-inset-left));
+  width: min(520px, calc(100% - 40px));
+  padding: 10px;
+  border: 1px solid rgba(246, 244, 237, 0.16);
+  border-radius: 16px;
+  background: rgba(7, 16, 22, 0.7);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.workspace-currency-controls .currency-grid {
+  margin-top: 0;
+}
+
+.workspace-currency-controls .target-currency-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+.workspace-preview-controls {
+  position: absolute;
+  z-index: 9;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: 48px;
+  left: max(16px, env(safe-area-inset-left));
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(280px, 380px);
+  gap: 16px;
+  align-items: end;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.workspace-recognition-controls,
+.workspace-conversion-controls {
+  max-height: 290px;
+  padding: 12px;
+  border: 1px solid rgba(246, 244, 237, 0.14);
+  border-radius: 18px;
+  overflow-y: auto;
+  background: rgba(7, 16, 22, 0.72);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+}
+
+.workspace-recognition-controls .scan-status,
+.workspace-recognition-controls .accessible-price-list,
+.workspace-conversion-controls .conversion-price-source,
+.workspace-conversion-controls .conversion-card {
+  margin-top: 0;
+}
+
+.workspace-recognition-controls .recognition-note,
+.workspace-recognition-controls .accessible-price-list,
+.workspace-conversion-controls .conversion-ledger {
+  margin-top: 10px;
+}
+
+.workspace-details {
+  width: min(720px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 0 max(20px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
 }
 
 .camera-video,
@@ -1172,8 +1243,9 @@ h1 em {
 .result-sheet {
   position: relative;
   z-index: 4;
-  min-height: 39svh;
-  margin-top: -28px;
+  width: min(720px, calc(100% - 40px));
+  min-height: 0;
+  margin: -28px auto 0;
   padding: 14px max(20px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom))
     max(20px, env(safe-area-inset-left));
@@ -1359,6 +1431,10 @@ h1 em {
   margin-top: 20px;
 }
 
+.result-sheet .manual-price-composer {
+  margin-top: 0;
+}
+
 .manual-composer-toggle {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1540,6 +1616,19 @@ h1 em {
 
 .conversion-card .rate-disclaimer {
   color: #c2c9c8;
+}
+
+.reference-rate-details {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(246, 244, 237, 0.12);
+}
+
+.reference-rate-details summary {
+  color: var(--mint);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .conversion-error {
@@ -1772,6 +1861,15 @@ h1 em {
 
   .currency-grid.compact {
     grid-template-columns: 0.8fr 1.2fr;
+  }
+
+  .workspace-preview-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .workspace-recognition-controls,
+  .workspace-conversion-controls {
+    padding: 10px;
   }
 
   .conversion-card dl {

@@ -146,4 +146,101 @@ describe("Camera Workspace boundary", () => {
     fireEvent.click(screen.getByRole("button", { name: /try camera again/i }));
     expect(actions.startCamera).toHaveBeenCalledOnce();
   });
+
+  it("discloses secondary Reference Rate details without displacing the Focused Price conversion", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CameraWorkspace
+        state={workspaceState()}
+        actions={workspaceActions()}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    const conversion = screen.getByRole("region", {
+      name: /focused price conversion/i
+    });
+    expect(within(conversion).getByText("USD 27.80")).toBeVisible();
+    expect(
+      within(conversion).getByText("1 JPY = 0.0067123 USD")
+    ).not.toBeVisible();
+
+    await user.click(
+      within(conversion).getByText(/about this estimate/i)
+    );
+    expect(
+      within(conversion).getByText("1 JPY = 0.0067123 USD")
+    ).toBeVisible();
+  });
+
+  it.each([
+    {
+      condition: "camera denial",
+      camera: { status: "denied" as const, stream: null },
+      phase: "waiting" as const
+    },
+    {
+      condition: "camera interruption",
+      camera: { status: "interrupted" as const, stream: null },
+      phase: "waiting" as const
+    },
+    {
+      condition: "Recognition Runtime preparation",
+      camera: { status: "active" as const, stream: null },
+      phase: "preparing" as const
+    },
+    {
+      condition: "recognition failure",
+      camera: { status: "active" as const, stream: null },
+      phase: "error" as const
+    },
+    {
+      condition: "ordinary searching",
+      camera: { status: "active" as const, stream: null },
+      phase: "searching" as const
+    }
+  ])("keeps Manual Price Entry operable during $condition", async ({
+    camera,
+    phase
+  }) => {
+    const user = userEvent.setup();
+    const actions = workspaceActions();
+
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          demo: false,
+          camera,
+          recognition: {
+            ...workspaceState().recognition,
+            phase,
+            progress: phase === "preparing" ? 0.4 : 1,
+            detectedPrices: []
+          },
+          focusedPrice: null,
+          manualPriceEntry: { expanded: false, wasPromoted: false },
+          priceSelection: {
+            enteredPriceInUse: false,
+            focusedPriceConfirmed: false
+          }
+        })}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    expect(screen.getByLabelText(/recognition status/i)).toBeVisible();
+    const composer = screen.getByRole("region", {
+      name: /^manual price entry$/i
+    });
+    const openManualEntry = within(composer).getByRole("button", {
+      name: /open manual price entry/i
+    });
+    expect(openManualEntry).toBeEnabled();
+    expect(composer).toHaveTextContent("Available anytime");
+
+    await user.click(openManualEntry);
+    expect(actions.setManualPriceEntryExpanded).toHaveBeenCalledWith(true);
+  });
 });

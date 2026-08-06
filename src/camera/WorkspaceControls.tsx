@@ -462,13 +462,15 @@ function ConversionRow({
   sourceCurrency,
   targetCurrency,
   guestRate,
-  emptyMessage
+  emptyMessage,
+  collapsibleReferenceRateDetails
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
   targetCurrency: CurrencyCode;
   guestRate: GuestRateView;
   emptyMessage: string;
+  collapsibleReferenceRateDetails: boolean;
 }) {
   if (guestRate.phase === "loading") {
     return (
@@ -517,17 +519,8 @@ function ConversionRow({
     targetCurrency
   );
 
-  return (
-    <section
-      className="conversion-card"
-      aria-label={`${targetCurrency} conversion`}
-    >
-      <div className="conversion-heading">
-        <span>Target Currency</span>
-        <strong>
-          {targetCurrency} {formatted}
-        </strong>
-      </div>
+  const referenceRateDetails = (
+    <>
       <dl>
         <div>
           <dt>Reference Rate</dt>
@@ -549,6 +542,28 @@ function ConversionRow({
       <p className="rate-disclaimer">
         Reference estimate; your payment rate may differ.
       </p>
+    </>
+  );
+
+  return (
+    <section
+      className="conversion-card"
+      aria-label={`${targetCurrency} conversion`}
+    >
+      <div className="conversion-heading">
+        <span>Target Currency</span>
+        <strong>
+          {targetCurrency} {formatted}
+        </strong>
+      </div>
+      {collapsibleReferenceRateDetails ? (
+        <details className="reference-rate-details">
+          <summary>About this estimate</summary>
+          {referenceRateDetails}
+        </details>
+      ) : (
+        referenceRateDetails
+      )}
     </section>
   );
 }
@@ -560,7 +575,8 @@ export function ConversionLedger({
   isApprovedMember,
   rates,
   emptyMessage = "Point at a price to see the conversion.",
-  onContinueAsGuest
+  onContinueAsGuest,
+  collapsibleReferenceRateDetails = false
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
@@ -569,6 +585,7 @@ export function ConversionLedger({
   rates: GuestRateViews;
   emptyMessage?: string;
   onContinueAsGuest: () => void;
+  collapsibleReferenceRateDetails?: boolean;
 }) {
   const accessFailure = targetCurrencies
     .map((targetCurrency) => rates[targetCurrency])
@@ -615,6 +632,7 @@ export function ConversionLedger({
               }
             }
             emptyMessage={emptyMessage}
+            collapsibleReferenceRateDetails={collapsibleReferenceRateDetails}
           />
         )
       ))}
