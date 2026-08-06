@@ -10,6 +10,7 @@ export const CAMERA_WORKSPACE_FIXTURE_PRICES = [
     currency: "JPY" as const,
     minorUnits: 4_142,
     confidence: 96,
+    state: "fresh" as const,
     box: { x: 400, y: 320, width: 160, height: 80 }
   },
   {
@@ -17,6 +18,7 @@ export const CAMERA_WORKSPACE_FIXTURE_PRICES = [
     currency: "JPY" as const,
     minorUnits: 980,
     confidence: 92,
+    state: "fresh" as const,
     box: { x: 220, y: 720, width: 140, height: 72 }
   }
 ];
@@ -31,6 +33,7 @@ export function createCameraWorkspaceFixtureState(
     recognition: {
       phase: "focused",
       progress: 1,
+      candidateOutlines: [],
       detectedPrices: CAMERA_WORKSPACE_FIXTURE_PRICES,
       explicitlyFocusedPriceIdentity:
         CAMERA_WORKSPACE_FIXTURE_PRICES[0].identity

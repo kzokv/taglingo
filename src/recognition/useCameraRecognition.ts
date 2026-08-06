@@ -9,6 +9,7 @@ import type { SourceCurrencyCode } from "../domain/currencies";
 import type { Rectangle } from "../domain/geometry";
 import {
   createCandidateTracker,
+  type CandidateOutline,
   type CandidateTrackingSnapshot,
   type CandidateTracker,
   type DetectedPriceIdentity,
@@ -37,6 +38,7 @@ export type RecognitionPhase =
 export interface RecognitionView {
   phase: RecognitionPhase;
   progress: number;
+  candidateOutlines: CandidateOutline[];
   detectedPrices: TrackedDetectedPrice[];
   focusedPrice: TrackedDetectedPrice | null;
   explicitlyFocusedPriceIdentity: DetectedPriceIdentity | null;
@@ -63,6 +65,7 @@ function phaseFor(
 export const EMPTY_RECOGNITION: RecognitionView = {
   phase: "waiting",
   progress: 0,
+  candidateOutlines: [],
   detectedPrices: [],
   focusedPrice: null,
   explicitlyFocusedPriceIdentity: null,
@@ -78,6 +81,7 @@ export function applyCandidateTrackingSnapshot(
 ): RecognitionView {
   return {
     ...recognition,
+    candidateOutlines: snapshot.candidateOutlines,
     detectedPrices: snapshot.detectedPrices,
     focusedPrice: snapshot.focusedPrice,
     explicitlyFocusedPriceIdentity: snapshot.explicitlyFocusedPriceIdentity
@@ -182,6 +186,34 @@ export function useCameraRecognition({
     });
     candidateTracker.current = tracker;
     let scheduler: RecognitionScheduler;
+    let candidateExpiryTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearCandidateExpiryTimer = () => {
+      if (candidateExpiryTimer !== undefined) {
+        clearTimeout(candidateExpiryTimer);
+        candidateExpiryTimer = undefined;
+      }
+    };
+    const scheduleCandidateExpiry = (snapshot: CandidateTrackingSnapshot) => {
+      clearCandidateExpiryTimer();
+      const nextExpiry = Math.min(
+        ...snapshot.candidateOutlines.map(({ expiresAtMs }) => expiresAtMs)
+      );
+      if (!Number.isFinite(nextExpiry)) {
+        return;
+      }
+      candidateExpiryTimer = setTimeout(() => {
+        if (!active) {
+          return;
+        }
+        const expiredSnapshot = tracker.advanceTime(performance.now());
+        const phase = phaseFor(expiredSnapshot);
+        scheduler.setState(phase, expiredSnapshot.corroborationKind);
+        setRecognition((current) =>
+          applyCandidateTrackingSnapshot({ ...current, phase }, expiredSnapshot)
+        );
+        scheduleCandidateExpiry(expiredSnapshot);
+      }, Math.max(0, nextExpiry - performance.now()));
+    };
     scheduler = createRecognitionScheduler<
       CapturedRecognitionPass,
       CompletedRecognitionPass
@@ -307,13 +339,16 @@ export function useCameraRecognition({
         const snapshot = tracker.observe(
           {
             frameIdentity: request.frameIdentity,
+            kind: request.kind,
             candidates: completed.candidates,
-            coverage: completed.coverage
+            coverage: completed.coverage,
+            observedAtMs: request.capturedAtMs
           },
           completed.guideCenter
         );
         const phase = phaseFor(snapshot);
-        scheduler.setState(phase);
+        scheduleCandidateExpiry(snapshot);
+        scheduler.setState(phase, snapshot.corroborationKind);
         setRecognition((current) => {
           const knownIdentities = new Set(
             current.detectedPrices.map(({ identity }) => identity)
@@ -351,6 +386,7 @@ export function useCameraRecognition({
     setRecognition({
       phase: "preparing",
       progress: 0,
+      candidateOutlines: [],
       detectedPrices: [],
       focusedPrice: null,
       explicitlyFocusedPriceIdentity: null,
@@ -401,6 +437,7 @@ export function useCameraRecognition({
         candidateTracker.current = null;
       }
       scheduler.dispose();
+      clearCandidateExpiryTimer();
       const release = previousRecognizerRelease.then(async () => {
         await recognizer?.terminate();
       });

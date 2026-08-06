@@ -5,8 +5,20 @@ TagLingo helps a shopper understand a displayed price by recognizing it and tran
 ## Language
 
 **Detected Price**:
-A price candidate recognized on a visible price tag.
+A corroborated amount and location recognized on a visible price tag. A single uncorroborated observation is represented only by a Candidate Outline and is not a Detected Price.
 _Avoid_: Scanned price, OCR result
+
+**Candidate Outline**:
+A dotted amber, visual-only boundary labeled “Possible price” around one credible but uncorroborated camera observation. It exposes no amount, remains absent from the semantic Detected Prices surface, and cannot be focused, selected, or converted.
+_Avoid_: Tentative Detected Price, Unstable Price, Candidate Price
+
+**Fresh Detected Price**:
+A Detected Price corroborated on the required distinct frame or reacquired within amount and geometry tolerance. Its Detection Outline reflects current evidence and may be focused, selected, or converted.
+_Avoid_: New Price, Active Price
+
+**Held Detected Price**:
+A Detected Price retained with frozen geometry after one or two covered misses. Its Detection Outline is dashed and labeled “Held”; reacquisition restores the Fresh Detected Price while the third covered miss removes it.
+_Avoid_: Stale Price, Cached Price, Missing Price
 
 **Focused Price**:
 The detected price currently selected for conversion.
@@ -25,7 +37,7 @@ The visible camera region that exactly matches the frequent recognition crop and
 _Avoid_: Scan box, decorative reticle
 
 **Detection Outline**:
-The visible boundary around a stable Detected Price; the Focused Price uses a stronger treatment than other candidates.
+The visible boundary around a Detected Price. A Fresh Detected Price uses a solid boundary, a Held Detected Price uses a dashed boundary, and the Focused Price uses a stronger treatment.
 _Avoid_: Highlight frame, OCR box
 
 **Source Currency**:

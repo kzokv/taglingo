@@ -18,8 +18,7 @@ import type {
   CameraWorkspaceBindings,
   CameraWorkspaceState,
   CameraWorkspaceAccessStatus,
-  CameraWorkspaceSaveStatus,
-  CameraWorkspaceDetectedPriceIdentity
+  CameraWorkspaceSaveStatus
 } from "./cameraWorkspace";
 import {
   ConversionLedger,
@@ -59,7 +58,6 @@ import {
   type RecognitionController,
   type RecognitionView
 } from "../recognition/useCameraRecognition";
-import type { DetectedPriceIdentity } from "../recognition/focusTracker";
 import { AccessibleDetectedPriceList } from "../recognition/AccessibleDetectedPriceList";
 import { CameraExperienceOverlay } from "../recognition/CameraExperience";
 import { useDemoRecognition } from "../recognition/useDemoRecognition";
@@ -392,28 +390,12 @@ export function CameraWorkspace({
   };
   const recognition = {
     ...state.recognition,
-    detectedPrices: state.recognition.detectedPrices.map((price) => ({
-      ...price,
-      identity: price.identity as unknown as DetectedPriceIdentity
-    })),
-    focusedPrice: state.focusedPrice
-      ? {
-          ...state.focusedPrice,
-          identity: state.focusedPrice.identity as unknown as DetectedPriceIdentity
-        }
-      : null,
-    explicitlyFocusedPriceIdentity: state.recognition
-      .explicitlyFocusedPriceIdentity as unknown as
-        | DetectedPriceIdentity
-        | null,
+    focusedPrice: state.focusedPrice,
     completedPassCount: 0,
     missCount: 0,
     focusChangeCount: 0,
     stableDetectionCount: 0,
-    selectDetectedPrice: (identity: DetectedPriceIdentity) =>
-      actions.selectPrice(
-        identity as unknown as CameraWorkspaceDetectedPriceIdentity
-      )
+    selectDetectedPrice: actions.selectPrice
   } satisfies RecognitionController;
   const referenceRates: GuestRateViews = Object.fromEntries(
     Object.entries(state.referenceRates).map(([currency, rate]) => [
@@ -556,15 +538,11 @@ export function CameraWorkspace({
             <AccessibleDetectedPriceList
               detectedPrices={recognition.detectedPrices}
               focusedPrice={recognition.focusedPrice}
-              explicitlyFocusedPriceIdentity={
-                recognition.explicitlyFocusedPriceIdentity
-              }
-              previewSize={state.previewSize}
-              onSelect={(identity) =>
-                actions.selectPrice(
-                  identity as unknown as CameraWorkspaceDetectedPriceIdentity
-                )
-              }
+            explicitlyFocusedPriceIdentity={
+              recognition.explicitlyFocusedPriceIdentity
+            }
+            previewSize={state.previewSize}
+            onSelect={actions.selectPrice}
             />
           </div>
           <section
@@ -875,15 +853,10 @@ export function LiveCameraWorkspace({
   const recognitionEvidence = {
     phase: recognition.phase,
     progress: recognition.progress,
-    detectedPrices: recognition.detectedPrices.map((price) => ({
-      ...price,
-      identity:
-        price.identity as unknown as CameraWorkspaceDetectedPriceIdentity
-    })),
+    candidateOutlines: recognition.candidateOutlines,
+    detectedPrices: recognition.detectedPrices,
     explicitlyFocusedPriceIdentity:
-      recognition.explicitlyFocusedPriceIdentity as unknown as
-        | CameraWorkspaceDetectedPriceIdentity
-        | null
+      recognition.explicitlyFocusedPriceIdentity
   };
   const workspaceReferenceRates = Object.fromEntries(
     Object.entries(rates).map(([currency, rate]) => {
@@ -924,13 +897,7 @@ export function LiveCameraWorkspace({
         demo,
         camera: snapshot,
         recognition: recognitionEvidence,
-        focusedPrice: recognition.focusedPrice
-          ? {
-              ...recognition.focusedPrice,
-              identity: recognition.focusedPrice.identity as unknown as
-                CameraWorkspaceDetectedPriceIdentity
-            }
-          : null,
+        focusedPrice: recognition.focusedPrice,
         enteredPrice,
         currencies: {
           sourceCurrency: preferences.sourceCurrency,
@@ -964,10 +931,7 @@ export function LiveCameraWorkspace({
       actions={{
         startCamera: onRetry,
         stopCamera: onStop,
-        selectPrice: (identity) =>
-          recognition.selectDetectedPrice(
-            identity as unknown as DetectedPriceIdentity
-          ),
+        selectPrice: recognition.selectDetectedPrice,
         changeCurrencies: ({ sourceCurrency, targetCurrencies }) =>
           onPreferencesChange({
             ...preferences,

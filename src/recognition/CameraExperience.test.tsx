@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   DetectedPriceIdentity,
+  PriceEvidenceTrackIdentity,
   TrackedDetectedPrice
 } from "./focusTracker";
 import { CameraExperienceOverlay } from "./CameraExperience";
@@ -13,11 +14,16 @@ function identity(value: string): DetectedPriceIdentity {
   return value as DetectedPriceIdentity;
 }
 
+function candidateIdentity(value: string): PriceEvidenceTrackIdentity {
+  return value as PriceEvidenceTrackIdentity;
+}
+
 const firstPrice: TrackedDetectedPrice = {
   identity: identity("price-one"),
   currency: "JPY",
   minorUnits: 4142,
   confidence: 96,
+  state: "fresh",
   box: { x: 40, y: 50, width: 120, height: 60 }
 };
 const secondPrice: TrackedDetectedPrice = {
@@ -25,6 +31,7 @@ const secondPrice: TrackedDetectedPrice = {
   currency: "JPY",
   minorUnits: 980,
   confidence: 92,
+  state: "fresh",
   box: { x: 220, y: 280, width: 100, height: 50 }
 };
 
@@ -34,6 +41,7 @@ function recognition(
   return {
     phase: "searching",
     progress: 1,
+    candidateOutlines: [],
     detectedPrices: [],
     focusedPrice: null,
     explicitlyFocusedPriceIdentity: null,
@@ -66,13 +74,21 @@ describe("guided camera presenter", () => {
     expect(document.querySelector("[data-detected-price]")).toBeNull();
   });
 
-  it("says Hold steady through the Capture Guide and suppresses provisional geometry", () => {
+  it("shows provisional geometry as a silent, inert Possible price outline", () => {
     render(
       <CameraExperienceOverlay
         demo={false}
         recognition={recognition({
           phase: "stabilizing",
-          detectedPrices: [firstPrice]
+          candidateOutlines: [
+            {
+              identity: candidateIdentity("candidate-one"),
+              state: "candidate",
+              label: "Possible price",
+              box: firstPrice.box,
+              expiresAtMs: 1_500
+            }
+          ]
         })}
         onCaptureGuideReady={() => undefined}
       />
@@ -81,6 +97,40 @@ describe("guided camera presenter", () => {
     expect(screen.getByText("Stabilizing")).toBeInTheDocument();
     expect(screen.getByText("Hold steady")).toBeInTheDocument();
     expect(document.querySelector("[data-detected-price]")).toBeNull();
+    const candidateOutline = document.querySelector(
+      "[data-candidate-outline]"
+    )!;
+    expect(candidateOutline).toHaveTextContent("Possible price");
+    expect(candidateOutline).toHaveAttribute("aria-hidden", "true");
+    expect(candidateOutline.tagName).toBe("DIV");
+    expect(candidateOutline).not.toHaveAttribute("tabindex");
+    expect(candidateOutline).not.toHaveTextContent("4,142");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("visibly labels a held Detected Price without moving its geometry", () => {
+    render(
+      <CameraExperienceOverlay
+        demo={false}
+        recognition={recognition({
+          phase: "focused",
+          candidateOutlines: [],
+          detectedPrices: [{ ...firstPrice, state: "held" }],
+          focusedPrice: { ...firstPrice, state: "held" }
+        })}
+        onCaptureGuideReady={() => undefined}
+      />
+    );
+
+    const held = document.querySelector('[data-evidence-state="held"]')!;
+    expect(held).toHaveClass("held-detection");
+    expect(held).toHaveTextContent("Held");
+    expect(held).toHaveStyle({
+      left: "40px",
+      top: "50px",
+      width: "120px",
+      height: "60px"
+    });
   });
 
   it("keeps visual outlines pointer-operable but out of the accessibility tree", async () => {
