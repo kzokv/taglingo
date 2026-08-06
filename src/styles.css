@@ -17,13 +17,13 @@
 }
 
 html {
-  min-width: 320px;
+  min-width: 280px;
   min-height: 100%;
   background: var(--ink);
 }
 
 body {
-  min-width: 320px;
+  min-width: 280px;
   min-height: 100vh;
   margin: 0;
 }
@@ -892,6 +892,22 @@ h1 em {
 }
 
 .camera-shell {
+  --camera-inset-top: max(
+    env(safe-area-inset-top),
+    var(--camera-safe-area-top, 0px)
+  );
+  --camera-inset-right: max(
+    env(safe-area-inset-right),
+    var(--camera-safe-area-right, 0px)
+  );
+  --camera-inset-bottom: max(
+    env(safe-area-inset-bottom),
+    var(--camera-safe-area-bottom, 0px)
+  );
+  --camera-inset-left: max(
+    env(safe-area-inset-left),
+    var(--camera-safe-area-left, 0px)
+  );
   position: relative;
   min-height: 100svh;
   overflow-x: hidden;
@@ -907,7 +923,9 @@ h1 em {
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  padding: max(18px, env(safe-area-inset-top)) 20px 14px;
+  padding: max(18px, var(--camera-inset-top))
+    max(20px, var(--camera-inset-right)) 14px
+    max(20px, var(--camera-inset-left));
   background: linear-gradient(#071016 0, transparent 100%);
 }
 
@@ -953,7 +971,7 @@ h1 em {
   position: absolute;
   z-index: 14;
   top: 76px;
-  left: max(20px, env(safe-area-inset-left));
+  left: max(20px, var(--camera-inset-left));
   width: min(520px, calc(100% - 40px));
   padding: 10px;
   border: 1px solid rgba(246, 244, 237, 0.16);
@@ -975,9 +993,9 @@ h1 em {
 .workspace-preview-controls {
   position: absolute;
   z-index: 9;
-  right: max(16px, env(safe-area-inset-right));
+  right: max(16px, var(--camera-inset-right));
   bottom: 48px;
-  left: max(16px, env(safe-area-inset-left));
+  left: max(16px, var(--camera-inset-left));
   display: grid;
   grid-template-columns: minmax(260px, 340px) minmax(280px, 380px);
   gap: 16px;
@@ -1015,9 +1033,9 @@ h1 em {
 .workspace-details {
   width: min(720px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 0 max(20px, env(safe-area-inset-right))
-    max(24px, env(safe-area-inset-bottom))
-    max(20px, env(safe-area-inset-left));
+  padding: 0 max(20px, var(--camera-inset-right))
+    max(24px, var(--camera-inset-bottom))
+    max(20px, var(--camera-inset-left));
 }
 
 .camera-video,
@@ -1324,9 +1342,9 @@ button.focus-target {
   width: min(720px, calc(100% - 40px));
   min-height: 0;
   margin: -28px auto 0;
-  padding: 14px max(20px, env(safe-area-inset-right))
-    max(24px, env(safe-area-inset-bottom))
-    max(20px, env(safe-area-inset-left));
+  padding: 14px max(20px, var(--camera-inset-right))
+    max(24px, var(--camera-inset-bottom))
+    max(20px, var(--camera-inset-left));
   border-radius: 28px 28px 0 0;
   background: var(--ink);
   box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.25);
@@ -1449,7 +1467,7 @@ button.focus-target {
   position: absolute;
   z-index: 13;
   top: 190px;
-  left: max(16px, env(safe-area-inset-left));
+  left: max(16px, var(--camera-inset-left));
   width: min(290px, calc(100% - 32px));
   max-height: min(330px, 48%);
   margin: 0;
@@ -2074,6 +2092,119 @@ button.focus-target {
 }
 
 @media (max-width: 680px) {
+  html:has(.camera-shell),
+  body:has(.camera-shell) {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .camera-shell {
+    position: fixed;
+    top: var(--camera-viewport-offset-top, 0);
+    left: var(--camera-viewport-offset-left, 0);
+    width: var(--camera-viewport-width, 100vw);
+    height: var(--camera-viewport-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .camera-shell > [data-camera-workspace-surface] {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .camera-shell .preview {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .camera-shell .workspace-details {
+    display: none;
+  }
+
+  .camera-shell .result-sheet {
+    position: absolute;
+    z-index: 24;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 8px max(12px, var(--camera-inset-right))
+      max(8px, var(--camera-inset-bottom))
+      max(12px, var(--camera-inset-left));
+    border-radius: 18px 18px 0 0;
+  }
+
+  .camera-shell .result-sheet:has(
+      .manual-composer-toggle[aria-expanded="true"]
+    ) {
+    z-index: 60;
+    max-height: calc(100% - max(8px, var(--camera-inset-top)));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow:
+      0 -20px 70px rgba(0, 0, 0, 0.5),
+      0 -100vh 0 rgba(1, 6, 9, 0.58);
+  }
+
+  .camera-shell .sheet-handle {
+    display: none;
+  }
+
+  .camera-shell .manual-composer-toggle {
+    min-height: 48px;
+  }
+
+  .camera-shell .source-currency-popover,
+  .camera-shell .target-currency-popover {
+    position: fixed;
+    z-index: 70;
+    top: auto;
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(8px, var(--camera-inset-bottom));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    max-height: calc(
+      var(--camera-viewport-height, 100dvh) -
+        max(16px, var(--camera-inset-top)) -
+        max(16px, var(--camera-inset-bottom))
+    );
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .camera-shell .detected-prices-sheet-backdrop {
+    height: var(--camera-viewport-height, 100dvh);
+    overflow: hidden;
+  }
+
+  .camera-shell .detected-prices-sheet {
+    max-height: calc(
+      var(--camera-viewport-height, 100dvh) -
+        max(32px, env(safe-area-inset-top)) -
+        max(32px, env(safe-area-inset-bottom))
+    );
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .camera-shell .capture-guide {
+    top: var(--camera-guide-center-y, calc(50% - 13px));
+    height: min(
+      clamp(112px, 24%, 160px),
+      max(44px, calc(var(--camera-guide-available-height, 168px) - 8px))
+    );
+  }
+
+  .camera-shell[data-capture-guide-obscured="true"] .capture-guide {
+    visibility: hidden;
+  }
+
   .topbar,
   .hero,
   .welcome-shell footer,
@@ -2119,7 +2250,7 @@ button.focus-target {
     display: grid;
   }
 
-  .currency-grid.compact {
+  .currency-grid.compact:not(.has-swap) {
     grid-template-columns: 0.8fr 1.2fr;
   }
 
@@ -2134,6 +2265,247 @@ button.focus-target {
 
   .conversion-card dl {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 380px), (max-height: 700px) {
+  .camera-shell .brand > span:last-child,
+  .camera-shell .camera-privacy-button,
+  .camera-shell .privacy-chip,
+  .camera-shell .capture-guide-label,
+  .camera-shell .capture-guide > p,
+  .camera-shell .recognition-note,
+  .camera-shell .conversion-price-source,
+  .camera-shell .reference-rate-details,
+  .camera-shell .conversion-detail-surface,
+  .camera-shell .conversion-card p,
+  .camera-shell .conversion-card dl {
+    display: none;
+  }
+}
+
+@media (max-width: 340px), (max-height: 640px) {
+  .camera-shell .camera-header {
+    padding: max(6px, var(--camera-inset-top))
+      max(8px, var(--camera-inset-right)) 4px
+      max(8px, var(--camera-inset-left));
+  }
+
+  .camera-shell .brand-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .camera-shell .close-button {
+    min-height: 44px;
+    padding: 6px 10px;
+  }
+
+  .camera-shell .workspace-currency-controls {
+    top: max(
+      54px,
+      calc(var(--camera-inset-top) + 50px)
+    );
+    right: max(8px, var(--camera-inset-right));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    padding: 4px;
+    border-radius: 13px;
+  }
+
+  .camera-shell .workspace-currency-controls .field > span,
+  .camera-shell .source-currency-trigger small,
+  .camera-shell .target-currency-trigger strong {
+    display: none;
+  }
+
+  .camera-shell .currency-grid.has-swap {
+    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .camera-shell .source-currency-trigger,
+  .camera-shell .target-currency-trigger,
+  .camera-shell .currency-swap-button {
+    min-height: 44px;
+    padding: 5px 9px;
+  }
+
+  .camera-shell .currency-swap-button span:last-child {
+    display: none;
+  }
+
+  .camera-shell .detected-prices-rail {
+    top: max(
+      108px,
+      calc(var(--camera-inset-top) + 104px)
+    );
+    left: max(8px, var(--camera-inset-left));
+    width: min(164px, calc(100% - 16px));
+    max-height: none;
+    padding: 7px 8px 8px;
+    overflow: hidden;
+    border-radius: 13px;
+    transform: none !important;
+  }
+
+  .camera-shell .detected-prices-drag-handle,
+  .camera-shell .detected-prices-rail-heading h2,
+  .camera-shell .detected-prices-rail-heading > button,
+  .camera-shell .detected-prices-rail > ul,
+  .camera-shell .detected-prices-rail > .clear-held-prices {
+    display: none;
+  }
+
+  .camera-shell .detected-prices-rail-heading p,
+  .camera-shell .detected-prices-focused-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .camera-shell .expand-detected-prices {
+    margin-top: 5px;
+  }
+
+  .camera-shell .workspace-preview-controls {
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(
+      67px,
+      calc(var(--camera-inset-bottom) + 59px)
+    );
+    left: max(8px, var(--camera-inset-left));
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 6px;
+  }
+
+  .camera-shell .workspace-recognition-controls,
+  .camera-shell .workspace-conversion-controls {
+    min-height: 52px;
+    max-height: 58px;
+    padding: 4px;
+    overflow: hidden;
+    border-radius: 13px;
+  }
+
+  .camera-shell .scan-status {
+    min-height: 44px;
+    gap: 8px;
+    padding: 9px 8px;
+    align-items: center;
+  }
+
+  .camera-shell .scan-status p,
+  .camera-shell .scan-status progress {
+    display: none;
+  }
+
+  .camera-shell .scan-status strong {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 0.68rem;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .camera-shell .conversion-card {
+    min-height: 44px;
+    margin: 0;
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .camera-shell .conversion-heading {
+    min-height: 28px;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .camera-shell .conversion-heading span {
+    display: none;
+  }
+
+  .camera-shell .conversion-heading strong {
+    overflow: hidden;
+    font-size: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .camera-shell .result-sheet {
+    padding-top: 6px;
+  }
+
+  .camera-shell .manual-composer-toggle {
+    min-height: 50px;
+    padding: 6px 10px;
+  }
+
+  .camera-shell .manual-composer-toggle > span:first-child {
+    width: 34px;
+    height: 34px;
+  }
+
+  .camera-shell .manual-composer-toggle small {
+    display: none;
+  }
+
+  .camera-shell .capture-guide {
+    width: min(82%, 440px);
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .camera-shell .brand {
+    display: none;
+  }
+
+  .camera-shell .camera-header {
+    justify-content: flex-end;
+  }
+
+  .camera-shell .workspace-currency-controls {
+    top: max(4px, var(--camera-inset-top));
+    right: max(
+      112px,
+      calc(var(--camera-inset-right) + 104px)
+    );
+    left: max(8px, var(--camera-inset-left));
+  }
+
+  .camera-shell .detected-prices-rail {
+    top: max(56px, calc(var(--camera-inset-top) + 52px));
+    width: 142px;
+  }
+
+  .camera-shell .workspace-preview-controls {
+    bottom: max(63px, calc(var(--camera-inset-bottom) + 55px));
+    left: max(150px, calc(var(--camera-inset-left) + 142px));
+  }
+
+  .camera-shell .capture-guide {
+    width: min(48%, 300px);
+  }
+
+  .camera-shell .result-sheet {
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(4px, var(--camera-inset-bottom));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    padding: 4px;
+    border-radius: 14px;
+  }
+
+  .camera-shell .manual-composer-toggle {
+    min-height: 48px;
+  }
+
+  .camera-shell .result-sheet:has(
+      .manual-composer-toggle[aria-expanded="true"]
+    ) {
+    right: 0;
+    bottom: 0;
+    left: 0;
   }
 }
 

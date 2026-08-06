@@ -388,6 +388,7 @@ export function CameraWorkspace({
   actions: CameraWorkspaceActions;
   bindings: CameraWorkspaceBindings;
 }) {
+  const workspaceRef = useRef<HTMLElement>(null);
   const [detectedPricesSheetOpen, setDetectedPricesSheetOpen] = useState(false);
   const selectionRevision = useRef(0);
   const clearHeldPricesRevision = useRef(0);
@@ -432,6 +433,104 @@ export function CameraWorkspace({
     lastExplicitSelectionIdentity.current =
       state.recognition.explicitlyFocusedPriceIdentity;
   }, [state.recognition.explicitlyFocusedPriceIdentity]);
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return undefined;
+    const visualViewport = window.visualViewport;
+    let guidePlacementFrame = 0;
+    const updateGuidePlacement = () => {
+      const preview = workspace.querySelector<HTMLElement>(".preview");
+      const currencyControls = workspace.querySelector<HTMLElement>(
+        ".workspace-currency-controls"
+      );
+      const previewControls = workspace.querySelector<HTMLElement>(
+        ".workspace-preview-controls"
+      );
+      const manualEntry = workspace.querySelector<HTMLElement>(".result-sheet");
+      if (!preview || !currencyControls || !previewControls || !manualEntry) {
+        return;
+      }
+      const previewBounds = preview.getBoundingClientRect();
+      if (previewBounds.width <= 0 || previewBounds.height <= 0) return;
+      const previewCenterX = previewBounds.left + previewBounds.width / 2;
+      const overlapsPreviewCenter = (bounds: DOMRect) =>
+        bounds.width > 0 &&
+        bounds.height > 0 &&
+        bounds.left <= previewCenterX &&
+        bounds.right >= previewCenterX;
+      const topBounds = currencyControls.getBoundingClientRect();
+      const lowerBounds = [
+        previewControls.getBoundingClientRect(),
+        manualEntry.getBoundingClientRect()
+      ].filter(overlapsPreviewCenter);
+      const unobscuredTop = overlapsPreviewCenter(topBounds)
+        ? Math.max(previewBounds.top, topBounds.bottom)
+        : previewBounds.top;
+      const unobscuredBottom = Math.min(
+        previewBounds.bottom,
+        ...lowerBounds.map(({ top }) => top)
+      );
+      const availableHeight = unobscuredBottom - unobscuredTop;
+      workspace.dataset.captureGuideObscured = String(availableHeight < 44);
+      if (availableHeight < 44) return;
+      workspace.style.setProperty(
+        "--camera-guide-center-y",
+        `${(unobscuredTop + unobscuredBottom) / 2 - previewBounds.top}px`
+      );
+      workspace.style.setProperty(
+        "--camera-guide-available-height",
+        `${availableHeight}px`
+      );
+    };
+    const scheduleGuidePlacement = () => {
+      window.cancelAnimationFrame(guidePlacementFrame);
+      guidePlacementFrame = window.requestAnimationFrame(updateGuidePlacement);
+    };
+    const updateViewport = () => {
+      const height = visualViewport?.height ?? window.innerHeight;
+      const width = visualViewport?.width ?? window.innerWidth;
+      workspace.style.setProperty("--camera-viewport-height", `${height}px`);
+      workspace.style.setProperty("--camera-viewport-width", `${width}px`);
+      workspace.style.setProperty(
+        "--camera-viewport-offset-top",
+        `${visualViewport?.offsetTop ?? 0}px`
+      );
+      workspace.style.setProperty(
+        "--camera-viewport-offset-left",
+        `${visualViewport?.offsetLeft ?? 0}px`
+      );
+      updateGuidePlacement();
+      scheduleGuidePlacement();
+    };
+    updateViewport();
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleGuidePlacement);
+    if (resizeObserver) {
+      resizeObserver.observe(workspace);
+      for (const selector of [
+        ".workspace-currency-controls",
+        ".workspace-preview-controls",
+        ".result-sheet"
+      ]) {
+        const element = workspace.querySelector<HTMLElement>(selector);
+        if (element) resizeObserver.observe(element);
+      }
+    }
+    window.addEventListener("resize", updateViewport);
+    window.addEventListener("orientationchange", updateViewport);
+    visualViewport?.addEventListener("resize", updateViewport);
+    visualViewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      window.removeEventListener("orientationchange", updateViewport);
+      visualViewport?.removeEventListener("resize", updateViewport);
+      visualViewport?.removeEventListener("scroll", updateViewport);
+      window.cancelAnimationFrame(guidePlacementFrame);
+      resizeObserver?.disconnect();
+    };
+  }, []);
   const preferences: ExperiencePreferences = {
     ...state.currencies,
     ...state.experiencePreferences
@@ -517,7 +616,11 @@ export function CameraWorkspace({
   };
 
   return (
-    <main className="camera-shell" aria-label="Camera Workspace">
+    <main
+      ref={workspaceRef}
+      className="camera-shell"
+      aria-label="Camera Workspace"
+    >
       <div
         data-camera-workspace-surface=""
         inert={detectedPricesSheetOpen ? true : undefined}
@@ -645,7 +748,11 @@ export function CameraWorkspace({
         </div>
         </section>
 
-        <section className="result-sheet">
+        <section
+          className="result-sheet"
+          role="group"
+          aria-label="Manual Price Entry sheet"
+        >
         <div className="sheet-handle" aria-hidden="true" />
         <ManualPriceComposer
           sourceCurrency={state.currencies.sourceCurrency}

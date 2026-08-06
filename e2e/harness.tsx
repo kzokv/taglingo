@@ -52,11 +52,13 @@ function injectedWorkspaceState(): CameraWorkspaceState {
 function DeterministicCameraWorkspace({
   startPaused = false,
   currencyJourney = false,
-  overlapPrices = false
+  overlapPrices = false,
+  initialManualEntryExpanded = true
 }: {
   startPaused?: boolean;
   currencyJourney?: boolean;
   overlapPrices?: boolean;
+  initialManualEntryExpanded?: boolean;
 }) {
   const [state, setState] = useState(() => {
     const baseFocusedState = injectedWorkspaceState();
@@ -89,9 +91,16 @@ function DeterministicCameraWorkspace({
           }
         }
       : focusedState;
+    const stateWithManualEntry = {
+      ...initialState,
+      manualPriceEntry: {
+        ...initialState.manualPriceEntry,
+        expanded: initialManualEntryExpanded
+      }
+    };
     return startPaused
       ? {
-          ...initialState,
+          ...stateWithManualEntry,
           demo: false,
           camera: { status: "idle" as const, stream: null },
           recognition: {
@@ -106,7 +115,7 @@ function DeterministicCameraWorkspace({
             focusedPriceConfirmed: false
           }
         }
-      : initialState;
+      : stateWithManualEntry;
   });
   const [leftWorkspace, setLeftWorkspace] = useState(false);
   const actions: CameraWorkspaceActions = {
@@ -513,11 +522,13 @@ createRoot(document.getElementById("root")!).render(
   ) : workspaceMode === "focused" ||
     workspaceMode === "journey" ||
     workspaceMode === "currencies" ||
-    workspaceMode === "overlap" ? (
+    workspaceMode === "overlap" ||
+    workspaceMode === "responsive" ? (
     <DeterministicCameraWorkspace
       startPaused={workspaceMode === "journey"}
       currencyJourney={workspaceMode === "currencies"}
       overlapPrices={workspaceMode === "overlap"}
+      initialManualEntryExpanded={workspaceMode !== "responsive"}
     />
   ) : memberMode ? (
     <App
