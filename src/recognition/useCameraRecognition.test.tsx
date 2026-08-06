@@ -213,6 +213,12 @@ it("publishes only stable Detected Prices from distinct completed frames", async
 
   await act(async () => vi.advanceTimersByTimeAsync(0));
   expect(result.current.phase).toBe("stabilizing");
+  expect(result.current.candidateOutlines).toEqual([
+    expect.objectContaining({
+      state: "candidate",
+      label: "Possible price"
+    })
+  ]);
   expect(result.current.detectedPrices).toEqual([]);
   expect(result.current.focusedPrice).toBeNull();
 

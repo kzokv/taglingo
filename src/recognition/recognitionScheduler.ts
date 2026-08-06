@@ -14,12 +14,16 @@ export interface RecognitionPassRequest {
 
 export interface RecognitionScheduler {
   start(generation: string): void;
-  setState(state: RecognitionSchedulerState): void;
+  setState(
+    state: RecognitionSchedulerState,
+    corroborationKind?: RecognitionPassRequest["kind"] | null
+  ): void;
   changeGeneration(generation: string): void;
   dispose(): void;
 }
 
 const MINIMUM_YIELD_MS = 250;
+const CORROBORATION_CADENCE_MS = 1_000;
 
 const CADENCE_MS: Record<
   RecognitionSchedulerState,
@@ -49,6 +53,7 @@ export function createRecognitionScheduler<Input, Output>({
   now?: () => number;
 }): RecognitionScheduler {
   let state: RecognitionSchedulerState = "searching";
+  let corroborationKind: RecognitionPassRequest["kind"] | null = null;
   let generation: string | null = null;
   let frameNumber = 0;
   let processing = false;
@@ -163,6 +168,15 @@ export function createRecognitionScheduler<Input, Output>({
     if (disposed || generation === null) {
       return;
     }
+    if (corroborationKind) {
+      const kind = corroborationKind;
+      const dueAt = lastCapture[kind] + CORROBORATION_CADENCE_MS;
+      cadenceTimer = setTimeout(() => {
+        capture(kind);
+        scheduleNextCapture();
+      }, Math.max(0, dueAt - now()));
+      return;
+    }
     const cadence = CADENCE_MS[state];
     const guideDueAt = lastCapture.guide + cadence.guide;
     const discoveryDueAt = lastCapture.discovery + cadence.discovery;
@@ -177,6 +191,7 @@ export function createRecognitionScheduler<Input, Output>({
 
   const beginGeneration = (nextGeneration: string) => {
     generation = nextGeneration;
+    corroborationKind = null;
     frameNumber = 0;
     pending = null;
     deferredKinds.clear();
@@ -197,11 +212,16 @@ export function createRecognitionScheduler<Input, Output>({
       beginGeneration(nextGeneration);
     },
 
-    setState(nextState) {
-      if (state === nextState || disposed) {
+    setState(nextState, nextCorroborationKind = null) {
+      if (
+        (state === nextState &&
+          corroborationKind === nextCorroborationKind) ||
+        disposed
+      ) {
         return;
       }
       state = nextState;
+      corroborationKind = nextCorroborationKind;
       scheduleNextCapture();
     },
 

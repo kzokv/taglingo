@@ -5,6 +5,12 @@ import type {
 } from "../domain/currencies";
 import type { EnteredPrice } from "../domain/manualPriceEntry";
 import type { Rectangle } from "../domain/geometry";
+import type {
+  CandidateOutlineState,
+  DetectedPriceIdentity,
+  DetectionOutlineState,
+  PriceEvidenceTrackIdentity
+} from "../domain/priceEvidenceLifecycle";
 import type { GuestRateView } from "../fx/useGuestRate";
 import type {
   FocusedPriceBehavior,
@@ -40,10 +46,7 @@ export type CameraWorkspaceRecognitionPhase =
   | "focused"
   | "error";
 
-declare const cameraWorkspaceDetectedPriceIdentityBrand: unique symbol;
-export type CameraWorkspaceDetectedPriceIdentity = string & {
-  readonly [cameraWorkspaceDetectedPriceIdentityBrand]: true;
-};
+export type CameraWorkspaceDetectedPriceIdentity = DetectedPriceIdentity;
 
 export function cameraWorkspaceDetectedPriceIdentity(
   value: string
@@ -57,11 +60,21 @@ export interface CameraWorkspaceDetectedPrice {
   minorUnits: number;
   confidence: number;
   box: Rectangle;
+  state: DetectionOutlineState;
+}
+
+export interface CameraWorkspaceCandidateOutline {
+  identity: PriceEvidenceTrackIdentity;
+  state: CandidateOutlineState;
+  label: "Possible price";
+  box: Rectangle;
+  expiresAtMs: number;
 }
 
 export interface CameraWorkspaceRecognitionEvidence {
   phase: CameraWorkspaceRecognitionPhase;
   progress: number;
+  candidateOutlines: CameraWorkspaceCandidateOutline[];
   detectedPrices: CameraWorkspaceDetectedPrice[];
   explicitlyFocusedPriceIdentity: CameraWorkspaceDetectedPriceIdentity | null;
 }

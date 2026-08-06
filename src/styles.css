@@ -1099,7 +1099,8 @@ h1 em {
   text-transform: uppercase;
 }
 
-.detected-price {
+.detected-price,
+.candidate-outline {
   position: absolute;
   z-index: 4;
   border: 2px solid var(--mint);
@@ -1110,7 +1111,8 @@ h1 em {
   cursor: pointer;
 }
 
-.detected-price span {
+.detected-price span,
+.candidate-outline span {
   position: absolute;
   top: -21px;
   right: -2px;
@@ -1120,6 +1122,29 @@ h1 em {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.48rem;
   text-transform: uppercase;
+}
+
+.candidate-outline {
+  border-color: #f2b84b;
+  border-style: dotted;
+  background: rgba(242, 184, 75, 0.08);
+  box-shadow: none;
+  cursor: default;
+  pointer-events: none;
+}
+
+.candidate-outline span {
+  background: #f2b84b;
+}
+
+.held-detection {
+  border-color: #f2b84b;
+  border-style: dashed;
+  background: rgba(242, 184, 75, 0.08);
+}
+
+.held-detection span {
+  background: #f2b84b;
 }
 
 .focused-detection {
@@ -1133,6 +1158,15 @@ h1 em {
 
 .focused-detection span {
   background: var(--coral);
+}
+
+.focused-detection.held-detection {
+  border-style: dashed;
+  border-color: #f2b84b;
+}
+
+.focused-detection.held-detection span {
+  background: #f2b84b;
 }
 
 .result-sheet {

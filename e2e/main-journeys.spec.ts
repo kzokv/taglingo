@@ -85,6 +85,71 @@ test("deterministic harness injects Camera Workspace state without recognition i
   expect(recognitionAssetRequests).toEqual([]);
 });
 
+test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired, and removed journey", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=lifecycle");
+  const controls = page.getByRole("complementary", {
+    name: /evidence fixture controls/i
+  });
+  const summary = page
+    .getByRole("region", { name: /recognition summary/i })
+    .locator("strong");
+
+  await controls.getByRole("button", { name: /observe credible evidence/i }).click();
+  const candidate = page.locator("[data-candidate-outline]");
+  await expect(candidate).toHaveCount(1);
+  await expect(candidate).toContainText("Possible price");
+  await expect(candidate).toHaveAttribute("aria-hidden", "true");
+  expect(await candidate.evaluate((element) => element.tagName)).toBe("DIV");
+  expect(
+    await candidate.evaluate((element) => getComputedStyle(element).borderStyle)
+  ).toBe("dotted");
+  await expect(page.locator("[data-detected-price]")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: /detected prices — none available/i })
+  ).toBeVisible();
+  await expect(page.getByRole("list", { name: /detected prices/i })).toHaveCount(0);
+  await expect(summary).toHaveText("No Focused Price yet");
+  await expect(page.getByText("USD 27.80")).toHaveCount(0);
+
+  await controls.getByRole("button", { name: /corroborate or reacquire/i }).click();
+  await expect(candidate).toHaveCount(0);
+  const detection = page.locator('[data-detected-price="JPY-4142"]');
+  await expect(detection).toHaveAttribute("data-evidence-state", "fresh");
+  const identity = await detection.getAttribute("data-detected-price-identity");
+  const freshGeometry = await detection.getAttribute("style");
+  await expect(
+    page.getByRole("list", { name: /detected prices/i }).getByRole("button")
+  ).toHaveCount(1);
+  await expect(summary).toHaveText("Focused Price · JPY 4,142");
+  await expect(page.getByText("USD 27.80")).toBeVisible();
+
+  await controls.getByRole("button", { name: /covered miss/i }).click();
+  await expect(detection).toHaveAttribute("data-evidence-state", "held");
+  await expect(detection).toHaveClass(/held-detection/);
+  await expect(detection).toContainText("Held");
+  await expect(detection).toHaveAttribute("style", freshGeometry ?? "");
+
+  await controls.getByRole("button", { name: /corroborate or reacquire/i }).click();
+  await expect(detection).toHaveAttribute("data-evidence-state", "fresh");
+  await expect(detection).toHaveAttribute(
+    "data-detected-price-identity",
+    identity ?? ""
+  );
+
+  await controls.getByRole("button", { name: /covered miss/i }).click();
+  await controls.getByRole("button", { name: /covered miss/i }).click();
+  await expect(detection).toHaveCount(1);
+  await controls.getByRole("button", { name: /covered miss/i }).click();
+  await expect(detection).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: /detected prices — none available/i })
+  ).toBeVisible();
+  await expect(summary).toHaveText("No Focused Price yet");
+  await expect(page.getByText("USD 27.80")).toHaveCount(0);
+});
+
 test("Guest camera policy keeps five currencies available and promotes all others to manual", async ({
   page
 }) => {
