@@ -1,7 +1,9 @@
 import type { Rectangle } from "../domain/geometry";
 import type {
   CandidateOutlineState,
-  DetectionOutlineState
+  DetectedPriceIdentity,
+  DetectionOutlineState,
+  PriceEvidenceTrackIdentity
 } from "../domain/priceEvidenceLifecycle";
 import type { RecognitionPassIdentity } from "./ocrRecognizer";
 import type { DetectedPrice } from "./priceLocalization";
@@ -12,11 +14,10 @@ interface Point {
   y: number;
 }
 
-declare const detectedPriceIdentityBrand: unique symbol;
-
-export type DetectedPriceIdentity = string & {
-  readonly [detectedPriceIdentityBrand]: true;
-};
+export type {
+  DetectedPriceIdentity,
+  PriceEvidenceTrackIdentity
+} from "../domain/priceEvidenceLifecycle";
 
 export interface TrackedDetectedPrice extends DetectedPrice {
   readonly identity: DetectedPriceIdentity;
@@ -24,7 +25,7 @@ export interface TrackedDetectedPrice extends DetectedPrice {
 }
 
 export interface CandidateOutline {
-  readonly identity: DetectedPriceIdentity;
+  readonly identity: PriceEvidenceTrackIdentity;
   readonly state: CandidateOutlineState;
   readonly label: "Possible price";
   readonly box: Rectangle;
@@ -97,7 +98,7 @@ function nearestTo(
 }
 
 interface CandidateTrack {
-  readonly identity: DetectedPriceIdentity;
+  readonly identity: PriceEvidenceTrackIdentity;
   readonly sequence: number;
   price: DetectedPrice;
   readonly observedFrames: Set<string>;
@@ -170,6 +171,21 @@ function smoothRectangle(
   };
 }
 
+function removeExpiredCandidateTracks(
+  tracks: CandidateTrack[],
+  requiredDistinctFrames: number,
+  cutoffTimeMs: number
+): void {
+  for (let index = tracks.length - 1; index >= 0; index -= 1) {
+    if (
+      tracks[index].observedFrames.size < requiredDistinctFrames &&
+      tracks[index].expiresAtMs <= cutoffTimeMs
+    ) {
+      tracks.splice(index, 1);
+    }
+  }
+}
+
 export function createCandidateTracker(options: {
   captureGuideCenter: Point;
   geometry: FixedRecognitionRules["geometry"];
@@ -203,7 +219,7 @@ export function createCandidateTracker(options: {
       )
       .map(({ identity, price, coveredMisses }) => ({
         ...price,
-        identity,
+        identity: identity as DetectedPriceIdentity,
         state: coveredMisses > 0 ? ("held" as const) : ("fresh" as const)
       }));
     const explicitlyFocused = detectedPrices.find(
@@ -234,15 +250,11 @@ export function createCandidateTracker(options: {
     observe(pass, currentCaptureGuideCenter = options.captureGuideCenter) {
       lastGuideCenter = currentCaptureGuideCenter;
       currentTimeMs = Math.max(currentTimeMs, pass.observedAtMs);
-      for (let index = tracks.length - 1; index >= 0; index -= 1) {
-        if (
-          tracks[index].observedFrames.size <
-            options.stabilization.requiredDistinctFrames &&
-          tracks[index].expiresAtMs <= pass.observedAtMs
-        ) {
-          tracks.splice(index, 1);
-        }
-      }
+      removeExpiredCandidateTracks(
+        tracks,
+        options.stabilization.requiredDistinctFrames,
+        pass.observedAtMs
+      );
       const matchedTracks = new Set<CandidateTrack>();
       const matchedCandidateIndexes = new Set<number>();
       const compatibleTracksByCandidate = pass.candidates.map((candidate) =>
@@ -367,7 +379,7 @@ export function createCandidateTracker(options: {
           }
           const created = {
             identity:
-              `detected-price-${nextIdentity.toString()}` as DetectedPriceIdentity,
+              `detected-price-${nextIdentity.toString()}` as PriceEvidenceTrackIdentity,
             sequence: nextIdentity,
             price: candidate,
             observedFrames: new Set([pass.frameIdentity]),
@@ -402,15 +414,11 @@ export function createCandidateTracker(options: {
 
     advanceTime(observedAtMs) {
       currentTimeMs = Math.max(currentTimeMs, observedAtMs);
-      for (let index = tracks.length - 1; index >= 0; index -= 1) {
-        if (
-          tracks[index].observedFrames.size <
-            options.stabilization.requiredDistinctFrames &&
-          tracks[index].expiresAtMs <= currentTimeMs
-        ) {
-          tracks.splice(index, 1);
-        }
-      }
+      removeExpiredCandidateTracks(
+        tracks,
+        options.stabilization.requiredDistinctFrames,
+        currentTimeMs
+      );
       return snapshot(lastGuideCenter);
     },
 

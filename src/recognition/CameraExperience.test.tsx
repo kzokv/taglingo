@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   DetectedPriceIdentity,
+  PriceEvidenceTrackIdentity,
   TrackedDetectedPrice
 } from "./focusTracker";
 import { CameraExperienceOverlay } from "./CameraExperience";
@@ -11,6 +12,10 @@ import type { RecognitionController } from "./useCameraRecognition";
 
 function identity(value: string): DetectedPriceIdentity {
   return value as DetectedPriceIdentity;
+}
+
+function candidateIdentity(value: string): PriceEvidenceTrackIdentity {
+  return value as PriceEvidenceTrackIdentity;
 }
 
 const firstPrice: TrackedDetectedPrice = {
@@ -77,7 +82,7 @@ describe("guided camera presenter", () => {
           phase: "stabilizing",
           candidateOutlines: [
             {
-              identity: identity("candidate-one"),
+              identity: candidateIdentity("candidate-one"),
               state: "candidate",
               label: "Possible price",
               box: firstPrice.box,

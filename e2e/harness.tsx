@@ -6,7 +6,6 @@ import { CameraWorkspace } from "../src/camera/CameraWorkspaceView";
 import type {
   CameraWorkspaceActions,
   CameraWorkspaceBindings,
-  CameraWorkspaceDetectedPriceIdentity,
   CameraWorkspaceState
 } from "../src/camera/cameraWorkspace";
 import type { CurrencyCode } from "../src/domain/currencies";
@@ -18,8 +17,7 @@ import {
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 import {
   createCandidateTracker,
-  type CandidateTrackingSnapshot,
-  type DetectedPriceIdentity
+  type CandidateTrackingSnapshot
 } from "../src/recognition/focusTracker";
 import type { DetectedPrice } from "../src/recognition/priceLocalization";
 import { createTestRecognitionProfile } from "../src/test/recognitionProfile";
@@ -203,19 +201,8 @@ function DeterministicEvidenceLifecycleWorkspace() {
     })
   );
   const publish = (snapshot: CandidateTrackingSnapshot) => {
-    const detectedPrices = snapshot.detectedPrices.map((detectedPrice) => ({
-      ...detectedPrice,
-      identity:
-        detectedPrice.identity as unknown as CameraWorkspaceDetectedPriceIdentity
-    }));
-    const focusedPrice = snapshot.focusedPrice
-      ? {
-          ...snapshot.focusedPrice,
-          identity:
-            snapshot.focusedPrice
-              .identity as unknown as CameraWorkspaceDetectedPriceIdentity
-        }
-      : null;
+    const detectedPrices = snapshot.detectedPrices;
+    const focusedPrice = snapshot.focusedPrice;
     setState((current) => ({
       ...current,
       recognition: {
@@ -225,16 +212,9 @@ function DeterministicEvidenceLifecycleWorkspace() {
             ? "stabilizing"
             : "searching",
         progress: 1,
-        candidateOutlines: snapshot.candidateOutlines.map((candidate) => ({
-          ...candidate,
-          identity:
-            candidate.identity as unknown as CameraWorkspaceDetectedPriceIdentity
-        })),
+        candidateOutlines: snapshot.candidateOutlines,
         detectedPrices,
-        explicitlyFocusedPriceIdentity:
-          snapshot.explicitlyFocusedPriceIdentity as unknown as
-            | CameraWorkspaceDetectedPriceIdentity
-            | null
+        explicitlyFocusedPriceIdentity: snapshot.explicitlyFocusedPriceIdentity
       },
       focusedPrice,
       priceSelection: {
@@ -258,10 +238,7 @@ function DeterministicEvidenceLifecycleWorkspace() {
   const actions: CameraWorkspaceActions = {
     startCamera: () => undefined,
     stopCamera: () => undefined,
-    selectPrice: (identity) =>
-      publish(
-        tracker.select(identity as unknown as DetectedPriceIdentity)
-      ),
+    selectPrice: (identity) => publish(tracker.select(identity)),
     changeCurrencies: () => undefined,
     changeExperiencePreferences: () => undefined,
     enterPrice: () => undefined,

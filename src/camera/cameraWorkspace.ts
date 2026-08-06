@@ -7,7 +7,9 @@ import type { EnteredPrice } from "../domain/manualPriceEntry";
 import type { Rectangle } from "../domain/geometry";
 import type {
   CandidateOutlineState,
-  DetectionOutlineState
+  DetectedPriceIdentity,
+  DetectionOutlineState,
+  PriceEvidenceTrackIdentity
 } from "../domain/priceEvidenceLifecycle";
 import type { GuestRateView } from "../fx/useGuestRate";
 import type {
@@ -44,10 +46,7 @@ export type CameraWorkspaceRecognitionPhase =
   | "focused"
   | "error";
 
-declare const cameraWorkspaceDetectedPriceIdentityBrand: unique symbol;
-export type CameraWorkspaceDetectedPriceIdentity = string & {
-  readonly [cameraWorkspaceDetectedPriceIdentityBrand]: true;
-};
+export type CameraWorkspaceDetectedPriceIdentity = DetectedPriceIdentity;
 
 export function cameraWorkspaceDetectedPriceIdentity(
   value: string
@@ -65,7 +64,7 @@ export interface CameraWorkspaceDetectedPrice {
 }
 
 export interface CameraWorkspaceCandidateOutline {
-  identity: CameraWorkspaceDetectedPriceIdentity;
+  identity: PriceEvidenceTrackIdentity;
   state: CandidateOutlineState;
   label: "Possible price";
   box: Rectangle;
