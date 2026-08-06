@@ -51,6 +51,7 @@ export interface RecognitionView {
 export interface RecognitionController extends RecognitionView {
   selectDetectedPrice(identity: DetectedPriceIdentity): void;
   resumeAutomaticFocus(): void;
+  clearHeldPrices(): void;
 }
 
 function phaseFor(
@@ -161,6 +162,25 @@ export function useCameraRecognition({
   }, []);
   const resumeAutomaticFocus = useCallback(() => {
     const snapshot = candidateTracker.current?.resumeAutomaticFocus();
+    if (!snapshot) {
+      return;
+    }
+    setRecognition((current) => {
+      const focusChanged =
+        snapshot.focusedPrice?.identity !== current.focusedPrice?.identity;
+      return applyCandidateTrackingSnapshot(
+        {
+          ...current,
+          phase: phaseFor(snapshot),
+          focusChangeCount:
+            current.focusChangeCount + (focusChanged ? 1 : 0)
+        },
+        snapshot
+      );
+    });
+  }, []);
+  const clearHeldPrices = useCallback(() => {
+    const snapshot = candidateTracker.current?.clearHeldPrices();
     if (!snapshot) {
       return;
     }
@@ -474,5 +494,10 @@ export function useCameraRecognition({
     video
   ]);
 
-  return { ...recognition, selectDetectedPrice, resumeAutomaticFocus };
+  return {
+    ...recognition,
+    selectDetectedPrice,
+    resumeAutomaticFocus,
+    clearHeldPrices
+  };
 }

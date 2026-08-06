@@ -61,6 +61,7 @@ function workspaceActions(): CameraWorkspaceActions {
     stopCamera: vi.fn(),
     selectPrice: vi.fn(),
     resumeAutomaticFocus: vi.fn(),
+    clearHeldPrices: vi.fn(),
     changeCurrencies: vi.fn(),
     changeExperiencePreferences: vi.fn(),
     enterPrice: vi.fn(),

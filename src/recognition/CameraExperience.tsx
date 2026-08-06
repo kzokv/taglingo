@@ -1,3 +1,5 @@
+import { useRef, type MouseEvent as ReactMouseEvent } from "react";
+
 import type {
   RecognitionController,
   RecognitionPhase
@@ -82,6 +84,8 @@ export function CameraExperienceOverlay({
     recognition.detectedPrices.length
   );
   const displayedPrices = recognition.detectedPrices;
+  const outlineRefs = useRef(new Map<string, HTMLElement>());
+  const hitRegionRefs = useRef(new Map<string, HTMLElement>());
   const outlineStyle = (box: {
     x: number;
     y: number;
@@ -101,6 +105,79 @@ export function CameraExperienceOverlay({
           width: box.width,
           height: box.height
         };
+  const hitRegionStyle = (box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) =>
+    demo
+      ? {
+          left: `${(box.x + box.width / 2) / 10}%`,
+          top: `${(box.y + box.height / 2) / 10}%`,
+          width: `max(${box.width / 10}%, 44px)`,
+          height: `max(${box.height / 10}%, 44px)`
+        }
+      : {
+          left: box.x + box.width / 2,
+          top: box.y + box.height / 2,
+          width: Math.max(box.width, 44),
+          height: Math.max(box.height, 44)
+        };
+  const selectAtPointer = (event: ReactMouseEvent<HTMLElement>) => {
+    const point = { x: event.clientX, y: event.clientY };
+    const freshPrices = displayedPrices.filter(({ state }) => state === "fresh");
+    const measuredOutlines = freshPrices.map((price) => ({
+      price,
+      bounds: outlineRefs.current.get(price.identity)?.getBoundingClientRect()
+    }));
+    if (
+      measuredOutlines.every(
+        ({ bounds }) => !bounds || (bounds.width === 0 && bounds.height === 0)
+      )
+    ) {
+      const identity = event.currentTarget.dataset
+        .detectedPriceIdentity as (typeof freshPrices)[number]["identity"];
+      if (identity) recognition.selectDetectedPrice(identity);
+      return;
+    }
+    const contains = (rect: DOMRect) =>
+      point.x >= rect.left &&
+      point.x <= rect.right &&
+      point.y >= rect.top &&
+      point.y <= rect.bottom;
+    const inExpandedRegion = freshPrices.filter((price) => {
+      const region = hitRegionRefs.current.get(price.identity);
+      return region ? contains(region.getBoundingClientRect()) : false;
+    });
+    const inVisibleOutline = inExpandedRegion.filter((price) => {
+      const outline = outlineRefs.current.get(price.identity);
+      return outline ? contains(outline.getBoundingClientRect()) : false;
+    });
+    const candidates =
+      inVisibleOutline.length > 0 ? inVisibleOutline : inExpandedRegion;
+    const selected = [...candidates].sort((left, right) => {
+      const leftBounds = outlineRefs.current
+        .get(left.identity)
+        ?.getBoundingClientRect();
+      const rightBounds = outlineRefs.current
+        .get(right.identity)
+        ?.getBoundingClientRect();
+      const distanceFromPoint = (bounds: DOMRect | undefined) => {
+        if (!bounds) return Number.POSITIVE_INFINITY;
+        const x = bounds.left + bounds.width / 2 - point.x;
+        const y = bounds.top + bounds.height / 2 - point.y;
+        return x * x + y * y;
+      };
+      return (
+        distanceFromPoint(leftBounds) - distanceFromPoint(rightBounds) ||
+        left.box.y - right.box.y ||
+        left.box.x - right.box.x ||
+        left.identity.localeCompare(right.identity)
+      );
+    })[0];
+    if (selected) recognition.selectDetectedPrice(selected.identity);
+  };
 
   return (
     <div className="focus-stage">
@@ -123,6 +200,27 @@ export function CameraExperienceOverlay({
           <span aria-hidden="true">{candidate.label}</span>
         </div>
       ))}
+      {displayedPrices
+        .filter(({ state }) => state === "fresh")
+        .map((price) => (
+          <div
+            key={`hit-${price.identity}`}
+            ref={(element) => {
+              if (element) {
+                hitRegionRefs.current.set(price.identity, element);
+              } else {
+                hitRegionRefs.current.delete(price.identity);
+              }
+            }}
+            className="detected-price-hit-region"
+            style={hitRegionStyle(price.box)}
+            aria-hidden="true"
+            tabIndex={-1}
+            data-outline-hit-region={price.identity}
+            data-detected-price-identity={price.identity}
+            onClick={selectAtPointer}
+          />
+        ))}
       {displayedPrices.map((price) => {
         const focused = isFocusedPrice(recognition, price.identity);
         const className = `detected-price ${
@@ -148,10 +246,17 @@ export function CameraExperienceOverlay({
         ) : (
           <button
             key={price.identity}
+            ref={(element) => {
+              if (element) {
+                outlineRefs.current.set(price.identity, element);
+              } else {
+                outlineRefs.current.delete(price.identity);
+              }
+            }}
             {...sharedProps}
             type="button"
             tabIndex={-1}
-            onClick={() => recognition.selectDetectedPrice(price.identity)}
+            onClick={selectAtPointer}
           >
             <span aria-hidden="true">{label}</span>
           </button>

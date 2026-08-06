@@ -40,6 +40,9 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
   const resumeAutomaticFocus = useCallback(() => {
     applyTrackerCommand((tracker) => tracker.resumeAutomaticFocus());
   }, [applyTrackerCommand]);
+  const clearHeldPrices = useCallback(() => {
+    applyTrackerCommand((tracker) => tracker.clearHeldPrices());
+  }, [applyTrackerCommand]);
 
   useEffect(() => {
     if (!enabled) {
@@ -123,5 +126,10 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     };
   }, [enabled]);
 
-  return { ...recognition, selectDetectedPrice, resumeAutomaticFocus };
+  return {
+    ...recognition,
+    selectDetectedPrice,
+    resumeAutomaticFocus,
+    clearHeldPrices
+  };
 }

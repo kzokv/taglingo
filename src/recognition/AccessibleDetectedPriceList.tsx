@@ -3,8 +3,12 @@ import {
   useId,
   useLayoutEffect,
   useRef,
-  useState
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MutableRefObject,
+  type PointerEvent as ReactPointerEvent
 } from "react";
+import { createPortal } from "react-dom";
 
 import { currencyFractionDigits } from "../domain/currencies";
 import type {
@@ -22,6 +26,18 @@ interface DetectedPriceTransition {
   readonly focusedIdentity: DetectedPriceIdentity | null;
   readonly explicitlyFocusedIdentity: DetectedPriceIdentity | null;
   readonly identities: ReadonlySet<DetectedPriceIdentity>;
+}
+
+export interface ExplicitPriceSelectionEvent {
+  readonly identity: DetectedPriceIdentity;
+  readonly renewed: boolean;
+  readonly revision: number;
+}
+
+export interface ClearHeldPricesEvent {
+  readonly clearedCount: number;
+  readonly resumedAutomaticFocus: boolean;
+  readonly revision: number;
 }
 
 function sortTopToBottomThenLeftToRight(
@@ -85,26 +101,110 @@ function coarseGridPosition(
   return `${rows[row]} ${columns[column]}`;
 }
 
+function SemanticPriceList({
+  orderedPrices,
+  accessibleNames,
+  focusedIdentity,
+  previewSize,
+  locale,
+  buttonRefs,
+  onFocusIdentity,
+  onBlurIdentity,
+  onSelect
+}: {
+  orderedPrices: readonly TrackedDetectedPrice[];
+  accessibleNames: ReadonlyMap<DetectedPriceIdentity, string>;
+  focusedIdentity: DetectedPriceIdentity | null;
+  previewSize: PreviewSize;
+  locale?: string;
+  buttonRefs?: MutableRefObject<Map<DetectedPriceIdentity, HTMLButtonElement>>;
+  onFocusIdentity?: (identity: DetectedPriceIdentity) => void;
+  onBlurIdentity?: (identity: DetectedPriceIdentity) => void;
+  onSelect: (identity: DetectedPriceIdentity) => void;
+}) {
+  return (
+    <ul aria-label="Detected Prices">
+      {orderedPrices.map((price) => {
+        const isFocused = price.identity === focusedIdentity;
+        return (
+          <li key={price.identity}>
+            <button
+              ref={(button) => {
+                if (!buttonRefs) return;
+                if (button) {
+                  buttonRefs.current.set(price.identity, button);
+                } else {
+                  buttonRefs.current.delete(price.identity);
+                }
+              }}
+              type="button"
+              aria-label={accessibleNames.get(price.identity)}
+              aria-current={isFocused ? "true" : undefined}
+              onFocus={() => onFocusIdentity?.(price.identity)}
+              onBlur={() => onBlurIdentity?.(price.identity)}
+              onClick={() => onSelect(price.identity)}
+            >
+              <span>
+                <strong>{formatSourceCurrencyAmount(price, locale)}</strong>
+                <small>{coarseGridPosition(price, previewSize)}</small>
+              </span>
+              {isFocused ? <em>Focused</em> : <span>Select</span>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function AccessibleDetectedPriceList({
   detectedPrices,
   focusedPrice,
   explicitlyFocusedPriceIdentity,
   previewSize,
   locale,
-  onSelect
+  selectionEvent,
+  clearHeldPricesEvent,
+  modalOpen,
+  onModalOpenChange,
+  onSelect,
+  onClearHeldPrices
 }: {
   detectedPrices: readonly TrackedDetectedPrice[];
   focusedPrice: TrackedDetectedPrice | null;
   explicitlyFocusedPriceIdentity?: DetectedPriceIdentity | null;
   previewSize: PreviewSize;
   locale?: string;
+  selectionEvent?: ExplicitPriceSelectionEvent | null;
+  clearHeldPricesEvent?: ClearHeldPricesEvent | null;
+  modalOpen?: boolean;
+  onModalOpenChange?: (open: boolean) => void;
   onSelect: (identity: DetectedPriceIdentity) => void;
+  onClearHeldPrices?: () => void;
 }) {
   const headingId = useId();
+  const dialogHeadingId = useId();
+  const [collapsed, setCollapsed] = useState(false);
+  const [uncontrolledModalOpen, setUncontrolledModalOpen] = useState(false);
+  const isModalOpen = modalOpen ?? uncontrolledModalOpen;
+  const [railOffset, setRailOffset] = useState({ x: 0, y: 0 });
+  const railRef = useRef<HTMLElement>(null);
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    railBounds: DOMRect;
+    previewBounds: DOMRect;
+  } | null>(null);
   const currentMembership = detectedPrices
     .map(({ identity }) => identity)
     .sort();
   const buttonRefs = useRef(
+    new Map<DetectedPriceIdentity, HTMLButtonElement>()
+  );
+  const modalButtonRefs = useRef(
     new Map<DetectedPriceIdentity, HTMLButtonElement>()
   );
   const keyboardFocusedControlIdentity =
@@ -150,6 +250,10 @@ export function AccessibleDetectedPriceList({
   );
 
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const dialogHeadingRef = useRef<HTMLHeadingElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const returnFocusAfterClose = useRef(false);
   useLayoutEffect(() => {
     const previousFocusedControl = keyboardFocusedControlIdentity.current;
     if (previousFocusedControl && !pricesByIdentity.has(previousFocusedControl)) {
@@ -162,10 +266,56 @@ export function AccessibleDetectedPriceList({
     }
   }, [membershipRevision]);
 
+  useLayoutEffect(() => {
+    if (isModalOpen) {
+      if (focusedPrice) {
+        modalButtonRefs.current.get(focusedPrice.identity)?.focus();
+      } else {
+        dialogHeadingRef.current?.focus();
+      }
+      return;
+    }
+    if (returnFocusAfterClose.current) {
+      returnFocusAfterClose.current = false;
+      expandButtonRef.current?.focus();
+    }
+  }, [isModalOpen, membershipRevision]);
+
   const [announcement, setAnnouncement] = useState("");
   const localExplicitFocus = useRef<DetectedPriceIdentity | null>(null);
   const currentExplicitFocus =
     explicitlyFocusedPriceIdentity ?? localExplicitFocus.current;
+  const pendingSelectionIdentity = useRef<DetectedPriceIdentity | null>(null);
+  const pendingClearRevision = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!selectionEvent) return;
+    const accessibleName = accessibleNames.get(selectionEvent.identity);
+    if (!accessibleName) return;
+    localExplicitFocus.current = selectionEvent.identity;
+    pendingSelectionIdentity.current = selectionEvent.identity;
+    setAnnouncement(
+      selectionEvent.renewed
+        ? `Explicit Focus Lock renewed for ${accessibleName}.`
+        : `Focused and locked ${accessibleName}.`
+    );
+  }, [selectionEvent?.revision]);
+
+  useEffect(() => {
+    if (!clearHeldPricesEvent) return;
+    pendingClearRevision.current = clearHeldPricesEvent.revision;
+    const count = clearHeldPricesEvent.clearedCount;
+    setAnnouncement(
+      `${count.toLocaleString()} held ${
+        count === 1 ? "Detected Price" : "Detected Prices"
+      } cleared.${
+        clearHeldPricesEvent.resumedAutomaticFocus
+          ? " Automatic focus resumed."
+          : ""
+      }`
+    );
+  }, [clearHeldPricesEvent?.revision]);
+
   const previousTransition = useRef<DetectedPriceTransition>({
     count: 0,
     focusedIdentity: null,
@@ -183,9 +333,18 @@ export function AccessibleDetectedPriceList({
         previous.identities.has(expiringExplicitFocus) &&
         !identities.has(expiringExplicitFocus)
     );
+    const selectionHandledThisTransition =
+      pendingSelectionIdentity.current !== null &&
+      pendingSelectionIdentity.current === focusedIdentity;
+    const clearHandledThisTransition =
+      clearHeldPricesEvent !== undefined &&
+      pendingClearRevision.current === clearHeldPricesEvent?.revision;
     let nextAnnouncement: string | null = null;
 
-    if (previous.count === 0 && detectedPrices.length > 0) {
+    if (clearHandledThisTransition || selectionHandledThisTransition) {
+      pendingClearRevision.current = null;
+      pendingSelectionIdentity.current = null;
+    } else if (previous.count === 0 && detectedPrices.length > 0) {
       nextAnnouncement = `${detectedPrices.length} ${
         detectedPrices.length === 1 ? "Detected Price" : "Detected Prices"
       } available.`;
@@ -220,70 +379,265 @@ export function AccessibleDetectedPriceList({
         : currentExplicitFocus,
       identities
     };
-  }, [explicitlyFocusedPriceIdentity, focusedIdentity, membershipRevision]);
+  }, [
+    explicitlyFocusedPriceIdentity,
+    focusedIdentity,
+    membershipRevision,
+    selectionEvent?.revision,
+    clearHeldPricesEvent?.revision
+  ]);
 
   const heading =
     detectedPrices.length === 0
       ? "Detected Prices — none available"
       : "Detected Prices";
+  const heldPriceCount = detectedPrices.filter(
+    ({ state }) => state === "held"
+  ).length;
+
+  const setModalState = (open: boolean) => {
+    setUncontrolledModalOpen(open);
+    onModalOpenChange?.(open);
+  };
+  const closeModal = () => {
+    returnFocusAfterClose.current = true;
+    setModalState(false);
+  };
+  const selectIdentity = (
+    identity: DetectedPriceIdentity,
+    dismissModal = false
+  ) => {
+    if (selectionEvent === undefined) {
+      const accessibleName = accessibleNames.get(identity);
+      const renewed = currentExplicitFocus === identity;
+      localExplicitFocus.current = identity;
+      pendingSelectionIdentity.current = identity;
+      if (accessibleName) {
+        setAnnouncement(
+          renewed
+            ? `Explicit Focus Lock renewed for ${accessibleName}.`
+            : `Focused and locked ${accessibleName}.`
+        );
+      }
+    }
+    onSelect(identity);
+    if (dismissModal) closeModal();
+  };
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rail = railRef.current;
+    const preview = rail?.parentElement;
+    if (!rail || !preview) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: railOffset.x,
+      originY: railOffset.y,
+      railBounds: rail.getBoundingClientRect(),
+      previewBounds: preview.getBoundingClientRect()
+    };
+  };
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const requestedX = event.clientX - current.startX;
+    const requestedY = event.clientY - current.startY;
+    const minX = current.previewBounds.left - current.railBounds.left;
+    const maxX = current.previewBounds.right - current.railBounds.right;
+    const minY = current.previewBounds.top - current.railBounds.top;
+    const maxY = current.previewBounds.bottom - current.railBounds.bottom;
+    setRailOffset({
+      x:
+        current.originX + Math.min(maxX, Math.max(minX, requestedX)),
+      y:
+        current.originY + Math.min(maxY, Math.max(minY, requestedY))
+    });
+  };
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const trapDialogFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ) ?? [])];
+    if (controls.length === 0) return;
+    const first = controls[0];
+    const last = controls.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const modal = isModalOpen
+    ? createPortal(
+        <div
+          className="detected-prices-sheet-backdrop"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) closeModal();
+          }}
+        >
+          <section
+            ref={dialogRef}
+            className="detected-prices-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogHeadingId}
+            onKeyDown={trapDialogFocus}
+          >
+            <div className="detected-prices-sheet-heading">
+              <h2
+                id={dialogHeadingId}
+                ref={dialogHeadingRef}
+                tabIndex={-1}
+              >
+                All Detected Prices
+              </h2>
+              <button type="button" onClick={closeModal}>
+                Close Detected Prices
+              </button>
+            </div>
+            {orderedPrices.length > 0 ? (
+              <SemanticPriceList
+                orderedPrices={orderedPrices}
+                accessibleNames={accessibleNames}
+                focusedIdentity={focusedIdentity}
+                previewSize={previewSize}
+                locale={locale}
+                buttonRefs={modalButtonRefs}
+                onSelect={(identity) => selectIdentity(identity, true)}
+              />
+            ) : (
+              <p>No Detected Prices available.</p>
+            )}
+            {heldPriceCount > 0 && onClearHeldPrices ? (
+              <button
+                className="clear-held-prices"
+                type="button"
+                onClick={onClearHeldPrices}
+              >
+                Clear held prices
+              </button>
+            ) : null}
+          </section>
+        </div>,
+        document.body
+      )
+    : null;
 
   return (
-    <section className="accessible-price-list" aria-labelledby={headingId}>
-      <h2 id={headingId} ref={headingRef} tabIndex={-1}>
-        {heading}
-      </h2>
-      {orderedPrices.length > 0 ? (
-        <ul aria-label="Detected Prices">
-          {orderedPrices.map((price) => {
-            const isFocused = price.identity === focusedIdentity;
-            const accessibleName = accessibleNames.get(price.identity)!;
-            return (
-              <li key={price.identity}>
-                <button
-                  ref={(button) => {
-                    if (button) {
-                      buttonRefs.current.set(price.identity, button);
-                    } else {
-                      buttonRefs.current.delete(price.identity);
-                    }
-                  }}
-                  type="button"
-                  aria-label={accessibleName}
-                  aria-current={isFocused ? "true" : undefined}
-                  onFocus={() => {
-                    keyboardFocusedControlIdentity.current = price.identity;
-                  }}
-                  onBlur={() => {
-                    if (
-                      keyboardFocusedControlIdentity.current === price.identity
-                    ) {
-                      keyboardFocusedControlIdentity.current = null;
-                    }
-                  }}
-                  onClick={() => {
-                    localExplicitFocus.current = price.identity;
-                    onSelect(price.identity);
-                  }}
-                >
-                  <span>
-                    <strong>{formatSourceCurrencyAmount(price, locale)}</strong>
-                    <small>{coarseGridPosition(price, previewSize)}</small>
-                  </span>
-                  {isFocused ? <em>Focused</em> : <span>Select</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      <div
-        className="visually-hidden"
-        role="status"
-        aria-label="Detected Price updates"
-        aria-atomic="true"
+    <>
+      <section
+        ref={railRef}
+        className={`accessible-price-list detected-prices-rail${
+          collapsed ? " is-collapsed" : ""
+        }`}
+        style={{
+          transform: `translate(${railOffset.x.toString()}px, ${railOffset.y.toString()}px)`
+        }}
+        aria-label="Detected Prices rail"
       >
-        {announcement}
-      </div>
-    </section>
+        <div
+          className="detected-prices-drag-handle"
+          data-detected-prices-drag-handle=""
+          aria-hidden="true"
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          <span />
+        </div>
+        <div className="detected-prices-rail-heading">
+          <div>
+            <h2 id={headingId} ref={headingRef} tabIndex={-1}>
+              {heading}
+            </h2>
+            <p>
+              {detectedPrices.length.toLocaleString()} Detected {detectedPrices.length === 1 ? "Price" : "Prices"}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label={
+              collapsed
+                ? "Show Detected Price controls"
+                : "Collapse Detected Prices rail"
+            }
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            <span aria-hidden="true">{collapsed ? "+" : "−"}</span>
+          </button>
+        </div>
+        <p className="detected-prices-focused-summary">
+          <strong>Focused</strong>{" "}
+          {focusedPrice
+            ? formatSourceCurrencyAmount(focusedPrice, locale)
+            : "None"}
+        </p>
+        <button
+          ref={expandButtonRef}
+          className="expand-detected-prices"
+          type="button"
+          onClick={() => setModalState(true)}
+          aria-haspopup="dialog"
+          aria-expanded={isModalOpen}
+        >
+          Expand Detected Prices
+        </button>
+        {!collapsed && orderedPrices.length > 0 ? (
+          <SemanticPriceList
+            orderedPrices={orderedPrices}
+            accessibleNames={accessibleNames}
+            focusedIdentity={focusedIdentity}
+            previewSize={previewSize}
+            locale={locale}
+            buttonRefs={buttonRefs}
+            onFocusIdentity={(identity) => {
+              keyboardFocusedControlIdentity.current = identity;
+            }}
+            onBlurIdentity={(identity) => {
+              if (keyboardFocusedControlIdentity.current === identity) {
+                keyboardFocusedControlIdentity.current = null;
+              }
+            }}
+            onSelect={selectIdentity}
+          />
+        ) : null}
+        {!collapsed && heldPriceCount > 0 && onClearHeldPrices ? (
+          <button
+            className="clear-held-prices"
+            type="button"
+            onClick={onClearHeldPrices}
+          >
+            Clear held prices
+          </button>
+        ) : null}
+        <div
+          className="visually-hidden"
+          role="status"
+          aria-label="Detected Price updates"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
+        </div>
+      </section>
+      {modal}
+    </>
   );
 }

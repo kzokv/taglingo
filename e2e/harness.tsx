@@ -51,13 +51,34 @@ function injectedWorkspaceState(): CameraWorkspaceState {
 
 function DeterministicCameraWorkspace({
   startPaused = false,
-  currencyJourney = false
+  currencyJourney = false,
+  overlapPrices = false
 }: {
   startPaused?: boolean;
   currencyJourney?: boolean;
+  overlapPrices?: boolean;
 }) {
   const [state, setState] = useState(() => {
-    const focusedState = injectedWorkspaceState();
+    const baseFocusedState = injectedWorkspaceState();
+    const overlapDetectedPrices = baseFocusedState.recognition.detectedPrices.map(
+      (price, index) => ({
+        ...price,
+        box:
+          index === 0
+            ? { x: 480, y: 350, width: 30, height: 20 }
+            : { x: 517, y: 358, width: 4, height: 4 }
+      })
+    );
+    const focusedState = overlapPrices
+      ? {
+          ...baseFocusedState,
+          recognition: {
+            ...baseFocusedState.recognition,
+            detectedPrices: overlapDetectedPrices
+          },
+          focusedPrice: overlapDetectedPrices[0]
+        }
+      : baseFocusedState;
     const initialState = currencyJourney
       ? {
           ...focusedState,
@@ -129,6 +150,32 @@ function DeterministicCameraWorkspace({
         },
         focusedPrice: current.recognition.detectedPrices[0] ?? null
       })),
+    clearHeldPrices: () =>
+      setState((current) => {
+        const detectedPrices = current.recognition.detectedPrices.filter(
+          ({ state: evidenceState }) => evidenceState !== "held"
+        );
+        const affectedLock = current.recognition.detectedPrices.some(
+          ({ identity, state: evidenceState }) =>
+            evidenceState === "held" &&
+            identity === current.recognition.explicitlyFocusedPriceIdentity
+        );
+        return {
+          ...current,
+          recognition: {
+            ...current.recognition,
+            detectedPrices,
+            explicitlyFocusedPriceIdentity: affectedLock
+              ? null
+              : current.recognition.explicitlyFocusedPriceIdentity
+          },
+          focusedPrice: affectedLock
+            ? detectedPrices.find(({ state: evidenceState }) => evidenceState === "fresh") ?? null
+            : current.focusedPrice?.state === "held"
+              ? null
+              : current.focusedPrice
+        };
+      }),
     changeCurrencies: (currencies) => {
       const loadingRates = Object.fromEntries(
         currencies.targetCurrencies.map((target) => [
@@ -352,6 +399,7 @@ function DeterministicEvidenceLifecycleWorkspace() {
     stopCamera: () => undefined,
     selectPrice: (identity) => publish(tracker.select(identity)),
     resumeAutomaticFocus: () => publish(tracker.resumeAutomaticFocus()),
+    clearHeldPrices: () => publish(tracker.clearHeldPrices()),
     changeCurrencies: () => undefined,
     changeExperiencePreferences: () => undefined,
     enterPrice: () => undefined,
@@ -464,10 +512,12 @@ createRoot(document.getElementById("root")!).render(
     <DeterministicEvidenceLifecycleWorkspace />
   ) : workspaceMode === "focused" ||
     workspaceMode === "journey" ||
-    workspaceMode === "currencies" ? (
+    workspaceMode === "currencies" ||
+    workspaceMode === "overlap" ? (
     <DeterministicCameraWorkspace
       startPaused={workspaceMode === "journey"}
       currencyJourney={workspaceMode === "currencies"}
+      overlapPrices={workspaceMode === "overlap"}
     />
   ) : memberMode ? (
     <App
