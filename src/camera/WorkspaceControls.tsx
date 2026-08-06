@@ -166,7 +166,7 @@ export function CurrencySettings({
   const sourceListId = useId();
   const targetListId = useId();
   const sourceMatches = searchTargetCurrencies(sourceQuery);
-  const matches = searchTargetCurrencies(targetQuery).filter(
+  const targetMatches = searchTargetCurrencies(targetQuery).filter(
     ({ code }) => code !== preferences.sourceCurrency
   );
   const selectedSource = SOURCE_CURRENCIES.find(
@@ -414,7 +414,7 @@ export function CurrencySettings({
                   : "targetCurrencySearch"
               }
               query={targetQuery}
-              matches={matches}
+              matches={targetMatches}
               ariaMultiselectable={isApprovedMember}
               isSelected={(currency) =>
                 preferences.targetCurrencies.includes(currency)

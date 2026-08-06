@@ -147,7 +147,7 @@ describe("Approved Member FX Gateway", () => {
     expect(deps.preferences.find).not.toHaveBeenCalled();
   });
 
-  it("denies a target outside the member's synchronized one-to-three-target entitlement", async () => {
+  it("denies only unsynchronized targets while preserving authorized rates", async () => {
     const deps = dependencies();
     const handle = createMemberFxHandler({
       authenticate: vi.fn().mockResolvedValue({
@@ -158,13 +158,25 @@ describe("Approved Member FX Gateway", () => {
       ...deps
     });
 
-    const response = await handle(request("GBP"));
+    const response = await handle(request("USD,GBP"));
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      error: { code: "target_not_entitled" }
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      rates: [
+        {
+          target: "USD",
+          rate: expect.objectContaining({ target: "USD", value: "0.0067" })
+        },
+        { target: "GBP", error: { status: 403 } }
+      ]
     });
-    expect(deps.loadReferenceRate).not.toHaveBeenCalled();
+    expect(deps.loadReferenceRate).toHaveBeenCalledTimes(1);
+    expect(deps.loadReferenceRate).toHaveBeenCalledWith(
+      "JPY",
+      "USD",
+      "user_member",
+      "203.0.113.10"
+    );
   });
 
   it("never reads saved targets for an inactive membership", async () => {

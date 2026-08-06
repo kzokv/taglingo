@@ -369,10 +369,6 @@ export default function App({
   );
   const [memberPreferences, setMemberPreferences] =
     useState<MemberPreferences | null>(null);
-  const [
-    synchronizedMemberPreferences,
-    setSynchronizedMemberPreferences
-  ] = useState<MemberPreferences | null>(null);
   const [memberAccessStatus, setMemberAccessStatus] = useState<
     MemberAccessStatus
   >(memberUserId ? "loading" : "guest");
@@ -380,6 +376,8 @@ export default function App({
   const [useGuestMode, setUseGuestMode] = useState(false);
   const [memberSaveStatus, setMemberSaveStatus] =
     useState<MemberSaveStatus>("idle");
+  const [memberRateAuthorizationRevision, setMemberRateAuthorizationRevision] =
+    useState(0);
   const memberSaveRef = useRef<AbortController | null>(null);
   const memberLoadGenerationRef = useRef(0);
   const memberSaveGenerationRef = useRef(0);
@@ -395,13 +393,11 @@ export default function App({
     if (!memberUserId) {
       setMemberAccessStatus("guest");
       setMemberPreferences(null);
-      setSynchronizedMemberPreferences(null);
       return undefined;
     }
     const controller = new AbortController();
     setMemberAccessStatus("loading");
     setMemberPreferences(null);
-    setSynchronizedMemberPreferences(null);
     void loadMemberPreferences(memberUserId, controller.signal)
       .then(async (saved) => {
         if (
@@ -440,7 +436,6 @@ export default function App({
           throw new Error("Invalid saved member preferences.");
         }
         setMemberPreferences(normalizedSynchronized);
-        setSynchronizedMemberPreferences(normalizedSynchronized);
         setMemberAccessStatus("approved");
       })
       .catch((error: unknown) => {
@@ -455,7 +450,6 @@ export default function App({
               : "unavailable"
           );
           setMemberPreferences(null);
-          setSynchronizedMemberPreferences(null);
         }
       });
     return () => {
@@ -474,10 +468,6 @@ export default function App({
   ]);
   const currentMemberPreferences =
     memberPreferences?.ownerId === memberUserId ? memberPreferences : null;
-  const currentSynchronizedMemberPreferences =
-    synchronizedMemberPreferences?.ownerId === memberUserId
-      ? synchronizedMemberPreferences
-      : null;
   const effectiveMemberAccessStatus =
     memberUserId &&
     memberAccessStatus === "approved" &&
@@ -545,18 +535,6 @@ export default function App({
     isApprovedMember,
     guestCameraAllowanceAvailable: true
   });
-  const ratePreferences: ExperiencePreferences =
-    isApprovedMember && currentSynchronizedMemberPreferences
-      ? {
-          sourceCurrency: currentSynchronizedMemberPreferences.sourceCurrency,
-          targetCurrencies:
-            currentSynchronizedMemberPreferences.targetCurrencies,
-          manualEntryPromotion:
-            currentSynchronizedMemberPreferences.manualEntryPromotion,
-          focusedPriceBehavior:
-            currentSynchronizedMemberPreferences.focusedPriceBehavior
-        }
-      : preferences;
   const sessionRef = useRef<CameraSession | null>(null);
   const cameraUsageSessionRef = useRef<CameraUsageSession | null>(null);
   const cameraUsageGenerationRef = useRef(0);
@@ -585,12 +563,12 @@ export default function App({
   }, [cameraSessionPolicyAvailable, finishRecognitionHealthSession, mode]);
   useEffect(() => {
     rateSnapshotStoreRef.current.retainActivePairs(
-      ratePreferences.targetCurrencies.map((target) => ({
-        source: ratePreferences.sourceCurrency,
+      preferences.targetCurrencies.map((target) => ({
+        source: preferences.sourceCurrency,
         target
       }))
     );
-  }, [ratePreferences.sourceCurrency, ratePreferences.targetCurrencies]);
+  }, [preferences.sourceCurrency, preferences.targetCurrencies]);
   const approvedMemberRateLoader = useMemo(
     () =>
       memberUserId && getMemberSessionToken
@@ -598,22 +576,35 @@ export default function App({
         : null,
     [getMemberSessionToken, memberUserId]
   );
-  const loadRate =
+  const baseRateLoader =
     loadGuestRate ??
     (isApprovedMember && approvedMemberRateLoader
       ? approvedMemberRateLoader
       : browserRateLoaderRef.current);
   const rates = useGuestRates(
-    ratePreferences.sourceCurrency,
-    ratePreferences.targetCurrencies,
-    loadRate
+    preferences.sourceCurrency,
+    preferences.targetCurrencies,
+    baseRateLoader,
+    memberRateAuthorizationRevision
   );
-  const displayedRates =
-    isApprovedMember &&
-    (preferences.sourceCurrency !== ratePreferences.sourceCurrency ||
-      preferences.targetCurrencies.join(",") !==
-        ratePreferences.targetCurrencies.join(","))
-      ? {}
+  const displayedRates: GuestRateViews =
+    isApprovedMember && memberSaveStatus === "saving"
+      ? Object.fromEntries(
+          preferences.targetCurrencies.map((target) => {
+            const rate = rates[target];
+            return [
+              target,
+              rate?.phase === "error" && rate.reason === "unauthorized"
+                ? {
+                    phase: "loading" as const,
+                    rate: null,
+                    error: null,
+                    retry: rate.retry
+                  }
+                : rate
+            ];
+          })
+        )
       : rates;
 
   useEffect(() => {
@@ -658,7 +649,7 @@ export default function App({
           }
           pendingMemberPreferencesRef.current = null;
           setMemberPreferences(normalized);
-          setSynchronizedMemberPreferences(normalized);
+          setMemberRateAuthorizationRevision((revision) => revision + 1);
           setMemberSaveStatus("idle");
         }
       })

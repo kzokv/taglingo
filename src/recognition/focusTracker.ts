@@ -95,15 +95,11 @@ function nearestTo(
   );
 }
 
-function rectangleCenter(rectangle: Rectangle): Point {
-  return center(rectangle);
-}
-
 function isInsideFocusTargetTolerance(
   price: TrackedDetectedPrice,
   captureGuide: Rectangle
 ): boolean {
-  const target = rectangleCenter(captureGuide);
+  const target = center(captureGuide);
   const priceCenter = center(price.box);
   const toleranceWidth = Math.max(44, captureGuide.width * 0.2);
   const toleranceHeight = Math.max(44, captureGuide.height * 0.3);
@@ -277,7 +273,7 @@ export function createCandidateTracker(options: {
     );
     const nearestEligible = nearestTo(
       eligibleFreshPrices,
-      rectangleCenter(captureGuide),
+      center(captureGuide),
       stableSpatialOrder
     );
     const retainedHeldFocus = detectedPrices.find(

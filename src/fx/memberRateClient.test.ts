@@ -135,6 +135,45 @@ describe("Approved Member rate client", () => {
     );
   });
 
+  it("preserves an authorized rate when another batched target is denied", async () => {
+    const usdRate = {
+      source: "JPY",
+      target: "USD",
+      direction: "source-to-target",
+      value: "0.0067",
+      provider: "Frankfurter",
+      method: "daily-blend",
+      providerPublishedDate: "2026-07-30",
+      fetchedAt: "2026-07-30T10:00:00.000Z",
+      state: "cached",
+      attribution: "Frankfurter"
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        rates: [
+          { target: "USD", rate: usdRate },
+          { target: "TWD", error: { status: 403 } }
+        ]
+      })
+    );
+    const load = createMemberRateLoader(
+      "user_member",
+      async () => "session-token"
+    );
+    const signal = new AbortController().signal;
+
+    const [usd, twd] = await Promise.allSettled([
+      load("JPY", "USD", signal),
+      load("JPY", "TWD", signal)
+    ]);
+
+    expect(usd).toEqual({ status: "fulfilled", value: usdRate });
+    expect(twd).toMatchObject({
+      status: "rejected",
+      reason: { reason: "unauthorized" }
+    });
+  });
+
   it.each([
     [401, "unauthenticated"],
     [403, "unauthorized"],

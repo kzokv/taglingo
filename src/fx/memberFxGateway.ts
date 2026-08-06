@@ -129,23 +129,20 @@ export function createMemberFxHandler({
       );
     }
     const saved = await preferences.find(authentication.userId);
-    if (
-      !saved ||
-      saved.sourceCurrency !== parsed.source ||
-      parsed.targets.some(
-        (target) => !saved.targetCurrencies.includes(target)
-      )
-    ) {
+    if (!saved || saved.sourceCurrency !== parsed.source) {
       return errorResponse(
         403,
         "target_not_entitled",
-        "Select and synchronize this Target Currency before requesting its rate."
+        "Select and synchronize this Source Currency before requesting its rates."
       );
     }
     const ipAddress =
       request.headers.get("cf-connecting-ip") ?? "unknown";
     const rates = await Promise.all(
       parsed.targets.map(async (target) => {
+        if (!saved.targetCurrencies.includes(target)) {
+          return { target, error: { status: 403 } };
+        }
         const response = await loadReferenceRate(
           parsed.source,
           target,

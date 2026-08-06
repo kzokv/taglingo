@@ -15,6 +15,7 @@ import type {
   GuestCameraAllowanceSnapshot,
   GuestCameraAllowanceStore
 } from "./domain/guestCameraAllowance";
+import { GuestRateLoadError } from "./fx/browserRateSnapshot";
 import type { GuestReferenceRate } from "./fx/referenceRate";
 import {
   DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
@@ -2628,13 +2629,19 @@ describe("Approved Member journey", () => {
     expect(saveMemberPreferences).toHaveBeenCalledTimes(1);
   });
 
-  it("waits for D1 synchronization before requesting a newly selected member rate", async () => {
+  it("requests a newly selected member rate before D1 synchronization completes", async () => {
     const user = userEvent.setup();
     useMediaDevices(vi.fn());
     const saved = createDeferred<MemberPreferences>();
-    const loadGuestRate = vi
-      .fn()
-      .mockResolvedValue(DEFAULT_RATE);
+    let preferencesSynchronized = false;
+    const loadGuestRate = vi.fn(
+      async (_source: CurrencyCode, target: CurrencyCode) => {
+        if (target === "TWD" && !preferencesSynchronized) {
+          throw new GuestRateLoadError("unauthorized");
+        }
+        return { ...DEFAULT_RATE, target };
+      }
+    );
     render(
       <App
         memberSession={{
@@ -2660,11 +2667,14 @@ describe("Approved Member journey", () => {
       screen.getByRole("option", { name: /twd new taiwan dollar/i })
     );
 
-    expect(
-      loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
-    ).toBe(false);
+    await waitFor(() =>
+      expect(
+        loadGuestRate.mock.calls.filter((call) => call[1] === "TWD")
+      ).toHaveLength(1)
+    );
 
     await act(async () => {
+      preferencesSynchronized = true;
       saved.resolve({
         ownerId: "user_member",
         sourceCurrency: "JPY",
@@ -2674,8 +2684,9 @@ describe("Approved Member journey", () => {
     });
     await waitFor(() =>
       expect(
-        loadGuestRate.mock.calls.some((call) => call[1] === "TWD")
-      ).toBe(true)
+        loadGuestRate.mock.calls.filter((call) => call[1] === "TWD")
+          .length
+      ).toBeGreaterThanOrEqual(2)
     );
   });
 
@@ -2801,7 +2812,7 @@ describe("Approved Member journey", () => {
       })
     ).toBeInTheDocument();
     expect(loadGuestRate.mock.calls.some((call) => call[1] === "TWD")).toBe(
-      false
+      true
     );
 
     await user.click(

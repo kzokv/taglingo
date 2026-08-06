@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createCandidateTracker,
   type CandidateTracker,
+  type CandidateTrackingSnapshot,
   type DetectedPriceIdentity
 } from "./focusTracker";
 import { localizePrices } from "./priceLocalization";
@@ -17,24 +18,28 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
   const candidateTracker = useRef<CandidateTracker | null>(null);
-  const selectDetectedPrice = useCallback((identity: DetectedPriceIdentity) => {
-    const snapshot = candidateTracker.current?.select(identity);
-    if (!snapshot) {
-      return;
-    }
-    setRecognition((current) =>
-      applyCandidateTrackingSnapshot(current, snapshot)
-    );
-  }, []);
+  const applyTrackerCommand = useCallback(
+    (command: (tracker: CandidateTracker) => CandidateTrackingSnapshot) => {
+      const tracker = candidateTracker.current;
+      if (!tracker) {
+        return;
+      }
+      const snapshot = command(tracker);
+      setRecognition((current) =>
+        applyCandidateTrackingSnapshot(current, snapshot)
+      );
+    },
+    []
+  );
+  const selectDetectedPrice = useCallback(
+    (identity: DetectedPriceIdentity) => {
+      applyTrackerCommand((tracker) => tracker.select(identity));
+    },
+    [applyTrackerCommand]
+  );
   const resumeAutomaticFocus = useCallback(() => {
-    const snapshot = candidateTracker.current?.resumeAutomaticFocus();
-    if (!snapshot) {
-      return;
-    }
-    setRecognition((current) =>
-      applyCandidateTrackingSnapshot(current, snapshot)
-    );
-  }, []);
+    applyTrackerCommand((tracker) => tracker.resumeAutomaticFocus());
+  }, [applyTrackerCommand]);
 
   useEffect(() => {
     if (!enabled) {

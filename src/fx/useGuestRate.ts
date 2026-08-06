@@ -26,6 +26,12 @@ type GuestRateState =
       reason: ReferenceRateFailureReason;
     };
 
+interface GuestRateSnapshot {
+  source: CurrencyCode;
+  refreshKey: unknown;
+  state: GuestRateState;
+}
+
 export type GuestRateView = GuestRateState & { retry: () => void };
 export type GuestRateViews = Partial<
   Record<CurrencyCode, GuestRateView>
@@ -73,43 +79,44 @@ export function useGuestRate(
 export function useGuestRates(
   source: CurrencyCode,
   targets: CurrencyCode[],
-  loadGuestRate: LoadGuestRate
+  loadGuestRate: LoadGuestRate,
+  refreshKey: unknown = 0
 ): GuestRateViews {
   const targetKey = targets.join(",");
   const [views, setViews] = useState<
-    Partial<Record<CurrencyCode, GuestRateState>>
+    Partial<Record<CurrencyCode, GuestRateSnapshot>>
   >({});
   const controllers = useRef(
     new Map<CurrencyCode, AbortController>()
+  );
+  const publishView = useCallback(
+    (target: CurrencyCode, state: GuestRateState) => {
+      setViews((current) => ({
+        ...current,
+        [target]: { source, refreshKey, state }
+      }));
+    },
+    [refreshKey, source]
   );
   const loadTarget = useCallback(
     (target: CurrencyCode) => {
       controllers.current.get(target)?.abort();
       if (source === target) {
-        setViews((current) => ({
-          ...current,
-          [target]: {
-            phase: "error",
-            rate: null,
-            error: "Choose a different Target Currency.",
-            reason: "unavailable"
-          }
-        }));
+        publishView(target, {
+          phase: "error",
+          rate: null,
+          error: "Choose a different Target Currency.",
+          reason: "unavailable"
+        });
         return;
       }
       const controller = new AbortController();
       controllers.current.set(target, controller);
-      setViews((current) => ({
-        ...current,
-        [target]: { phase: "loading", rate: null, error: null }
-      }));
+      publishView(target, { phase: "loading", rate: null, error: null });
       void loadGuestRate(source, target, controller.signal)
         .then((rate) => {
           if (!controller.signal.aborted) {
-            setViews((current) => ({
-              ...current,
-              [target]: { phase: "ready", rate, error: null }
-            }));
+            publishView(target, { phase: "ready", rate, error: null });
           }
         })
         .catch((error: unknown) => {
@@ -130,19 +137,16 @@ export function useGuestRates(
               unavailable:
                 "A validated Reference Rate is unavailable. Reconnect and try again."
             } satisfies Record<typeof reason, string>;
-            setViews((current) => ({
-              ...current,
-              [target]: {
-                phase: "error",
-                rate: null,
-                error: errorMessage[reason],
-                reason
-              }
-            }));
+            publishView(target, {
+              phase: "error",
+              rate: null,
+              error: errorMessage[reason],
+              reason
+            });
           }
         });
     },
-    [loadGuestRate, source]
+    [loadGuestRate, publishView, source]
   );
 
   useEffect(() => {
@@ -166,19 +170,28 @@ export function useGuestRates(
       document.removeEventListener("visibilitychange", refreshOnResume);
       controllers.current.forEach((controller) => controller.abort());
     };
-  }, [loadTarget, targetKey]);
+  }, [loadTarget, refreshKey, targetKey]);
 
   return Object.fromEntries(
-    targets.map((target) => [
-      target,
-      {
-        ...(views[target] ?? {
-          phase: "loading",
-          rate: null,
-          error: null
-        }),
-        retry: () => loadTarget(target)
-      }
-    ])
+    targets.map((target) => {
+      const snapshot = views[target];
+      const state =
+        snapshot &&
+        snapshot.source === source &&
+        Object.is(snapshot.refreshKey, refreshKey)
+          ? snapshot.state
+          : {
+              phase: "loading" as const,
+              rate: null,
+              error: null
+            };
+      return [
+        target,
+        {
+          ...state,
+          retry: () => loadTarget(target)
+        }
+      ];
+    })
   );
 }
