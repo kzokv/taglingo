@@ -136,9 +136,10 @@ export async function verifyRecognitionAssets(
     const contentEncodings = (response.headers.get("content-encoding") ?? "")
       .split(",")
       .map((value) => value.trim().toLocaleLowerCase("en-US"));
-    const expectedHash = contentEncodings.includes("gzip")
-      ? decodedHash
-      : hash;
+    const expectedHash =
+      contentEncodings.includes("gzip") && decodedHash
+        ? decodedHash
+        : hash;
     if (!expectedHash || `sha256:${digestToHex(digest)}` !== expectedHash) {
       throw new Error(`Recognition asset hash mismatch: ${path}`);
     }

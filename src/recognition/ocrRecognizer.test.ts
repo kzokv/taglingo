@@ -201,6 +201,29 @@ describe("Recognizer Adapter", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("validates a plain pinned asset after transparent HTTP gzip decoding", async () => {
+    const decodedBytes = new TextEncoder().encode("plain worker bytes");
+
+    await expect(
+      verifyRecognitionAssets(
+        [
+          {
+            path: "/ocr/worker.min.js",
+            hash:
+              "sha256:0d93f7e2f2e7be9dbe75261f7c66f9e34e89a1a58917b6ba7c7904fbf5db9166"
+          }
+        ],
+        {
+          fetcher: vi.fn().mockResolvedValue(
+            new Response(decodedBytes, {
+              headers: { "content-encoding": "gzip" }
+            })
+          )
+        }
+      )
+    ).resolves.toBeUndefined();
+  });
+
   it("does not accept the decoded hash without declared HTTP content encoding", async () => {
     const decodedBytes = new TextEncoder().encode("decoded model bytes");
     await expect(
