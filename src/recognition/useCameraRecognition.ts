@@ -17,7 +17,7 @@ import {
 } from "./focusTracker";
 import {
   createOcrRecognizer,
-  type OcrRecognizer
+  type CreateRecognizer
 } from "./ocrRecognizer";
 import { recognizePriceEvidence } from "./recognitionPipeline";
 import {
@@ -26,6 +26,7 @@ import {
   type RecognitionSchedulerState
 } from "./recognitionScheduler";
 import type { RecognitionRuntimeConfiguration } from "./recognitionRuntime";
+import type { RecognitionPreparation } from "./recognitionPreparation";
 
 export type RecognitionPhase =
   | "waiting"
@@ -90,10 +91,7 @@ export function applyCandidateTrackingSnapshot(
   };
 }
 
-export type CreateRecognizer = (
-  runtime: RecognitionRuntimeConfiguration,
-  onProgress: (progress: number, status: string) => void
-) => OcrRecognizer;
+export type { CreateRecognizer } from "./ocrRecognizer";
 
 export const createBrowserRecognizer: CreateRecognizer = (
   runtime,
@@ -124,7 +122,7 @@ export function useCameraRecognition({
   video,
   preview,
   captureGuide,
-  createRecognizer,
+  preparation,
   recognitionRestartKey = 0
 }: {
   enabled: boolean;
@@ -133,12 +131,11 @@ export function useCameraRecognition({
   video: HTMLVideoElement | null;
   preview: HTMLElement | null;
   captureGuide: HTMLElement | null;
-  createRecognizer: CreateRecognizer;
+  preparation: RecognitionPreparation;
   recognitionRestartKey?: number;
 }): RecognitionController {
   const [recognition, setRecognition] =
     useState<RecognitionView>(EMPTY_RECOGNITION);
-  const recognizerRelease = useRef<Promise<void>>(Promise.resolve());
   const candidateTracker = useRef<CandidateTracker | null>(null);
   const selectDetectedPrice = useCallback((identity: DetectedPriceIdentity) => {
     const snapshot = candidateTracker.current?.select(identity);
@@ -213,8 +210,6 @@ export function useCameraRecognition({
 
     let active = true;
     let prepared = false;
-    let recognizer: OcrRecognizer | null = null;
-    const previousRecognizerRelease = recognizerRelease.current;
     const initialPreviewBounds = preview.getBoundingClientRect();
     const initialGuideBounds = captureGuide.getBoundingClientRect();
     const tracker = createCandidateTracker({
@@ -342,18 +337,17 @@ export function useCameraRecognition({
         };
       },
       async runPass(captured, request) {
-        if (!recognizer) {
-          throw new Error("Recognition pass started before runtime preparation.");
-        }
-        const candidates = await recognizePriceEvidence(
-          runtime,
-          sourceCurrency,
-          recognizer,
-          captured.canvas,
-          {
-            kind: request.kind,
-            frameIdentity: request.frameIdentity
-          }
+        const candidates = await preparation.run((recognizer) =>
+          recognizePriceEvidence(
+            runtime,
+            sourceCurrency,
+            recognizer,
+            captured.canvas,
+            {
+              kind: request.kind,
+              frameIdentity: request.frameIdentity
+            }
+          )
         );
         const trackedCandidates = candidates.map((price) => ({
           currency: price.currency,
@@ -418,6 +412,7 @@ export function useCameraRecognition({
       },
       onError() {
         if (active) {
+          scheduler.dispose();
           setRecognition((current) => ({ ...current, phase: "error" }));
         }
       }
@@ -435,22 +430,16 @@ export function useCameraRecognition({
       focusChangeCount: 0,
       stableDetectionCount: 0
     });
-    void previousRecognizerRelease
-      .then(async () => {
-        if (!active) {
-          return;
-        }
-        recognizer = createRecognizer(runtime, (progress) => {
-          if (active && !prepared) {
-            setRecognition((current) => ({
-              ...current,
-              phase: "preparing",
-              progress: Math.max(current.progress, progress)
-            }));
-          }
-        });
-        await recognizer.prepare();
-      })
+    const unsubscribePreparation = preparation.subscribe((snapshot) => {
+      if (!active || prepared || snapshot.phase !== "preparing") return;
+      setRecognition((current) => ({
+        ...current,
+        phase: "preparing",
+        progress: Math.max(current.progress, snapshot.progress)
+      }));
+    });
+    void preparation
+      .prepare()
       .then(() => {
         if (!active) {
           return;
@@ -478,15 +467,12 @@ export function useCameraRecognition({
       }
       scheduler.dispose();
       clearCandidateExpiryTimer();
-      const release = previousRecognizerRelease.then(async () => {
-        await recognizer?.terminate();
-      });
-      recognizerRelease.current = release.catch(() => undefined);
+      unsubscribePreparation();
     };
   }, [
     captureGuide,
-    createRecognizer,
     enabled,
+    preparation,
     preview,
     recognitionRestartKey,
     runtime,

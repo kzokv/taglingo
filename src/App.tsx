@@ -90,6 +90,11 @@ import {
   type RecognitionRuntimeConfiguration
 } from "./recognition/recognitionRuntime";
 import {
+  createRecognitionPreparation,
+  type RecognitionPreparation,
+  type RecognitionPreparationSnapshot
+} from "./recognition/recognitionPreparation";
+import {
   createRecognitionHealthPreferenceStore,
   createRecognitionHealthSession,
   detectRecognitionHealthPlatform,
@@ -291,6 +296,49 @@ export default function App({
   submitRecognitionHealth?: SubmitRecognitionHealthSummary;
   guestCameraAllowanceStore?: GuestCameraAllowanceStore;
 }) {
+  const recognitionPreparation = useMemo(
+    () =>
+      createRecognitionPreparation({
+        runtime: recognitionRuntime,
+        createRecognizer
+      }),
+    [createRecognizer, recognitionRuntime]
+  );
+  const [recognitionPreparationSnapshot, setRecognitionPreparationSnapshot] =
+    useState<RecognitionPreparationSnapshot>(() =>
+      recognitionPreparation.getSnapshot()
+    );
+  const pendingRecognitionDisposalRef = useRef<{
+    preparation: RecognitionPreparation;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  useEffect(() => {
+    const pendingDisposal = pendingRecognitionDisposalRef.current;
+    if (pendingDisposal?.preparation === recognitionPreparation) {
+      clearTimeout(pendingDisposal.timer);
+      pendingRecognitionDisposalRef.current = null;
+    }
+    setRecognitionPreparationSnapshot(recognitionPreparation.getSnapshot());
+    const unsubscribe = recognitionPreparation.subscribe(
+      setRecognitionPreparationSnapshot
+    );
+    return () => {
+      unsubscribe();
+      const timer = setTimeout(() => {
+        recognitionPreparation.dispose();
+        if (
+          pendingRecognitionDisposalRef.current?.preparation ===
+          recognitionPreparation
+        ) {
+          pendingRecognitionDisposalRef.current = null;
+        }
+      }, 0);
+      pendingRecognitionDisposalRef.current = {
+        preparation: recognitionPreparation,
+        timer
+      };
+    };
+  }, [recognitionPreparation]);
   const memberUserId = memberSession?.userId ?? null;
   const getMemberSessionToken = memberSession?.getSessionToken;
   const preferenceStoreRef = useRef(
@@ -703,6 +751,7 @@ export default function App({
       setMode("manual");
       return;
     }
+    void recognitionPreparation.prepare().catch(() => undefined);
     if (!cameraUsageSessionRef.current) {
       const generation = cameraUsageGenerationRef.current + 1;
       cameraUsageGenerationRef.current = generation;
@@ -827,7 +876,8 @@ export default function App({
         rates={displayedRates}
         onPreferencesChange={updatePreferences}
         recognitionRuntime={recognitionRuntime}
-        createRecognizer={createRecognizer}
+        recognitionPreparation={recognitionPreparation}
+        recognitionPreparationSnapshot={recognitionPreparationSnapshot}
         onStop={() => sessionRef.current?.stop()}
         onClose={closeExperience}
         onRetry={startCamera}

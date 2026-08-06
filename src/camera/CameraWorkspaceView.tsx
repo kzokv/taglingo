@@ -54,7 +54,6 @@ import type {
 } from "../member/memberPreferencesApi";
 import {
   useCameraRecognition,
-  type CreateRecognizer,
   type RecognitionController,
   type RecognitionView
 } from "../recognition/useCameraRecognition";
@@ -67,6 +66,10 @@ import { CameraExperienceOverlay } from "../recognition/CameraExperience";
 import { useDemoRecognition } from "../recognition/useDemoRecognition";
 import { RecognitionSummary } from "../recognition/RecognitionSummary";
 import type { RecognitionRuntimeConfiguration } from "../recognition/recognitionRuntime";
+import type {
+  RecognitionPreparation,
+  RecognitionPreparationSnapshot
+} from "../recognition/recognitionPreparation";
 import type {
   RecognitionHealthErrorFamily,
   RecognitionHealthObservation,
@@ -195,18 +198,16 @@ function VideoPreview({
 
 function PreparationStatus({
   detail,
-  progress,
-  sourceCurrency
+  progress
 }: {
   detail: string;
   progress: number;
-  sourceCurrency: SourceCurrencyCode;
 }) {
   return (
     <RecognitionStatusShell>
-      <strong>Preparing {sourceCurrency} recognition…</strong>
+      <strong>Preparing recognition…</strong>
       <progress
-        aria-label={`Preparing ${sourceCurrency} recognition`}
+        aria-label="Preparing recognition"
         max={1}
         value={progress}
       />
@@ -219,14 +220,12 @@ function StatusPanel({
   status,
   demo,
   recognition,
-  sourceCurrency,
   onRetry,
   onRecognitionRetry
 }: {
   status: CameraStatus;
   demo: boolean;
   recognition: RecognitionView;
-  sourceCurrency: SourceCurrencyCode;
   onRetry: () => void;
   onRecognitionRetry: () => void;
 }) {
@@ -236,7 +235,6 @@ function StatusPanel({
         <PreparationStatus
           detail="Loading pinned on-device language assets from TagLingo."
           progress={recognition.progress}
-          sourceCurrency={sourceCurrency}
         />
       );
     }
@@ -253,12 +251,25 @@ function StatusPanel({
     );
   }
 
+  const cameraFailure = !demo && isCameraFailureStatus(status);
+  if (cameraFailure) {
+    const content = statusContent[status]!;
+    return (
+      <RecognitionStatusShell role="alert">
+        <strong>{content.title}</strong>
+        <p>{content.detail}</p>
+        <button className="text-button" type="button" onClick={onRetry}>
+          Try camera again
+        </button>
+      </RecognitionStatusShell>
+    );
+  }
+
   if (recognition.phase === "preparing") {
     return (
       <PreparationStatus
         detail="The camera stays local while the pinned model is prepared."
         progress={recognition.progress}
-        sourceCurrency={sourceCurrency}
       />
     );
   }
@@ -297,19 +308,17 @@ function StatusPanel({
     );
   }
 
-  const isFailure = isCameraFailureStatus(status);
+  const detail =
+    status === "active" &&
+    (recognition.phase === "searching" || recognition.phase === "stabilizing")
+      ? "Looking for prices inside the Capture Guide. Recognition stays on this device."
+      : content.detail;
   return (
     <RecognitionStatusShell
-      role={isFailure ? "alert" : "status"}
       indicatorClassName={status === "active" ? "active-dot" : ""}
     >
       <strong>{content.title}</strong>
-      <p>{content.detail}</p>
-      {isFailure ? (
-        <button className="text-button" type="button" onClick={onRetry}>
-          Try camera again
-        </button>
-      ) : null}
+      <p>{detail}</p>
     </RecognitionStatusShell>
   );
 }
@@ -702,7 +711,6 @@ export function CameraWorkspace({
               status={state.camera.status}
               demo={state.demo}
               recognition={recognition}
-              sourceCurrency={state.currencies.sourceCurrency}
               onRetry={actions.startCamera}
               onRecognitionRetry={actions.retryRecognition}
             />
@@ -814,7 +822,8 @@ export function LiveCameraWorkspace({
   rates,
   onPreferencesChange,
   recognitionRuntime,
-  createRecognizer,
+  recognitionPreparation,
+  recognitionPreparationSnapshot,
   onStop,
   onClose,
   onRetry,
@@ -841,7 +850,8 @@ export function LiveCameraWorkspace({
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   recognitionRuntime: RecognitionRuntimeConfiguration;
-  createRecognizer: CreateRecognizer;
+  recognitionPreparation: RecognitionPreparation;
+  recognitionPreparationSnapshot: RecognitionPreparationSnapshot;
   onStop: () => void;
   onClose: (
     outcome: RecognitionHealthTerminalOutcome,
@@ -892,10 +902,22 @@ export function LiveCameraWorkspace({
     video,
     preview,
     captureGuide,
-    createRecognizer,
+    preparation: recognitionPreparation,
     recognitionRestartKey
   });
-  const recognition = demo ? demoRecognition : cameraRecognition;
+  const preparedCameraRecognition: RecognitionController =
+    cameraRecognition.phase === "waiting" &&
+    recognitionPreparationSnapshot.phase === "preparing"
+      ? {
+          ...cameraRecognition,
+          phase: "preparing",
+          progress: recognitionPreparationSnapshot.progress
+        }
+      : cameraRecognition.phase === "waiting" &&
+          recognitionPreparationSnapshot.phase === "error"
+        ? { ...cameraRecognition, phase: "error" }
+        : cameraRecognition;
+  const recognition = demo ? demoRecognition : preparedCameraRecognition;
   const currentFocusedPriceIdentity = recognition.focusedPrice?.identity ?? null;
   const focusTransitionKey = `${confirmationContextKey}:${recognitionRestartKey}:${recognition.focusChangeCount}:${currentFocusedPriceIdentity ?? "none"}`;
   const previewBounds = preview?.getBoundingClientRect();
@@ -1115,8 +1137,10 @@ export function LiveCameraWorkspace({
         setManualPriceEntryExpanded: updateManualEntryExpanded,
         useEnteredPrice: () => setEnteredPriceInUse(true),
         useFocusedPrice,
-        retryRecognition: () =>
-          setRecognitionRestartKey((restartKey) => restartKey + 1),
+        retryRecognition: () => {
+          void recognitionPreparation.retry().catch(() => undefined);
+          setRecognitionRestartKey((restartKey) => restartKey + 1);
+        },
         retryReferenceRate: (targetCurrency) =>
           rates[targetCurrency]?.retry(),
         leaveWorkspace,

@@ -18,15 +18,21 @@ async function installDeniedCamera(page: Page) {
 
 async function installDeterministicCamera(page: Page) {
   await page.addInitScript(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1920;
-    canvas.height = 1080;
-    const context = canvas.getContext("2d");
-    context?.fillRect(0, 0, canvas.width, canvas.height);
-    const stream = canvas.captureStream(5);
     Object.defineProperty(window.navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: async () => stream }
+      value: {
+        getUserMedia: async () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 1920;
+          canvas.height = 1080;
+          const context = canvas.getContext("2d");
+          context?.fillRect(0, 0, canvas.width, canvas.height);
+          const stream = canvas.captureStream(5);
+          (window as typeof window & { __cameraPermissionGrantedAt?: number })
+            .__cameraPermissionGrantedAt = performance.now();
+          return stream;
+        }
+      }
     });
   });
 }

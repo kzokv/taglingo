@@ -158,6 +158,25 @@ describe("Recognizer Adapter", () => {
     ).rejects.toThrow(/hash mismatch/i);
   });
 
+  it("requests pinned assets from the same origin through the browser cache", async () => {
+    const bytes = new TextEncoder().encode("cached runtime bytes");
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const hash = `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("")}` as const;
+    const fetcher = vi.fn().mockResolvedValue(new Response(bytes));
+
+    await verifyRecognitionAssets(
+      [{ path: "/ocr/runtime.wasm", hash }],
+      { fetcher }
+    );
+
+    expect(fetcher).toHaveBeenCalledWith("/ocr/runtime.wasm", {
+      credentials: "same-origin",
+      cache: "force-cache"
+    });
+  });
+
   it("validates decoded browser bytes when HTTP applies gzip content encoding", async () => {
     const decodedBytes = new TextEncoder().encode("decoded model bytes");
     await expect(

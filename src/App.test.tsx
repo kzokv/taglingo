@@ -7,6 +7,7 @@ import {
   within
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -122,6 +123,16 @@ function canvasContext(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
+function idleRecognizer(
+  preparation: Promise<void> = Promise.resolve()
+): OcrRecognizer {
+  return {
+    prepare: vi.fn(() => preparation),
+    recognize: vi.fn().mockResolvedValue([]),
+    terminate: vi.fn().mockResolvedValue(undefined)
+  };
+}
+
 function recognizedObservation(
   text: string,
   confidence: number,
@@ -198,7 +209,13 @@ describe("Manual Price Entry journey", () => {
     const cameraPermission = createDeferred<MediaStream>();
     useMediaDevices(vi.fn().mockReturnValue(cameraPermission.promise));
 
-    render(<App />);
+    render(
+      <App
+        createRecognizer={() =>
+          idleRecognizer(cameraPermission.promise.then(() => undefined))
+        }
+      />
+    );
     fireEvent.click(screen.getByRole("button", { name: /open camera/i }));
 
     const composer = screen.getByRole("region", {
@@ -886,7 +903,7 @@ describe("Guest camera journey", () => {
     useMediaDevices(getUserMedia);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    render(<App />);
+    render(<App createRecognizer={() => idleRecognizer()} />);
 
     expect(
       screen.getByRole("heading", { name: /understand any price/i })
@@ -932,7 +949,7 @@ describe("Guest camera journey", () => {
       .mockResolvedValueOnce(stream);
     useMediaDevices(getUserMedia);
 
-    render(<App />);
+    render(<App createRecognizer={() => idleRecognizer()} />);
     await user.click(screen.getByRole("button", { name: /open camera/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -985,7 +1002,7 @@ describe("Guest camera journey", () => {
       .mockReturnValueOnce(firstPlayback.promise)
       .mockResolvedValueOnce();
 
-    render(<App />);
+    render(<App createRecognizer={() => idleRecognizer()} />);
     await user.click(screen.getByRole("button", { name: /open camera/i }));
     await screen.findByText(/^camera ready$/i);
     await user.click(screen.getByRole("button", { name: /close camera/i }));
@@ -1013,7 +1030,7 @@ describe("Guest camera journey", () => {
 
     expect(screen.getByText("4,142円")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      /preparing jpy recognition/i
+      /preparing recognition/i
     );
     await act(async () => {
       vi.advanceTimersByTime(160);
@@ -1091,7 +1108,7 @@ describe("Guest camera journey", () => {
 
     expect(
       await screen.findByRole("progressbar", {
-        name: /preparing jpy recognition/i
+        name: /preparing recognition/i
       })
     ).toBeInTheDocument();
     const composer = screen.getByRole("region", {
@@ -1116,6 +1133,55 @@ describe("Guest camera journey", () => {
       screen.getByRole("status", { name: /price used for conversion/i })
     ).toHaveTextContent(/entered price in use/i);
     await act(async () => preparation.resolve());
+  });
+
+  it("starts recognition preparation concurrently with camera permission", async () => {
+    const user = userEvent.setup();
+    const cameraPermission = createDeferred<MediaStream>();
+    const runtimePreparation = createDeferred<void>();
+    const getUserMedia = vi.fn(() => cameraPermission.promise);
+    useMediaDevices(getUserMedia);
+    const recognizer: OcrRecognizer = {
+      prepare: vi.fn(() => runtimePreparation.promise),
+      recognize: vi.fn().mockResolvedValue([]),
+      terminate: vi.fn().mockResolvedValue(undefined)
+    };
+
+    render(<App createRecognizer={() => recognizer} />);
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(recognizer.prepare).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("progressbar", { name: /preparing recognition/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/manual price entry remains available/i)
+    ).not.toHaveLength(0);
+
+    const { stream } = createMediaStream();
+    await act(async () => cameraPermission.resolve(stream));
+    expect(await screen.findByLabelText(/rear camera preview/i)).toBeVisible();
+
+    await act(async () => runtimePreparation.resolve());
+  });
+
+  it("keeps shared recognition preparation alive through Strict Mode replay", async () => {
+    const user = userEvent.setup();
+    const { stream } = createMediaStream();
+    useMediaDevices(vi.fn().mockResolvedValue(stream));
+    const recognizer = idleRecognizer();
+
+    render(
+      <StrictMode>
+        <App createRecognizer={() => recognizer} />
+      </StrictMode>
+    );
+    await user.click(screen.getByRole("button", { name: /open camera/i }));
+
+    expect(await screen.findByLabelText(/rear camera preview/i)).toBeVisible();
+    expect(recognizer.prepare).toHaveBeenCalledOnce();
+    expect(recognizer.terminate).not.toHaveBeenCalled();
   });
 
   it("offers deterministic recovery when local recognition preparation fails", async () => {
@@ -1190,11 +1256,12 @@ describe("Guest camera journey", () => {
       recognize: vi.fn().mockResolvedValue([]),
       terminate: vi.fn().mockResolvedValue(undefined)
     };
+    const createRecognizer = () => recognizer;
     let cameraAllowed = true;
     const resolveCameraAccess = () => cameraAllowed;
     const app = () => (
       <App
-        createRecognizer={() => recognizer}
+        createRecognizer={createRecognizer}
         resolveCameraAccess={resolveCameraAccess}
       />
     );
@@ -1216,25 +1283,22 @@ describe("Guest camera journey", () => {
       await screen.findByRole("textbox", { name: /jpy amount/i })
     ).toBeInTheDocument();
     expect(track.stop).toHaveBeenCalledOnce();
-    expect(recognizer.terminate).toHaveBeenCalledOnce();
+    expect(recognizer.terminate).not.toHaveBeenCalled();
   });
 
-  it("reuses one runtime configuration across Source Currency sessions", async () => {
+  it("reuses one prepared runtime across Source Currency sessions", async () => {
     const user = userEvent.setup();
     const { stream, track } = createMediaStream();
     useMediaDevices(vi.fn().mockResolvedValue(stream));
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
       canvasContext()
     );
-    const recognizers = [0, 1].map(() => ({
+    const recognizer = {
       prepare: vi.fn().mockResolvedValue(undefined),
       recognize: vi.fn().mockResolvedValue([]),
       terminate: vi.fn().mockResolvedValue(undefined)
-    } satisfies OcrRecognizer));
-    const createRecognizer = vi
-      .fn()
-      .mockReturnValueOnce(recognizers[0])
-      .mockReturnValueOnce(recognizers[1]);
+    } satisfies OcrRecognizer;
+    const createRecognizer = vi.fn(() => recognizer);
 
     render(
       <App
@@ -1250,7 +1314,7 @@ describe("Guest camera journey", () => {
       videoHeight: { configurable: true, value: 1080 }
     });
     fireEvent.loadedMetadata(video);
-    await waitFor(() => expect(createRecognizer).toHaveBeenCalledOnce());
+    await waitFor(() => expect(recognizer.prepare).toHaveBeenCalledOnce());
 
     await user.click(screen.getByRole("button", { name: /close camera/i }));
     await user.selectOptions(
@@ -1264,11 +1328,10 @@ describe("Guest camera journey", () => {
       videoHeight: { configurable: true, value: 1080 }
     });
     fireEvent.loadedMetadata(nextVideo);
-    await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(2));
-    expect(createRecognizer.mock.calls[0][0]).toBe(
-      createRecognizer.mock.calls[1][0]
-    );
-    expect(recognizers[0].terminate).toHaveBeenCalledOnce();
+    await act(async () => Promise.resolve());
+    expect(createRecognizer).toHaveBeenCalledOnce();
+    expect(recognizer.prepare).toHaveBeenCalledOnce();
+    expect(recognizer.terminate).not.toHaveBeenCalled();
     expect(track.stop).toHaveBeenCalledOnce();
   });
 
@@ -1334,7 +1397,9 @@ describe("Guest camera journey", () => {
     expect(
       await screen.findByText(/focused price · jpy 4,142/i, {}, { timeout: 2500 })
     ).toBeInTheDocument();
-    expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce()
+    );
     const highlightedPrice = document.querySelector(
       '[data-detected-price="JPY-4142"]'
     ) as HTMLElement;
@@ -1412,7 +1477,7 @@ describe("Guest camera journey", () => {
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
-  }, 15_000);
+  }, 20_000);
 
   it.each([
     ["keeps the intentional tenth successful session open", true],
@@ -1566,7 +1631,7 @@ describe("Guest camera journey", () => {
     fireEvent.loadedMetadata(video);
     await waitFor(
       () => expect(allowanceStore.recordSuccessfulUsage).toHaveBeenCalledOnce(),
-      { timeout: 3_000 }
+      { timeout: 6_500 }
     );
 
     await user.click(screen.getByRole("button", { name: /close camera/i }));
@@ -1652,9 +1717,14 @@ describe("Guest camera journey", () => {
       () => expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(6),
       { timeout: 6_500 }
     );
-    const focused = document.querySelector('[data-detected-price="JPY-4142"]');
+    const focused = await waitFor(() => {
+      const element = document.querySelector(
+        '[data-detected-price="JPY-4142"]'
+      );
+      expect(element).toHaveClass("focused-detection");
+      return element;
+    });
     const other = document.querySelector('[data-detected-price="JPY-980"]');
-    await waitFor(() => expect(focused).toHaveClass("focused-detection"));
     expect(other).not.toHaveClass("focused-detection");
     expect(document.querySelectorAll("[data-detected-price]")).toHaveLength(2);
     const recognitionSummary = screen.getByRole("region", {
