@@ -259,15 +259,22 @@ export function AccessibleDetectedPriceList({
     if (previousFocusedControl && !pricesByIdentity.has(previousFocusedControl)) {
       keyboardFocusedControlIdentity.current = null;
       if (focusedPrice) {
-        buttonRefs.current.get(focusedPrice.identity)?.focus();
+        const focusedControl = isModalOpen
+          ? modalButtonRefs.current.get(focusedPrice.identity)
+          : buttonRefs.current.get(focusedPrice.identity);
+        focusedControl?.focus();
       } else {
-        headingRef.current?.focus();
+        (isModalOpen ? dialogHeadingRef.current : headingRef.current)?.focus();
       }
     }
-  }, [membershipRevision]);
+  }, [isModalOpen, membershipRevision]);
 
+  const previousModalOpen = useRef(false);
   useLayoutEffect(() => {
-    if (isModalOpen) {
+    const opened = isModalOpen && !previousModalOpen.current;
+    const closed = !isModalOpen && previousModalOpen.current;
+    previousModalOpen.current = isModalOpen;
+    if (opened) {
       if (focusedPrice) {
         modalButtonRefs.current.get(focusedPrice.identity)?.focus();
       } else {
@@ -275,16 +282,18 @@ export function AccessibleDetectedPriceList({
       }
       return;
     }
-    if (returnFocusAfterClose.current) {
+    if (closed && returnFocusAfterClose.current) {
       returnFocusAfterClose.current = false;
       expandButtonRef.current?.focus();
     }
-  }, [isModalOpen, membershipRevision]);
+  }, [isModalOpen]);
 
   const [announcement, setAnnouncement] = useState("");
   const localExplicitFocus = useRef<DetectedPriceIdentity | null>(null);
   const currentExplicitFocus =
-    explicitlyFocusedPriceIdentity ?? localExplicitFocus.current;
+    explicitlyFocusedPriceIdentity === undefined
+      ? localExplicitFocus.current
+      : explicitlyFocusedPriceIdentity;
   const pendingSelectionIdentity = useRef<DetectedPriceIdentity | null>(null);
   const pendingClearRevision = useRef<number | null>(null);
 
@@ -518,6 +527,14 @@ export function AccessibleDetectedPriceList({
                 previewSize={previewSize}
                 locale={locale}
                 buttonRefs={modalButtonRefs}
+                onFocusIdentity={(identity) => {
+                  keyboardFocusedControlIdentity.current = identity;
+                }}
+                onBlurIdentity={(identity) => {
+                  if (keyboardFocusedControlIdentity.current === identity) {
+                    keyboardFocusedControlIdentity.current = null;
+                  }
+                }}
                 onSelect={(identity) => selectIdentity(identity, true)}
               />
             ) : (
