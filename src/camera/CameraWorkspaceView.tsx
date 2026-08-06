@@ -58,7 +58,11 @@ import {
   type RecognitionController,
   type RecognitionView
 } from "../recognition/useCameraRecognition";
-import { AccessibleDetectedPriceList } from "../recognition/AccessibleDetectedPriceList";
+import {
+  AccessibleDetectedPriceList,
+  type ClearHeldPricesEvent,
+  type ExplicitPriceSelectionEvent
+} from "../recognition/AccessibleDetectedPriceList";
 import { CameraExperienceOverlay } from "../recognition/CameraExperience";
 import { useDemoRecognition } from "../recognition/useDemoRecognition";
 import { RecognitionSummary } from "../recognition/RecognitionSummary";
@@ -384,6 +388,50 @@ export function CameraWorkspace({
   actions: CameraWorkspaceActions;
   bindings: CameraWorkspaceBindings;
 }) {
+  const [detectedPricesSheetOpen, setDetectedPricesSheetOpen] = useState(false);
+  const selectionRevision = useRef(0);
+  const clearHeldPricesRevision = useRef(0);
+  const lastExplicitSelectionIdentity = useRef(
+    state.recognition.explicitlyFocusedPriceIdentity
+  );
+  const [explicitSelectionEvent, setExplicitSelectionEvent] =
+    useState<ExplicitPriceSelectionEvent | null>(null);
+  const [clearHeldPricesEvent, setClearHeldPricesEvent] =
+    useState<ClearHeldPricesEvent | null>(null);
+  const explicitlySelectPrice = (
+    identity: CameraWorkspaceState["recognition"]["detectedPrices"][number]["identity"]
+  ) => {
+    const renewed = lastExplicitSelectionIdentity.current === identity;
+    actions.selectPrice(identity);
+    lastExplicitSelectionIdentity.current = identity;
+    selectionRevision.current += 1;
+    setExplicitSelectionEvent({
+      identity,
+      renewed,
+      revision: selectionRevision.current
+    });
+  };
+  const clearHeldPrices = () => {
+    const heldPrices = state.recognition.detectedPrices.filter(
+      ({ state: evidenceState }) => evidenceState === "held"
+    );
+    if (heldPrices.length === 0) return;
+    const resumedAutomaticFocus = heldPrices.some(
+      ({ identity }) =>
+        identity === lastExplicitSelectionIdentity.current
+    );
+    actions.clearHeldPrices();
+    clearHeldPricesRevision.current += 1;
+    setClearHeldPricesEvent({
+      clearedCount: heldPrices.length,
+      resumedAutomaticFocus,
+      revision: clearHeldPricesRevision.current
+    });
+  };
+  useEffect(() => {
+    lastExplicitSelectionIdentity.current =
+      state.recognition.explicitlyFocusedPriceIdentity;
+  }, [state.recognition.explicitlyFocusedPriceIdentity]);
   const preferences: ExperiencePreferences = {
     ...state.currencies,
     ...state.experiencePreferences
@@ -395,8 +443,9 @@ export function CameraWorkspace({
     missCount: 0,
     focusChangeCount: 0,
     stableDetectionCount: 0,
-    selectDetectedPrice: actions.selectPrice,
-    resumeAutomaticFocus: actions.resumeAutomaticFocus
+    selectDetectedPrice: explicitlySelectPrice,
+    resumeAutomaticFocus: actions.resumeAutomaticFocus,
+    clearHeldPrices: actions.clearHeldPrices
   } satisfies RecognitionController;
   const referenceRates: GuestRateViews = Object.fromEntries(
     Object.entries(state.referenceRates).map(([currency, rate]) => [
@@ -469,7 +518,11 @@ export function CameraWorkspace({
 
   return (
     <main className="camera-shell" aria-label="Camera Workspace">
-      <header className="camera-header">
+      <div
+        data-camera-workspace-surface=""
+        inert={detectedPricesSheetOpen ? true : undefined}
+      >
+        <header className="camera-header">
         <TagLingoMark />
         <div className="camera-header-actions">
           <button
@@ -487,9 +540,9 @@ export function CameraWorkspace({
             <span aria-hidden="true">×</span> Close camera
           </button>
         </div>
-      </header>
+        </header>
 
-      <section
+        <section
         ref={bindings.connectPreview}
         className="preview"
         aria-label="Price camera"
@@ -526,6 +579,20 @@ export function CameraWorkspace({
           recognition={recognition}
           onCaptureGuideReady={bindings.connectCaptureGuide}
         />
+        <AccessibleDetectedPriceList
+          detectedPrices={recognition.detectedPrices}
+          focusedPrice={recognition.focusedPrice}
+          explicitlyFocusedPriceIdentity={
+            recognition.explicitlyFocusedPriceIdentity
+          }
+          previewSize={state.previewSize}
+          selectionEvent={explicitSelectionEvent}
+          clearHeldPricesEvent={clearHeldPricesEvent}
+          modalOpen={detectedPricesSheetOpen}
+          onModalOpenChange={setDetectedPricesSheetOpen}
+          onSelect={explicitlySelectPrice}
+          onClearHeldPrices={clearHeldPrices}
+        />
         <div className="workspace-preview-controls">
           <div className="workspace-recognition-controls">
             <StatusPanel
@@ -537,15 +604,6 @@ export function CameraWorkspace({
               onRecognitionRetry={actions.retryRecognition}
             />
             <RecognitionSummary recognition={recognition} demo={state.demo} />
-            <AccessibleDetectedPriceList
-              detectedPrices={recognition.detectedPrices}
-              focusedPrice={recognition.focusedPrice}
-            explicitlyFocusedPriceIdentity={
-              recognition.explicitlyFocusedPriceIdentity
-            }
-            previewSize={state.previewSize}
-            onSelect={actions.selectPrice}
-            />
           </div>
           <section
             className="workspace-conversion-controls"
@@ -585,9 +643,9 @@ export function CameraWorkspace({
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
         </div>
-      </section>
+        </section>
 
-      <section className="result-sheet">
+        <section className="result-sheet">
         <div className="sheet-handle" aria-hidden="true" />
         <ManualPriceComposer
           sourceCurrency={state.currencies.sourceCurrency}
@@ -597,9 +655,9 @@ export function CameraWorkspace({
           onEnteredPriceChange={actions.enterPrice}
           onExpandedChange={actions.setManualPriceEntryExpanded}
         />
-      </section>
+        </section>
 
-      <aside
+        <aside
         className="workspace-details"
         aria-label="Workspace details"
       >
@@ -633,7 +691,8 @@ export function CameraWorkspace({
           onRetryAccess={actions.retryMemberAccess}
           onRetrySave={actions.retryMemberSave}
         />
-      </aside>
+        </aside>
+      </div>
     </main>
   );
 }
@@ -936,6 +995,7 @@ export function LiveCameraWorkspace({
         stopCamera: onStop,
         selectPrice: recognition.selectDetectedPrice,
         resumeAutomaticFocus: recognition.resumeAutomaticFocus,
+        clearHeldPrices: recognition.clearHeldPrices,
         changeCurrencies: ({ sourceCurrency, targetCurrencies }) =>
           onPreferencesChange({
             ...preferences,

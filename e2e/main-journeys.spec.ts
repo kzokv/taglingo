@@ -96,6 +96,206 @@ test("Camera Workspace debounces valid manual entry and preserves it through inv
   expect(recognitionAssetRequests).toEqual([]);
 });
 
+test("Detected Prices rail preserves its compact context, moves by pointer, and shares explicit selection with outlines", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=focused");
+
+  const preview = page.getByRole("region", { name: /price camera/i });
+  const rail = preview.getByRole("region", { name: /detected prices rail/i });
+  const prices = rail.getByRole("list", { name: /detected prices/i });
+  const firstPrice = prices.getByRole("button", {
+    name: /price 1 of 2, jpy.*4,142, center/i
+  });
+  const secondPrice = prices.getByRole("button", {
+    name: /price 2 of 2, jpy.*980, lower left/i
+  });
+
+  await expect(firstPrice).toHaveAttribute("aria-current", "true");
+  await expect(firstPrice).toContainText("Focused");
+  await expect(secondPrice).not.toHaveAttribute("aria-current");
+
+  const firstOutline = page.locator('[data-detected-price="JPY-4142"]');
+  await expect(firstOutline).toHaveAttribute("aria-hidden", "true");
+  await expect(firstOutline).toHaveAttribute("tabindex", "-1");
+  await secondPrice.click();
+  await expect(secondPrice).toHaveAttribute("aria-current", "true");
+  await expect(
+    page.getByRole("status", { name: /detected price updates/i })
+  ).toContainText(/focused and locked.*price 2 of 2/i);
+  await rail.getByRole("button", { name: /collapse detected prices rail/i }).click();
+  await expect(prices).toHaveCount(0);
+  await expect(rail).toContainText("2 Detected Prices");
+  await expect(rail).toContainText(/Focused.*JPY.*980/i);
+
+  const railBeforeDrag = await rail.boundingBox();
+  const dragHandle = rail.locator("[data-detected-prices-drag-handle]");
+  const handleBounds = await dragHandle.boundingBox();
+  expect(railBeforeDrag).not.toBeNull();
+  expect(handleBounds).not.toBeNull();
+  await page.mouse.move(
+    handleBounds!.x + handleBounds!.width / 2,
+    handleBounds!.y + handleBounds!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    handleBounds!.x + handleBounds!.width / 2 + 64,
+    handleBounds!.y + handleBounds!.height / 2 - 24,
+    { steps: 4 }
+  );
+  await page.mouse.up();
+  const railAfterDrag = await rail.boundingBox();
+  expect(railAfterDrag).not.toBeNull();
+  expect(railAfterDrag!.x).toBeGreaterThan(railBeforeDrag!.x + 40);
+  expect(railAfterDrag!.y).toBeLessThan(railBeforeDrag!.y - 10);
+
+  await firstOutline.click({ position: { x: 10, y: 10 } });
+  await expect(rail).toContainText(/Focused.*JPY.*4,142/i);
+  await expect(
+    page.getByRole("status", { name: /detected price updates/i })
+  ).toContainText(/focused and locked.*price 1 of 2/i);
+
+  await rail
+    .getByRole("button", { name: /show detected price controls/i })
+    .click();
+  await expect(firstPrice).toHaveAttribute("aria-current", "true");
+  await firstPrice.focus();
+  await firstPrice.press("Enter");
+  await expect(
+    page.getByRole("status", { name: /detected price updates/i })
+  ).toContainText(/explicit focus lock renewed.*price 1 of 2/i);
+});
+
+test("Detected Prices expands to a modal semantic list with inertness and predictable focus recovery", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=focused");
+
+  const rail = page.getByRole("region", { name: /detected prices rail/i });
+  const expand = rail.getByRole("button", { name: /expand detected prices/i });
+  await expand.click();
+
+  const dialog = page.getByRole("dialog", { name: /all detected prices/i });
+  const surface = page.locator("[data-camera-workspace-surface]");
+  await expect(dialog).toBeVisible();
+  await expect(surface).toHaveAttribute("inert", "");
+  const currentPrice = dialog.getByRole("button", {
+    name: /price 1 of 2, jpy.*4,142, center/i
+  });
+  await expect(currentPrice).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(surface).not.toHaveAttribute("inert");
+  await expect(expand).toBeFocused();
+
+  await expand.click();
+  await dialog
+    .getByRole("button", { name: /price 2 of 2, jpy.*980, lower left/i })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(expand).toBeFocused();
+  await expect(
+    rail.getByRole("button", { name: /price 2 of 2, jpy.*980/i })
+  ).toHaveAttribute("aria-current", "true");
+});
+
+test("Clear held prices releases the affected lock, resumes automatic focus, and keeps the camera session usable", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=lifecycle");
+  const controls = page.getByRole("complementary", {
+    name: /evidence fixture controls/i
+  });
+  await controls.getByRole("button", { name: /observe credible evidence/i }).click();
+  await controls.getByRole("button", { name: /corroborate or reacquire/i }).click();
+  await controls.getByRole("button", { name: /covered miss/i }).click();
+
+  const rail = page.getByRole("region", { name: /detected prices rail/i });
+  const heldPrice = rail.getByRole("button", { name: /price 1 of 1/i });
+  await expect(page.locator('[data-evidence-state="held"]')).toHaveCount(1);
+  await heldPrice.click();
+  await rail.getByRole("button", { name: /clear held prices/i }).click();
+
+  await expect(page.locator("[data-detected-price]")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /resume automatic focus/i })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("status", { name: /detected price updates/i })
+  ).toContainText(
+    /1 held detected price cleared.*automatic focus resumed/i
+  );
+  await expect(
+    page.getByRole("status", { name: /recognition status/i })
+  ).toContainText(/checking the recorded observation/i);
+
+  await controls.getByRole("button", { name: /observe credible evidence/i }).click();
+  await controls.getByRole("button", { name: /corroborate or reacquire/i }).click();
+  await expect(page.locator('[data-evidence-state="fresh"]')).toHaveCount(1);
+});
+
+test("expanded outline hit regions resolve overlap by visible outline then nearest center", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=overlap");
+  const rail = page.getByRole("region", { name: /detected prices rail/i });
+  const firstPrice = rail.getByRole("button", { name: /price 1 of 2/i });
+  const secondPrice = rail.getByRole("button", { name: /price 2 of 2/i });
+  await secondPrice.click();
+  await expect(secondPrice).toHaveAttribute("aria-current", "true");
+
+  const firstOutline = page.locator(
+    '[data-detected-price-identity="workspace-price-one"][data-detected-price]'
+  );
+  const secondOutline = page.locator(
+    '[data-detected-price-identity="workspace-price-two"][data-detected-price]'
+  );
+  const firstHit = page.locator(
+    '[data-outline-hit-region="workspace-price-one"]'
+  );
+  const secondHit = page.locator(
+    '[data-outline-hit-region="workspace-price-two"]'
+  );
+  const [firstOutlineBox, secondOutlineBox, firstHitBox, secondHitBox] =
+    await Promise.all([
+      firstOutline.boundingBox(),
+      secondOutline.boundingBox(),
+      firstHit.boundingBox(),
+      secondHit.boundingBox()
+    ]);
+  expect(firstOutlineBox).not.toBeNull();
+  expect(secondOutlineBox).not.toBeNull();
+  expect(firstHitBox).not.toBeNull();
+  expect(secondHitBox).not.toBeNull();
+  expect(firstHitBox!.width).toBeGreaterThanOrEqual(43);
+  expect(firstHitBox!.height).toBeGreaterThanOrEqual(43);
+  expect(secondHitBox!.width).toBeGreaterThanOrEqual(43);
+  expect(secondHitBox!.height).toBeGreaterThanOrEqual(43);
+
+  const visibleOutlineWins = {
+    x: firstOutlineBox!.x + firstOutlineBox!.width - 2,
+    y: firstOutlineBox!.y + firstOutlineBox!.height / 2
+  };
+  expect(visibleOutlineWins.x).toBeGreaterThan(secondHitBox!.x);
+  expect(visibleOutlineWins.x).toBeLessThan(
+    secondHitBox!.x + secondHitBox!.width
+  );
+  await page.mouse.click(visibleOutlineWins.x, visibleOutlineWins.y);
+  await expect(firstPrice).toHaveAttribute("aria-current", "true");
+
+  const nearestCenterWins = {
+    x: firstHitBox!.x + firstHitBox!.width - 2,
+    y: firstHitBox!.y + firstHitBox!.height / 2
+  };
+  expect(nearestCenterWins.x).toBeGreaterThan(
+    firstOutlineBox!.x + firstOutlineBox!.width
+  );
+  expect(nearestCenterWins.x).toBeLessThan(secondOutlineBox!.x);
+  await page.mouse.click(nearestCenterWins.x, nearestCenterWins.y);
+  await expect(secondPrice).toHaveAttribute("aria-current", "true");
+});
+
 test("Camera Workspace keeps primary controls on the dominant preview surface", async ({
   page
 }) => {

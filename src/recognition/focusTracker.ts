@@ -57,6 +57,7 @@ export interface CandidateTracker {
   advanceTime(observedAtMs: number): CandidateTrackingSnapshot;
   select(identity: DetectedPriceIdentity): CandidateTrackingSnapshot;
   resumeAutomaticFocus(): CandidateTrackingSnapshot;
+  clearHeldPrices(): CandidateTrackingSnapshot;
 }
 
 function center(box: Rectangle): Point {
@@ -491,6 +492,28 @@ export function createCandidateTracker(options: {
 
     resumeAutomaticFocus() {
       explicitFocusIdentity = null;
+      return snapshot(lastCaptureGuide);
+    },
+
+    clearHeldPrices() {
+      const heldIdentities = new Set(
+        tracks
+          .filter(
+            ({ observedFrames, coveredMisses }) =>
+              observedFrames.size >=
+                options.stabilization.requiredDistinctFrames &&
+              coveredMisses > 0
+          )
+          .map(({ identity }) => identity)
+      );
+      for (let index = tracks.length - 1; index >= 0; index -= 1) {
+        if (heldIdentities.has(tracks[index].identity)) {
+          tracks.splice(index, 1);
+        }
+      }
+      if (explicitFocusIdentity && heldIdentities.has(explicitFocusIdentity)) {
+        explicitFocusIdentity = null;
+      }
       return snapshot(lastCaptureGuide);
     }
   };

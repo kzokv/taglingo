@@ -51,6 +51,7 @@ function recognition(
     stableDetectionCount: 0,
     selectDetectedPrice: vi.fn(),
     resumeAutomaticFocus: vi.fn(),
+    clearHeldPrices: vi.fn(),
     ...overrides
   };
 }
