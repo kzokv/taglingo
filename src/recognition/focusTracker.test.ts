@@ -425,7 +425,7 @@ describe("Candidate tracking", () => {
     });
     const outsideTolerance = candidate({
       minorUnits: 3_000,
-      box: { x: 223, y: 385, width: 20, height: 20 }
+      box: { x: 235, y: 385, width: 20, height: 20 }
     });
 
     tracker.observe(
@@ -441,6 +441,30 @@ describe("Candidate tracking", () => {
     outsideOnly.observe(pass("frame-1", [outsideTolerance]));
     expect(
       outsideOnly.observe(pass("frame-2", [outsideTolerance])).focusedPrice
+    ).toBeNull();
+  });
+
+  it("treats the Focus Target tolerance values as maximum center offsets", () => {
+    const insideTracker = createTracker();
+    const insideTolerance = candidate({
+      minorUnits: 1_000,
+      box: { x: 233, y: 449, width: 20, height: 20 }
+    });
+    insideTracker.observe(pass("frame-1", [insideTolerance]));
+
+    expect(
+      insideTracker.observe(pass("frame-2", [insideTolerance])).focusedPrice
+    ).toMatchObject({ minorUnits: 1_000, state: "fresh" });
+
+    const outsideTracker = createTracker();
+    const outsideTolerance = candidate({
+      minorUnits: 2_000,
+      box: { x: 235, y: 451, width: 20, height: 20 }
+    });
+    outsideTracker.observe(pass("frame-1", [outsideTolerance]));
+
+    expect(
+      outsideTracker.observe(pass("frame-2", [outsideTolerance])).focusedPrice
     ).toBeNull();
   });
 

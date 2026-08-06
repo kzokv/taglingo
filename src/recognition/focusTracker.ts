@@ -108,8 +108,8 @@ function isInsideFocusTargetTolerance(
   const toleranceWidth = Math.max(44, captureGuide.width * 0.2);
   const toleranceHeight = Math.max(44, captureGuide.height * 0.3);
   return (
-    Math.abs(priceCenter.x - target.x) <= toleranceWidth / 2 &&
-    Math.abs(priceCenter.y - target.y) <= toleranceHeight / 2
+    Math.abs(priceCenter.x - target.x) <= toleranceWidth &&
+    Math.abs(priceCenter.y - target.y) <= toleranceHeight
   );
 }
 
