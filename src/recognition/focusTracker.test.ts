@@ -6,7 +6,7 @@ import type { DetectedPrice } from "./priceLocalization";
 
 const profile = createTestRecognitionProfile();
 const fullPreview = { x: 0, y: 0, width: 400, height: 800 };
-const captureGuideCenter = { x: 200, y: 400 };
+const captureGuide = { x: 100, y: 300, width: 200, height: 200 };
 
 function candidate({
   minorUnits = 4142,
@@ -25,7 +25,7 @@ function candidate({
 
 function createTracker() {
   return createCandidateTracker({
-    captureGuideCenter,
+    captureGuide,
     geometry: profile.geometry,
     stabilization: profile.stabilization
   });
@@ -413,6 +413,98 @@ describe("Candidate tracking", () => {
     expect(afterExpiry.focusedPrice?.identity).toBe(nearIdentity);
   });
 
+  it("automatically focuses only fresh prices inside the Focus Target tolerance zone", () => {
+    const tracker = createTracker();
+    const nearestEligible = candidate({
+      minorUnits: 1_000,
+      box: { x: 185, y: 385, width: 20, height: 20 }
+    });
+    const fartherEligible = candidate({
+      minorUnits: 2_000,
+      box: { x: 203, y: 405, width: 20, height: 20 }
+    });
+    const outsideTolerance = candidate({
+      minorUnits: 3_000,
+      box: { x: 223, y: 385, width: 20, height: 20 }
+    });
+
+    tracker.observe(
+      pass("frame-1", [outsideTolerance, fartherEligible, nearestEligible])
+    );
+    const stable = tracker.observe(
+      pass("frame-2", [outsideTolerance, fartherEligible, nearestEligible])
+    );
+
+    expect(stable.focusedPrice?.minorUnits).toBe(1_000);
+
+    const outsideOnly = createTracker();
+    outsideOnly.observe(pass("frame-1", [outsideTolerance]));
+    expect(
+      outsideOnly.observe(pass("frame-2", [outsideTolerance])).focusedPrice
+    ).toBeNull();
+  });
+
+  it("prefers eligible fresh evidence but retains a held automatic focus when no fresh price is eligible", () => {
+    const tracker = createTracker();
+    const original = candidate({
+      minorUnits: 1_000,
+      box: { x: 185, y: 385, width: 20, height: 20 }
+    });
+    const replacement = candidate({
+      minorUnits: 2_000,
+      box: { x: 195, y: 395, width: 20, height: 20 }
+    });
+    tracker.observe(pass("frame-1", [original]));
+    const automatic = tracker.observe(pass("frame-2", [original]));
+    const originalIdentity = automatic.focusedPrice!.identity;
+
+    const held = tracker.observe(pass("frame-3", []));
+    expect(held.focusedPrice).toMatchObject({
+      identity: originalIdentity,
+      state: "held"
+    });
+
+    tracker.observe(pass("frame-4", [replacement]));
+    const freshReplacement = tracker.observe(pass("frame-5", [replacement]));
+    expect(freshReplacement.focusedPrice).toMatchObject({
+      minorUnits: 2_000,
+      state: "fresh"
+    });
+  });
+
+  it("resumes automatic focus atomically from an Explicit Focus Lock", () => {
+    const tracker = createTracker();
+    const eligible = candidate({
+      minorUnits: 1_000,
+      box: { x: 185, y: 385, width: 20, height: 20 }
+    });
+    const deliberatelySelected = candidate({
+      minorUnits: 2_000,
+      box: { x: 300, y: 100, width: 20, height: 20 }
+    });
+    tracker.observe(pass("frame-1", [eligible, deliberatelySelected]));
+    const stable = tracker.observe(
+      pass("frame-2", [eligible, deliberatelySelected])
+    );
+    const selectedIdentity = stable.detectedPrices.find(
+      ({ minorUnits }) => minorUnits === 2_000
+    )!.identity;
+
+    expect(tracker.select(selectedIdentity)).toMatchObject({
+      focusedPrice: { identity: selectedIdentity },
+      explicitlyFocusedPriceIdentity: selectedIdentity
+    });
+    expect(tracker.select(selectedIdentity)).toMatchObject({
+      focusedPrice: { identity: selectedIdentity },
+      explicitlyFocusedPriceIdentity: selectedIdentity
+    });
+
+    expect(tracker.resumeAutomaticFocus()).toMatchObject({
+      focusedPrice: { minorUnits: 1_000 },
+      explicitlyFocusedPriceIdentity: null
+    });
+  });
+
   it("breaks automatic-focus distance ties top-to-bottom then left-to-right", () => {
     const tracker = createTracker();
     const above = candidate({
@@ -423,12 +515,12 @@ describe("Candidate tracking", () => {
       minorUnits: 2000,
       box: { x: 180, y: 100, width: 40, height: 40 }
     });
-    const tieCenter = { x: 200, y: 100 };
-    tracker.observe(pass("frame-1", [below, above]), tieCenter);
+    const tieGuide = { x: 100, y: 0, width: 200, height: 200 };
+    tracker.observe(pass("frame-1", [below, above]), tieGuide);
 
     const stable = tracker.observe(
       pass("frame-2", [above, below]),
-      tieCenter
+      tieGuide
     );
 
     expect(stable.focusedPrice?.minorUnits).toBe(1000);

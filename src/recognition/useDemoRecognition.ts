@@ -26,6 +26,15 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
       applyCandidateTrackingSnapshot(current, snapshot)
     );
   }, []);
+  const resumeAutomaticFocus = useCallback(() => {
+    const snapshot = candidateTracker.current?.resumeAutomaticFocus();
+    if (!snapshot) {
+      return;
+    }
+    setRecognition((current) =>
+      applyCandidateTrackingSnapshot(current, snapshot)
+    );
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -38,11 +47,11 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
       {
         text: "4,142円",
         confidence: 96,
-        box: { x: 280, y: 274, width: 440, height: 122 }
+        box: { x: 280, y: 389, width: 440, height: 122 }
       }
     ]);
     const tracker = createCandidateTracker({
-      captureGuideCenter: { x: 500, y: 450 },
+      captureGuide: { x: 280, y: 384, width: 440, height: 132 },
       geometry: {
         rulesVersion: "demo-geometry.v1",
         maximumDisplacementInTextHeights: 1.5,
@@ -109,5 +118,5 @@ export function useDemoRecognition(enabled: boolean): RecognitionController {
     };
   }, [enabled]);
 
-  return { ...recognition, selectDetectedPrice };
+  return { ...recognition, selectDetectedPrice, resumeAutomaticFocus };
 }

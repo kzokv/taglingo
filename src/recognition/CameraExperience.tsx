@@ -81,8 +81,7 @@ export function CameraExperienceOverlay({
     recognition.phase,
     recognition.detectedPrices.length
   );
-  const displayedPrices =
-    recognition.phase === "focused" ? recognition.detectedPrices : [];
+  const displayedPrices = recognition.detectedPrices;
   const outlineStyle = (box: {
     x: number;
     y: number;
@@ -126,47 +125,72 @@ export function CameraExperienceOverlay({
       ))}
       {displayedPrices.map((price) => {
         const focused = isFocusedPrice(recognition, price.identity);
-        return (
+        const className = `detected-price ${
+          price.state === "held" ? "held-detection" : ""
+        } ${focused ? "focused-detection" : ""}`;
+        const label = price.state === "held"
+          ? "Held"
+          : focused
+            ? "Focused"
+            : "Detected";
+        const sharedProps = {
+          className,
+          style: outlineStyle(price.box),
+          "aria-hidden": true as const,
+          "data-detected-price": `${price.currency}-${price.minorUnits}`,
+          "data-detected-price-identity": price.identity,
+          "data-evidence-state": price.state
+        };
+        return price.state === "held" ? (
+          <div key={price.identity} {...sharedProps}>
+            <span aria-hidden="true">{label}</span>
+          </div>
+        ) : (
           <button
             key={price.identity}
-            className={`detected-price ${
-              price.state === "held" ? "held-detection" : ""
-            } ${focused ? "focused-detection" : ""}`}
-            style={outlineStyle(price.box)}
+            {...sharedProps}
             type="button"
-            aria-hidden="true"
             tabIndex={-1}
-            data-detected-price={`${price.currency}-${price.minorUnits}`}
-            data-detected-price-identity={price.identity}
-            data-evidence-state={price.state}
             onClick={() => recognition.selectDetectedPrice(price.identity)}
           >
-            <span aria-hidden="true">
-              {price.state === "held"
-                ? "Held"
-                : focused
-                  ? "Focused"
-                  : "Detected"}
-            </span>
+            <span aria-hidden="true">{label}</span>
           </button>
         );
       })}
       <div
         ref={onCaptureGuideReady}
         className="capture-guide"
-        aria-hidden="true"
         data-recognition-phase={recognition.phase}
       >
-        <div className="capture-guide-label">
+        <div className="capture-guide-label" aria-hidden="true">
           <span>{content.state}</span>
           <strong>{content.instruction}</strong>
           <small>Capture Guide · recognition region</small>
         </div>
-        <i />
-        <i />
-        <i />
-        <i />
-        <p>{content.detail}</p>
+        {recognition.explicitlyFocusedPriceIdentity ? (
+          <button
+            className="focus-target paused-focus-target"
+            type="button"
+            aria-label="Resume automatic focus"
+            data-focus-target=""
+            data-focus-mode="paused"
+            onClick={recognition.resumeAutomaticFocus}
+          >
+            <span aria-hidden="true">Ⅱ</span>
+          </button>
+        ) : (
+          <div
+            className="focus-target"
+            aria-hidden="true"
+            data-focus-target=""
+            data-focus-mode="automatic"
+          />
+        )}
+        <i aria-hidden="true" />
+        <i aria-hidden="true" />
+        <i aria-hidden="true" />
+        <i aria-hidden="true" />
+        <p aria-hidden="true">{content.detail}</p>
       </div>
     </div>
   );

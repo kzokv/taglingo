@@ -1017,8 +1017,8 @@ h1 em {
   position: absolute;
   top: 45%;
   left: 50%;
-  width: min(56vw, 280px);
-  height: 132px;
+  width: min(82%, 440px);
+  height: clamp(112px, 24%, 160px);
   transform: translate(-50%, -50%);
 }
 
@@ -1079,17 +1079,44 @@ h1 em {
   border-width: 2px;
 }
 
-.capture-guide::after {
+.focus-target {
   position: absolute;
+  z-index: 6;
   top: 50%;
   left: 50%;
-  width: 5px;
-  height: 5px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(255, 129, 95, 0.72);
   border-radius: 50%;
-  background: var(--coral);
-  box-shadow: 0 0 0 4px rgba(255, 129, 95, 0.18);
-  content: "";
+  background:
+    radial-gradient(circle, var(--coral) 0 3px, transparent 4px),
+    rgba(7, 16, 22, 0.22);
+  box-shadow: 0 0 0 4px rgba(255, 129, 95, 0.14);
+  color: var(--paper);
+  pointer-events: none;
   transform: translate(-50%, -50%);
+}
+
+button.focus-target {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.paused-focus-target {
+  border: 2px dashed #f2b84b;
+  background: rgba(7, 16, 22, 0.82);
+  box-shadow:
+    0 0 0 4px rgba(242, 184, 75, 0.2),
+    0 6px 20px rgba(0, 0, 0, 0.3);
+  color: #f2b84b;
+}
+
+.paused-focus-target:focus-visible {
+  outline: 3px solid var(--paper);
+  outline-offset: 3px;
 }
 
 .capture-guide i {
@@ -1212,6 +1239,8 @@ h1 em {
   border-color: #f2b84b;
   border-style: dashed;
   background: rgba(242, 184, 75, 0.08);
+  cursor: default;
+  pointer-events: none;
 }
 
 .held-detection span {

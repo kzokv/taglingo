@@ -50,6 +50,7 @@ export interface RecognitionView {
 
 export interface RecognitionController extends RecognitionView {
   selectDetectedPrice(identity: DetectedPriceIdentity): void;
+  resumeAutomaticFocus(): void;
 }
 
 function phaseFor(
@@ -103,7 +104,7 @@ interface CapturedRecognitionPass {
   sample: Rectangle;
   cameraSize: Size;
   previewSize: Size;
-  guideCenter: { x: number; y: number };
+  captureGuide: Rectangle;
   coverage: Rectangle;
 }
 
@@ -111,7 +112,7 @@ interface CompletedRecognitionPass {
   candidates: Array<
     Pick<TrackedDetectedPrice, "box" | "confidence" | "currency" | "minorUnits">
   >;
-  guideCenter: { x: number; y: number };
+  captureGuide: Rectangle;
   coverage: Rectangle;
 }
 
@@ -158,6 +159,25 @@ export function useCameraRecognition({
       );
     });
   }, []);
+  const resumeAutomaticFocus = useCallback(() => {
+    const snapshot = candidateTracker.current?.resumeAutomaticFocus();
+    if (!snapshot) {
+      return;
+    }
+    setRecognition((current) => {
+      const focusChanged =
+        snapshot.focusedPrice?.identity !== current.focusedPrice?.identity;
+      return applyCandidateTrackingSnapshot(
+        {
+          ...current,
+          phase: phaseFor(snapshot),
+          focusChangeCount:
+            current.focusChangeCount + (focusChanged ? 1 : 0)
+        },
+        snapshot
+      );
+    });
+  }, []);
 
   useEffect(() => {
     if (
@@ -176,10 +196,13 @@ export function useCameraRecognition({
     let recognizer: OcrRecognizer | null = null;
     const previousRecognizerRelease = recognizerRelease.current;
     const initialPreviewBounds = preview.getBoundingClientRect();
+    const initialGuideBounds = captureGuide.getBoundingClientRect();
     const tracker = createCandidateTracker({
-      captureGuideCenter: {
-        x: initialPreviewBounds.width / 2,
-        y: initialPreviewBounds.height * 0.45
+      captureGuide: {
+        x: initialGuideBounds.left - initialPreviewBounds.left,
+        y: initialGuideBounds.top - initialPreviewBounds.top,
+        width: initialGuideBounds.width,
+        height: initialGuideBounds.height
       },
       geometry: runtime.rules.geometry,
       stabilization: runtime.rules.stabilization
@@ -289,10 +312,7 @@ export function useCameraRecognition({
           sample,
           cameraSize,
           previewSize,
-          guideCenter: {
-            x: guideRegion.x + guideRegion.width / 2,
-            y: guideRegion.y + guideRegion.height / 2
-          },
+          captureGuide: guideRegion,
           coverage: mapSampleBoxToPreview(
             { x: 0, y: 0, width: sample.width, height: sample.height },
             sample,
@@ -328,7 +348,7 @@ export function useCameraRecognition({
         }));
         return {
           candidates: trackedCandidates,
-          guideCenter: captured.guideCenter,
+          captureGuide: captured.captureGuide,
           coverage: captured.coverage
         };
       },
@@ -344,7 +364,7 @@ export function useCameraRecognition({
             coverage: completed.coverage,
             observedAtMs: request.capturedAtMs
           },
-          completed.guideCenter
+          completed.captureGuide
         );
         const phase = phaseFor(snapshot);
         scheduleCandidateExpiry(snapshot);
@@ -454,5 +474,5 @@ export function useCameraRecognition({
     video
   ]);
 
-  return { ...recognition, selectDetectedPrice };
+  return { ...recognition, selectDetectedPrice, resumeAutomaticFocus };
 }

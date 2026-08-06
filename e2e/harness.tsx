@@ -108,6 +108,15 @@ function DeterministicCameraWorkspace({
           focusedPriceConfirmed: true
         }
       })),
+    resumeAutomaticFocus: () =>
+      setState((current) => ({
+        ...current,
+        recognition: {
+          ...current.recognition,
+          explicitlyFocusedPriceIdentity: null
+        },
+        focusedPrice: current.recognition.detectedPrices[0] ?? null
+      })),
     changeCurrencies: (currencies) =>
       setState((current) => ({ ...current, currencies })),
     changeExperiencePreferences: (experiencePreferences) =>
@@ -205,7 +214,7 @@ function DeterministicEvidenceLifecycleWorkspace() {
   const profile = createTestRecognitionProfile();
   const tracker = useRef(
     createCandidateTracker({
-      captureGuideCenter: { x: 500, y: 450 },
+      captureGuide: { x: 280, y: 384, width: 440, height: 132 },
       geometry: profile.geometry,
       stabilization: profile.stabilization
     })
@@ -214,7 +223,7 @@ function DeterministicEvidenceLifecycleWorkspace() {
     currency: "JPY",
     minorUnits: 4_142,
     confidence: 96,
-    box: { x: 400, y: 320, width: 160, height: 80 }
+    box: { x: 420, y: 410, width: 160, height: 80 }
   };
   const coverage = { x: 0, y: 0, width: 1_000, height: 1_000 };
   const frame = useRef(0);
@@ -273,6 +282,7 @@ function DeterministicEvidenceLifecycleWorkspace() {
     startCamera: () => undefined,
     stopCamera: () => undefined,
     selectPrice: (identity) => publish(tracker.select(identity)),
+    resumeAutomaticFocus: () => publish(tracker.resumeAutomaticFocus()),
     changeCurrencies: () => undefined,
     changeExperiencePreferences: () => undefined,
     enterPrice: () => undefined,
@@ -318,18 +328,31 @@ const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
     onProgress(1, "deterministic browser fixture ready");
   },
-  async recognize(_image, passIdentity) {
-    const primaryBox = { x: 592, y: 111, width: 160, height: 80 };
+  async recognize(image, passIdentity) {
+    const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
+    const canvas = image as HTMLCanvasElement;
+    const sourceWidth = canvas.width / scale;
+    const sourceHeight = canvas.height / scale;
+    const primaryBox = {
+      x: (sourceWidth - 160) / 2,
+      y: (sourceHeight - 80) / 2,
+      width: 160,
+      height: 80
+    };
     const observations =
       passIdentity.kind === "discovery"
         ? [
             {
               text: "980円",
-              box: { x: 220, y: 720, width: 140, height: 72 }
+              box: {
+                x: Math.max(20, sourceWidth * 0.16),
+                y: Math.max(20, sourceHeight * 0.72),
+                width: 140,
+                height: 72
+              }
             }
           ]
         : [{ text: "4,142円", box: primaryBox }];
-    const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
     return observations.map(({ text, box }) => {
       const scaledBox = {
         x: box.x * scale,

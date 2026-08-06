@@ -50,6 +50,7 @@ function recognition(
     focusChangeCount: 0,
     stableDetectionCount: 0,
     selectDetectedPrice: vi.fn(),
+    resumeAutomaticFocus: vi.fn(),
     ...overrides
   };
 }
@@ -131,6 +132,56 @@ describe("guided camera presenter", () => {
       width: "120px",
       height: "60px"
     });
+    expect(held.tagName).toBe("DIV");
+  });
+
+  it("keeps the centered Focus Target inert during automatic focus", () => {
+    render(
+      <CameraExperienceOverlay
+        demo={false}
+        recognition={recognition({
+          phase: "focused",
+          detectedPrices: [firstPrice],
+          focusedPrice: firstPrice
+        })}
+        onCaptureGuideReady={() => undefined}
+      />
+    );
+
+    const target = document.querySelector("[data-focus-target]")!;
+    expect(target.tagName).toBe("DIV");
+    expect(target).toHaveAttribute("aria-hidden", "true");
+    expect(target).toHaveAttribute("data-focus-mode", "automatic");
+    expect(screen.queryByRole("button", { name: /resume automatic focus/i }))
+      .not.toBeInTheDocument();
+  });
+
+  it("turns the Focus Target into an enabled Resume control while explicitly locked", async () => {
+    const user = userEvent.setup();
+    const resumeAutomaticFocus = vi.fn();
+    render(
+      <CameraExperienceOverlay
+        demo={false}
+        recognition={recognition({
+          phase: "focused",
+          detectedPrices: [firstPrice, secondPrice],
+          focusedPrice: secondPrice,
+          explicitlyFocusedPriceIdentity: secondPrice.identity,
+          resumeAutomaticFocus
+        })}
+        onCaptureGuideReady={() => undefined}
+      />
+    );
+
+    const target = screen.getByRole("button", {
+      name: /resume automatic focus/i
+    });
+    expect(target).toBeEnabled();
+    expect(target).toHaveAttribute("data-focus-mode", "paused");
+    expect(target).toHaveClass("paused-focus-target");
+
+    await user.click(target);
+    expect(resumeAutomaticFocus).toHaveBeenCalledOnce();
   });
 
   it("keeps visual outlines pointer-operable but out of the accessibility tree", async () => {
@@ -168,5 +219,28 @@ describe("guided camera presenter", () => {
 
     await user.click(otherOutline);
     expect(selectDetectedPrice).toHaveBeenLastCalledWith(secondPrice.identity);
+  });
+
+  it("lets shoppers lock a fresh Detection Outline outside automatic focus", async () => {
+    const user = userEvent.setup();
+    const selectDetectedPrice = vi.fn();
+    render(
+      <CameraExperienceOverlay
+        demo={false}
+        recognition={recognition({
+          phase: "searching",
+          detectedPrices: [secondPrice],
+          selectDetectedPrice
+        })}
+        onCaptureGuideReady={() => undefined}
+      />
+    );
+
+    const outline = document.querySelector(
+      '[data-detected-price="JPY-980"]'
+    )!;
+    expect(outline).toHaveAttribute("data-evidence-state", "fresh");
+    await user.click(outline);
+    expect(selectDetectedPrice).toHaveBeenCalledWith(secondPrice.identity);
   });
 });

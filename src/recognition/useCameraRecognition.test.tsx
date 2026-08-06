@@ -244,12 +244,12 @@ function observation(): RecognizerObservation {
     evidenceKind: "text",
     confidence: 96,
     line: { blockIndex: 0, paragraphIndex: 0, lineIndex: 0 },
-    box: { x: 592, y: 111, width: 160, height: 80 },
+    box: { x: 170, y: 500, width: 160, height: 80 },
     polygon: [
-      { x: 592, y: 111 },
-      { x: 752, y: 111 },
-      { x: 752, y: 191 },
-      { x: 592, y: 191 }
+      { x: 170, y: 500 },
+      { x: 330, y: 500 },
+      { x: 330, y: 580 },
+      { x: 170, y: 580 }
     ],
     timing: { startedAtMs: 1, completedAtMs: 2, durationMs: 1 },
     passIdentity: {

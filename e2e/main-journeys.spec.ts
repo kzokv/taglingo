@@ -445,6 +445,16 @@ test("Guest completes recognition with deterministic media and OCR", async ({
       )?.successfulUsageTimestamps.length
     )
   ).toBe(1);
+
+  await page
+    .getByRole("button", { name: /resume automatic focus/i })
+    .click();
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 4,142");
+  await expect(
+    page.getByRole("button", { name: /resume automatic focus/i })
+  ).toHaveCount(0);
 });
 
 test("anonymous recognition health stays silent until a future opted-in camera session", async ({

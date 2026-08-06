@@ -395,7 +395,8 @@ export function CameraWorkspace({
     missCount: 0,
     focusChangeCount: 0,
     stableDetectionCount: 0,
-    selectDetectedPrice: actions.selectPrice
+    selectDetectedPrice: actions.selectPrice,
+    resumeAutomaticFocus: actions.resumeAutomaticFocus
   } satisfies RecognitionController;
   const referenceRates: GuestRateViews = Object.fromEntries(
     Object.entries(state.referenceRates).map(([currency, rate]) => [
@@ -932,6 +933,7 @@ export function LiveCameraWorkspace({
         startCamera: onRetry,
         stopCamera: onStop,
         selectPrice: recognition.selectDetectedPrice,
+        resumeAutomaticFocus: recognition.resumeAutomaticFocus,
         changeCurrencies: ({ sourceCurrency, targetCurrencies }) =>
           onPreferencesChange({
             ...preferences,

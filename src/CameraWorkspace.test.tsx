@@ -39,6 +39,7 @@ function workspaceActions(): CameraWorkspaceActions {
     startCamera: vi.fn(),
     stopCamera: vi.fn(),
     selectPrice: vi.fn(),
+    resumeAutomaticFocus: vi.fn(),
     changeCurrencies: vi.fn(),
     changeExperiencePreferences: vi.fn(),
     enterPrice: vi.fn(),
@@ -145,6 +146,24 @@ describe("Camera Workspace boundary", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /try camera again/i }));
     expect(actions.startCamera).toHaveBeenCalledOnce();
+  });
+
+  it("routes Resume automatic focus through the workspace action boundary", async () => {
+    const user = userEvent.setup();
+    const actions = workspaceActions();
+
+    render(
+      <CameraWorkspace
+        state={workspaceState()}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /resume automatic focus/i })
+    );
+    expect(actions.resumeAutomaticFocus).toHaveBeenCalledOnce();
   });
 
   it("discloses secondary Reference Rate details without displacing the Focused Price conversion", async () => {

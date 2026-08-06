@@ -52,10 +52,11 @@ export interface CandidateTrackingSnapshot {
 export interface CandidateTracker {
   observe(
     pass: CandidateTrackingPass,
-    currentCaptureGuideCenter?: Point
+    currentCaptureGuide?: Rectangle
   ): CandidateTrackingSnapshot;
   advanceTime(observedAtMs: number): CandidateTrackingSnapshot;
   select(identity: DetectedPriceIdentity): CandidateTrackingSnapshot;
+  resumeAutomaticFocus(): CandidateTrackingSnapshot;
 }
 
 function center(box: Rectangle): Point {
@@ -71,15 +72,9 @@ function distance(left: Point, right: Point): number {
 
 function nearestTo(
   candidates: TrackedDetectedPrice[],
-  point: Point
+  point: Point,
+  stableSpatialOrder: ReadonlyMap<DetectedPriceIdentity, number>
 ): TrackedDetectedPrice | undefined {
-  const compareTie = (left: DetectedPrice, right: DetectedPrice) =>
-    left.box.y - right.box.y ||
-    left.box.x - right.box.x ||
-    left.box.width - right.box.width ||
-    left.box.height - right.box.height ||
-    left.currency.localeCompare(right.currency) ||
-    left.minorUnits - right.minorUnits;
   return candidates.reduce<TrackedDetectedPrice | undefined>(
     (current, candidate) => {
       if (!current) {
@@ -89,11 +84,42 @@ function nearestTo(
         distance(center(candidate.box), point) -
         distance(center(current.box), point);
       if (Math.abs(distanceDifference) <= 0.001) {
-        return compareTie(candidate, current) < 0 ? candidate : current;
+        return (stableSpatialOrder.get(candidate.identity) ?? Infinity) <
+          (stableSpatialOrder.get(current.identity) ?? Infinity)
+          ? candidate
+          : current;
       }
       return distanceDifference < 0 ? candidate : current;
     },
     undefined
+  );
+}
+
+function rectangleCenter(rectangle: Rectangle): Point {
+  return center(rectangle);
+}
+
+function isInsideFocusTargetTolerance(
+  price: TrackedDetectedPrice,
+  captureGuide: Rectangle
+): boolean {
+  const target = rectangleCenter(captureGuide);
+  const priceCenter = center(price.box);
+  const toleranceWidth = Math.max(44, captureGuide.width * 0.2);
+  const toleranceHeight = Math.max(44, captureGuide.height * 0.3);
+  return (
+    Math.abs(priceCenter.x - target.x) <= toleranceWidth / 2 &&
+    Math.abs(priceCenter.y - target.y) <= toleranceHeight / 2
+  );
+}
+
+function sameIdentityMembership(
+  left: readonly DetectedPriceIdentity[],
+  right: readonly DetectedPriceIdentity[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((identity) => right.includes(identity))
   );
 }
 
@@ -187,17 +213,19 @@ function removeExpiredCandidateTracks(
 }
 
 export function createCandidateTracker(options: {
-  captureGuideCenter: Point;
+  captureGuide: Rectangle;
   geometry: FixedRecognitionRules["geometry"];
   stabilization: FixedRecognitionRules["stabilization"];
 }): CandidateTracker {
   const tracks: CandidateTrack[] = [];
   let nextIdentity = 1;
   let explicitFocusIdentity: DetectedPriceIdentity | null = null;
-  let lastGuideCenter = options.captureGuideCenter;
+  let automaticFocusIdentity: DetectedPriceIdentity | null = null;
+  let lastCaptureGuide = options.captureGuide;
+  let orderedMembership: DetectedPriceIdentity[] = [];
   let currentTimeMs = Number.NEGATIVE_INFINITY;
 
-  const snapshot = (guideCenter: Point): CandidateTrackingSnapshot => {
+  const snapshot = (captureGuide: Rectangle): CandidateTrackingSnapshot => {
     const candidateOutlines = tracks
       .filter(
         ({ observedFrames, expiresAtMs }) =>
@@ -228,8 +256,37 @@ export function createCandidateTracker(options: {
     if (explicitFocusIdentity && !explicitlyFocused) {
       explicitFocusIdentity = null;
     }
-    const focusedPrice =
-      explicitlyFocused ?? nearestTo(detectedPrices, guideCenter);
+    const currentMembership = detectedPrices.map(({ identity }) => identity);
+    if (!sameIdentityMembership(orderedMembership, currentMembership)) {
+      orderedMembership = [...detectedPrices]
+        .sort(
+          (left, right) =>
+            left.box.y - right.box.y ||
+            left.box.x - right.box.x ||
+            left.identity.localeCompare(right.identity)
+        )
+        .map(({ identity }) => identity);
+    }
+    const stableSpatialOrder = new Map(
+      orderedMembership.map((identity, index) => [identity, index])
+    );
+    const eligibleFreshPrices = detectedPrices.filter(
+      (price) =>
+        price.state === "fresh" &&
+        isInsideFocusTargetTolerance(price, captureGuide)
+    );
+    const nearestEligible = nearestTo(
+      eligibleFreshPrices,
+      rectangleCenter(captureGuide),
+      stableSpatialOrder
+    );
+    const retainedHeldFocus = detectedPrices.find(
+      ({ identity, state }) =>
+        identity === automaticFocusIdentity && state === "held"
+    );
+    const automaticallyFocused = nearestEligible ?? retainedHeldFocus;
+    automaticFocusIdentity = automaticallyFocused?.identity ?? null;
+    const focusedPrice = explicitlyFocused ?? automaticallyFocused;
     return {
       candidateOutlines,
       detectedPrices,
@@ -247,8 +304,8 @@ export function createCandidateTracker(options: {
   };
 
   return {
-    observe(pass, currentCaptureGuideCenter = options.captureGuideCenter) {
-      lastGuideCenter = currentCaptureGuideCenter;
+    observe(pass, currentCaptureGuide = options.captureGuide) {
+      lastCaptureGuide = currentCaptureGuide;
       currentTimeMs = Math.max(currentTimeMs, pass.observedAtMs);
       removeExpiredCandidateTracks(
         tracks,
@@ -409,7 +466,7 @@ export function createCandidateTracker(options: {
           tracks.splice(index, 1);
         }
       }
-      return snapshot(currentCaptureGuideCenter);
+      return snapshot(currentCaptureGuide);
     },
 
     advanceTime(observedAtMs) {
@@ -419,7 +476,7 @@ export function createCandidateTracker(options: {
         options.stabilization.requiredDistinctFrames,
         currentTimeMs
       );
-      return snapshot(lastGuideCenter);
+      return snapshot(lastCaptureGuide);
     },
 
     select(identity) {
@@ -433,7 +490,12 @@ export function createCandidateTracker(options: {
       ) {
         explicitFocusIdentity = identity;
       }
-      return snapshot(lastGuideCenter);
+      return snapshot(lastCaptureGuide);
+    },
+
+    resumeAutomaticFocus() {
+      explicitFocusIdentity = null;
+      return snapshot(lastCaptureGuide);
     }
   };
 }

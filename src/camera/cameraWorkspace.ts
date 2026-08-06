@@ -117,6 +117,7 @@ export interface CameraWorkspaceActions {
   startCamera(): void;
   stopCamera(): void;
   selectPrice(identity: CameraWorkspaceDetectedPriceIdentity): void;
+  resumeAutomaticFocus(): void;
   changeCurrencies(currencies: CameraWorkspaceCurrencies): void;
   changeExperiencePreferences(
     preferences: CameraWorkspaceExperiencePreferences
