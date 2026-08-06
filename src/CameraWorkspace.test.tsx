@@ -419,7 +419,7 @@ describe("Camera Workspace boundary", () => {
     expect(within(conversion).getByText("EUR 24.02")).not.toBeVisible();
 
     await user.click(
-      within(conversion).getByText(/all 3 target currency conversions/i)
+      within(conversion).getByText(/\+2 more target currency conversions/i)
     );
     expect(within(conversion).getByText("TWD 911.24")).toBeVisible();
     expect(within(conversion).getByText("EUR 24.02")).toBeVisible();

@@ -563,7 +563,7 @@ export function AccessibleDetectedPriceList({
           collapsed ? " is-collapsed" : ""
         }`}
         style={{
-          transform: `translate(${railOffset.x.toString()}px, ${railOffset.y.toString()}px)`
+          transform: `translate(${railOffset.x.toString()}px, calc(var(--detected-prices-resting-translate-y, 0px) + ${railOffset.y.toString()}px))`
         }}
         aria-label="Detected Prices rail"
       >
@@ -611,10 +611,16 @@ export function AccessibleDetectedPriceList({
           className="expand-detected-prices"
           type="button"
           onClick={() => setModalState(true)}
+          aria-label="Expand Detected Prices"
           aria-haspopup="dialog"
           aria-expanded={isModalOpen}
         >
-          Expand Detected Prices
+          <span className="expand-detected-prices-full">
+            Expand Detected Prices
+          </span>
+          <span className="expand-detected-prices-compact" aria-hidden="true">
+            All prices
+          </span>
         </button>
         {!collapsed && orderedPrices.length > 0 ? (
           <SemanticPriceList

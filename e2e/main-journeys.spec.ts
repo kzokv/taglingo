@@ -425,7 +425,7 @@ test("Camera Workspace supports matched currency search, multi-selection, swap, 
   });
   await expect(conversions.getByText("USD 27.80")).toBeVisible();
   await conversions
-    .getByText(/all 2 target currency conversions/i)
+    .getByText(/\+1 more target currency conversion/i)
     .click();
   await expect(conversions.getByText("TWD 911.24")).toBeVisible();
 
@@ -956,7 +956,7 @@ test("Approved Member completes a deterministic three-currency journey", async (
   await expect(conversions.getByText("USD 27.80")).toBeVisible();
   await expect(conversions.getByText("TWD 911.24")).toBeHidden();
   await conversions
-    .getByText(/all 3 target currency conversions/i)
+    .getByText(/\+2 more target currency conversions/i)
     .click();
   await expect(conversions.getByText("TWD 911.24")).toBeVisible();
   await expect(conversions.getByText("EUR 24.02")).toBeVisible();

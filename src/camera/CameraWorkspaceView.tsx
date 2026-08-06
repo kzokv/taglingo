@@ -399,6 +399,12 @@ export function CameraWorkspace({
 }) {
   const workspaceRef = useRef<HTMLElement>(null);
   const [detectedPricesSheetOpen, setDetectedPricesSheetOpen] = useState(false);
+  const [recognitionStatusOpen, setRecognitionStatusOpen] = useState(false);
+  const [compactStatusSurface, setCompactStatusSurface] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.innerWidth <= 340 || window.innerHeight <= 640
+  );
   const selectionRevision = useRef(0);
   const clearHeldPricesRevision = useRef(0);
   const lastExplicitSelectionIdentity = useRef(
@@ -443,6 +449,19 @@ export function CameraWorkspace({
       state.recognition.explicitlyFocusedPriceIdentity;
   }, [state.recognition.explicitlyFocusedPriceIdentity]);
   useEffect(() => {
+    const updateCompactStatusSurface = () => {
+      setCompactStatusSurface(
+        window.innerWidth <= 340 || window.innerHeight <= 640
+      );
+    };
+    window.addEventListener("resize", updateCompactStatusSurface);
+    window.addEventListener("orientationchange", updateCompactStatusSurface);
+    return () => {
+      window.removeEventListener("resize", updateCompactStatusSurface);
+      window.removeEventListener("orientationchange", updateCompactStatusSurface);
+    };
+  }, []);
+  useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) return undefined;
     const visualViewport = window.visualViewport;
@@ -480,8 +499,11 @@ export function CameraWorkspace({
         ...lowerBounds.map(({ top }) => top)
       );
       const availableHeight = unobscuredBottom - unobscuredTop;
-      workspace.dataset.captureGuideObscured = String(availableHeight < 44);
-      if (availableHeight < 44) return;
+      const minimumGuideAvailableHeight = 112 + 8;
+      workspace.dataset.captureGuideObscured = String(
+        availableHeight < minimumGuideAvailableHeight
+      );
+      if (availableHeight < minimumGuideAvailableHeight) return;
       workspace.style.setProperty(
         "--camera-guide-center-y",
         `${(unobscuredTop + unobscuredBottom) / 2 - previewBounds.top}px`
@@ -555,6 +577,47 @@ export function CameraWorkspace({
     resumeAutomaticFocus: actions.resumeAutomaticFocus,
     clearHeldPrices: actions.clearHeldPrices
   } satisfies RecognitionController;
+  const compactRecognitionStatus = (() => {
+    if (state.demo) {
+      if (recognition.phase === "preparing") {
+        return { label: "Preparing recognition", shortLabel: "Preparing", tone: "active" };
+      }
+      return recognition.focusedPrice
+        ? { label: "Recorded observation stabilized", shortLabel: "Stable", tone: "ready" }
+        : { label: "Checking the recorded observation", shortLabel: "Checking", tone: "active" };
+    }
+    if (isCameraFailureStatus(state.camera.status)) {
+      return {
+        label: statusContent[state.camera.status]!.title,
+        shortLabel: "Camera issue",
+        tone: "error"
+      };
+    }
+    if (recognition.phase === "error") {
+      return { label: "Recognition could not start", shortLabel: "Error", tone: "error" };
+    }
+    if (recognition.phase === "preparing") {
+      return { label: "Preparing recognition", shortLabel: "Preparing", tone: "active" };
+    }
+    if (recognition.focusedPrice?.state === "held") {
+      return { label: "Focused Price is held", shortLabel: "Held", tone: "paused" };
+    }
+    if (state.camera.status === "requesting") {
+      return { label: "Preparing rear camera", shortLabel: "Preparing", tone: "active" };
+    }
+    if (state.camera.status === "active") {
+      if (recognition.phase === "searching" || recognition.phase === "stabilizing") {
+        return { label: "Looking for prices", shortLabel: "Scanning", tone: "active" };
+      }
+      if (recognition.phase === "focused" || recognition.focusedPrice) {
+        return { label: "Price observation stabilized", shortLabel: "Stable", tone: "ready" };
+      }
+    }
+    const content = statusContent[state.camera.status];
+    return content
+      ? { label: content.title, shortLabel: "Ready", tone: "ready" }
+      : { label: "Camera paused", shortLabel: "Paused", tone: "paused" };
+  })();
   const referenceRates: GuestRateViews = Object.fromEntries(
     Object.entries(state.referenceRates).map(([currency, rate]) => [
       currency,
@@ -706,15 +769,56 @@ export function CameraWorkspace({
           onClearHeldPrices={clearHeldPrices}
         />
         <div className="workspace-preview-controls">
-          <div className="workspace-recognition-controls">
-            <StatusPanel
-              status={state.camera.status}
-              demo={state.demo}
-              recognition={recognition}
-              onRetry={actions.startCamera}
-              onRecognitionRetry={actions.retryRecognition}
-            />
-            <RecognitionSummary recognition={recognition} demo={state.demo} />
+          <div
+            className="workspace-recognition-controls"
+            data-expanded={recognitionStatusOpen ? "true" : "false"}
+          >
+            <button
+              className="recognition-status-toggle"
+              type="button"
+              data-tone={compactRecognitionStatus.tone}
+              aria-label={
+                recognitionStatusOpen
+                  ? `Close recognition details: ${compactRecognitionStatus.label}`
+                  : `Current state: ${compactRecognitionStatus.label}. Show recognition details`
+              }
+              aria-expanded={recognitionStatusOpen}
+              onClick={() => setRecognitionStatusOpen((open) => !open)}
+            >
+              <span aria-hidden="true">
+                {compactRecognitionStatus.tone === "error"
+                  ? "!"
+                  : compactRecognitionStatus.tone === "active"
+                    ? "…"
+                    : compactRecognitionStatus.tone === "paused"
+                      ? "Ⅱ"
+                      : "✓"}
+              </span>
+              <strong>{compactRecognitionStatus.shortLabel}</strong>
+            </button>
+            {compactStatusSurface ? (
+              <span
+                className="visually-hidden compact-recognition-live"
+                role={compactRecognitionStatus.tone === "error" ? "alert" : "status"}
+                aria-label="Compact status update"
+                aria-live={
+                  compactRecognitionStatus.tone === "error" ? "assertive" : "polite"
+                }
+                aria-atomic="true"
+              >
+                {compactRecognitionStatus.label}
+              </span>
+            ) : null}
+            <div className="recognition-status-content">
+              <StatusPanel
+                status={state.camera.status}
+                demo={state.demo}
+                recognition={recognition}
+                onRetry={actions.startCamera}
+                onRecognitionRetry={actions.retryRecognition}
+              />
+              <RecognitionSummary recognition={recognition} demo={state.demo} />
+            </div>
           </div>
           <section
             className="workspace-conversion-controls"

@@ -73,6 +73,50 @@ async function expectInsideViewport(page: Page, locator: ReturnType<Page["locato
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
 }
 
+async function expectNoInternalHorizontalOverflow(
+  locator: ReturnType<Page["locator"]>
+) {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => element.scrollWidth - element.clientWidth)
+    )
+    .toBeLessThanOrEqual(0);
+}
+
+async function expectCenterOwnedBy(
+  page: Page,
+  locator: ReturnType<Page["locator"]>,
+  owner: ReturnType<Page["locator"]>
+) {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  const owned = await owner.evaluate(
+    (element, point) => {
+      const topmost = document.elementFromPoint(point.x, point.y);
+      return topmost !== null && element.contains(topmost);
+    },
+    { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }
+  );
+  expect(owned).toBe(true);
+}
+
+function overlapArea(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number }
+) {
+  const width = Math.max(
+    0,
+    Math.min(left.x + left.width, right.x + right.width) -
+      Math.max(left.x, right.x)
+  );
+  const height = Math.max(
+    0,
+    Math.min(left.y + left.height, right.y + right.height) -
+      Math.max(left.y, right.y)
+  );
+  return width * height;
+}
+
 test("320×568 resting workspace exposes every primary edge control without document scrolling", async ({
   page
 }) => {
@@ -94,11 +138,24 @@ test("320×568 resting workspace exposes every primary edge control without docu
   await expect(currencies.getByRole("button", { name: /target currencies/i })).toBeVisible();
   await expect(rail).toContainText(/2 detected prices/i);
   await expect(rail).toContainText(/focused.*jpy.*4,142/i);
+  await expectNoInternalHorizontalOverflow(rail);
+  const dragHandle = rail.locator("[data-detected-prices-drag-handle]");
+  const collapseRail = rail.getByRole("button", {
+    name: /collapse detected prices rail/i
+  });
+  await expect(dragHandle).toBeVisible();
+  await expect(collapseRail).toBeVisible();
+  await collapseRail.click();
+  const showRail = rail.getByRole("button", {
+    name: /show detected price controls/i
+  });
+  await expect(showRail).toHaveAttribute("aria-expanded", "false");
+  await showRail.click();
   await expect(
     preview.getByRole("region", { name: /focused price conversion/i })
   ).toContainText("USD 27.80");
   await expect(
-    preview.getByRole("status", { name: /recognition status/i })
+    preview.getByRole("button", { name: /current state: .*show recognition details/i })
   ).toBeVisible();
   await expect(
     workspace.getByRole("button", { name: /open manual price entry/i })
@@ -138,6 +195,251 @@ test("320×568 resting workspace exposes every primary edge control without docu
   expect(sourceBox!.x).toBeGreaterThanOrEqual(12);
   expect(closeBox!.x + closeBox!.width).toBeLessThanOrEqual(304);
   expect(manualBox!.y + manualBox!.height).toBeLessThanOrEqual(548);
+  await expectNoDocumentOverflow(page);
+});
+
+test("mobile keeps every selected Target conversion behind the compact +N detail surface", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html?workspace=currencies");
+  await page
+    .getByRole("button", { name: /close manual price entry/i })
+    .click();
+
+  const currencies = page.getByRole("group", {
+    name: /source and target currencies/i
+  });
+  await currencies
+    .getByRole("button", { name: /target currencies: 1 selected/i })
+    .click();
+  await currencies
+    .getByRole("searchbox", { name: /search target currencies/i })
+    .fill("Taiwan");
+  await currencies
+    .getByRole("option", { name: /twd.*new taiwan dollar/i })
+    .click();
+  await currencies.getByRole("button", { name: /done/i }).click();
+
+  const conversion = page.getByRole("region", {
+    name: /focused price conversion/i
+  });
+  const moreConversions = conversion.getByText(
+    /\+1 more target currency conversion/i
+  );
+  await expect(moreConversions).toBeVisible();
+  await expect(moreConversions).toHaveAttribute(
+    "aria-label",
+    "Toggle all 2 Target Currency conversions"
+  );
+  const moreBox = await moreConversions.boundingBox();
+  expect(moreBox).not.toBeNull();
+  expect(moreBox!.height).toBeGreaterThanOrEqual(43);
+  const [compactConversionBox, compactGuideBox] = await Promise.all([
+    conversion.boundingBox(),
+    page.getByRole("region", { name: /^capture guide$/i }).boundingBox()
+  ]);
+  expect(compactConversionBox).not.toBeNull();
+  expect(compactGuideBox).not.toBeNull();
+  expect(overlapArea(compactConversionBox!, compactGuideBox!)).toBe(0);
+
+  await page
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  await page.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
+  await page
+    .getByRole("button", { name: /close manual price entry/i })
+    .click();
+  const useFocusedPrice = conversion.getByRole("button", {
+    name: /use focused price/i
+  });
+  await expect(useFocusedPrice).toBeVisible();
+  const [switchBox, disclosureBox] = await Promise.all([
+    useFocusedPrice.boundingBox(),
+    moreConversions.boundingBox()
+  ]);
+  expect(switchBox).not.toBeNull();
+  expect(disclosureBox).not.toBeNull();
+  expect(overlapArea(switchBox!, disclosureBox!)).toBe(0);
+  await useFocusedPrice.click();
+  await expect(
+    conversion.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText(/focused price in use/i);
+  await moreConversions.click();
+  await expect(conversion.getByText("TWD 911.24")).toBeVisible();
+  await expectInsideViewport(page, conversion);
+  await moreConversions.click();
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(moreConversions).toBeVisible();
+  await moreConversions.click();
+  await expect(conversion.getByText("TWD 911.24")).toBeVisible();
+  await expectInsideViewport(page, conversion);
+  await expectNoDocumentOverflow(page);
+});
+
+test("compact mobile keeps the camera recovery action visible and touchable", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/e2e/harness.html?workspace=journey");
+
+  await page
+    .getByRole("button", { name: /current state: .*show recognition details/i })
+    .click();
+  const recognitionStatus = page.getByRole("status", {
+    name: /recognition status/i
+  });
+  const resumeCamera = recognitionStatus.getByRole("button", {
+    name: /resume camera/i
+  });
+
+  await expect(recognitionStatus).toBeVisible();
+  await expect(resumeCamera).toBeVisible();
+  await expectInsideViewport(page, recognitionStatus);
+  const buttonBox = await resumeCamera.boundingBox();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox!.height).toBeGreaterThanOrEqual(43);
+  await resumeCamera.click();
+  await page
+    .getByRole("button", { name: /close recognition details/i })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: /current state: price observation stabilized.*show recognition details/i
+    })
+  ).toContainText("Stable");
+  await expectNoDocumentOverflow(page);
+});
+
+test("compact status truthfully distinguishes held evidence from camera preparation", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  for (const [workspace, accessibleState, visibleState] of [
+    ["responsive-held", /focused price is held/i, "Held"],
+    ["responsive-requesting", /preparing rear camera/i, "Preparing"]
+  ] as const) {
+    await page.goto(`/e2e/harness.html?workspace=${workspace}`);
+    const trigger = page.getByRole("button", {
+      name: new RegExp(
+        `current state: .*${accessibleState.source}.*show recognition details`,
+        "i"
+      )
+    });
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toContainText(visibleState);
+  }
+});
+
+test("390×844 uses the approved Edge-controls composition without covering the Capture Guide", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html?workspace=responsive");
+
+  const workspace = page.getByRole("main", { name: /camera workspace/i });
+  const preview = workspace.getByRole("region", { name: /price camera/i });
+  const currencies = preview.getByRole("group", {
+    name: /source and target currencies/i
+  });
+  const rail = preview.getByRole("region", {
+    name: /detected prices rail/i
+  });
+  const recognitionStatus = preview.getByRole("status", {
+    name: /recognition status/i
+  });
+  const conversion = preview.getByRole("region", {
+    name: /focused price conversion/i
+  });
+  const manualEntry = workspace.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  const guide = preview.getByRole("region", { name: /^capture guide$/i });
+  const focusTarget = preview.locator("[data-focus-target]");
+
+  const [
+    previewBox,
+    currenciesBox,
+    railBox,
+    recognitionBox,
+    conversionBox,
+    manualBox,
+    guideBox,
+    targetBox
+  ] = await Promise.all([
+    preview.boundingBox(),
+    currencies.boundingBox(),
+    rail.boundingBox(),
+    recognitionStatus.boundingBox(),
+    conversion.boundingBox(),
+    manualEntry.boundingBox(),
+    guide.boundingBox(),
+    focusTarget.boundingBox()
+  ]);
+
+  for (const box of [
+    previewBox,
+    currenciesBox,
+    railBox,
+    recognitionBox,
+    conversionBox,
+    manualBox,
+    guideBox,
+    targetBox
+  ]) {
+    expect(box).not.toBeNull();
+  }
+
+  expect(currenciesBox!.height).toBeLessThanOrEqual(76);
+  expect(railBox!.x).toBeLessThanOrEqual(20);
+  expect(railBox!.width).toBeLessThanOrEqual(96);
+  expect(railBox!.height).toBeGreaterThan(railBox!.width * 1.5);
+  await expectNoInternalHorizontalOverflow(rail);
+  expect(recognitionBox!.width).toBeLessThanOrEqual(190);
+  expect(recognitionBox!.height).toBeLessThanOrEqual(72);
+  expect(manualBox!.height).toBeGreaterThanOrEqual(44);
+  expect(manualBox!.height).toBeLessThanOrEqual(64);
+  expect(conversionBox!.y + conversionBox!.height).toBeLessThanOrEqual(
+    manualBox!.y
+  );
+
+  const guideArea = guideBox!.width * guideBox!.height;
+  expect(overlapArea(guideBox!, railBox!)).toBeLessThanOrEqual(
+    guideArea * 0.15
+  );
+  for (const overlay of [
+    currenciesBox!,
+    railBox!,
+    recognitionBox!,
+    conversionBox!,
+    manualBox!
+  ]) {
+    const centerX = guideBox!.x + guideBox!.width / 2;
+    const centerY = guideBox!.y + guideBox!.height / 2;
+    expect(
+      centerX >= overlay.x &&
+        centerX <= overlay.x + overlay.width &&
+        centerY >= overlay.y &&
+        centerY <= overlay.y + overlay.height
+    ).toBe(false);
+  }
+
+  expect(targetBox!.x + targetBox!.width / 2).toBeCloseTo(
+    guideBox!.x + guideBox!.width / 2,
+    0
+  );
+  expect(targetBox!.y + targetBox!.height / 2).toBeCloseTo(
+    guideBox!.y + guideBox!.height / 2,
+    0
+  );
+  await expect(
+    guide.getByText(/capture guide · recognition region/i)
+  ).toBeHidden();
+  await expect(
+    guide.getByText(/explicit selection stays focused/i)
+  ).toBeHidden();
+  expect(previewBox!.height).toBeGreaterThanOrEqual(844 * 0.75);
   await expectNoDocumentOverflow(page);
 });
 
@@ -191,7 +493,48 @@ test("modern portrait remains preview-dominant while compact portrait and landsc
   ]) {
     await page.setViewportSize(size);
     await expectNoDocumentOverflow(page);
+    const recognitionStatus = page.getByRole("button", {
+      name: /current state: .*show recognition details/i
+    });
+    const conversion = page.getByRole("region", {
+      name: /focused price conversion/i
+    });
+    await expectInsideViewport(page, recognitionStatus);
+    await expectInsideViewport(page, conversion);
+    const [statusBox, conversionBox] = await Promise.all([
+      recognitionStatus.boundingBox(),
+      conversion.boundingBox()
+    ]);
+    expect(statusBox).not.toBeNull();
+    expect(conversionBox).not.toBeNull();
+    expect(overlapArea(statusBox!, conversionBox!)).toBe(0);
+    if (size.width > size.height) {
+      const closeCamera = page.getByRole("button", { name: /close camera/i });
+      const closeBox = await closeCamera.boundingBox();
+      expect(closeBox).not.toBeNull();
+      expect(overlapArea(statusBox!, closeBox!)).toBe(0);
+      await expectCenterOwnedBy(page, recognitionStatus, recognitionStatus);
+    }
+    const guide = page.getByRole("region", { name: /^capture guide$/i });
+    if (await guide.isVisible()) {
+      const guideBox = await guide.boundingBox();
+      expect(guideBox).not.toBeNull();
+      expect(overlapArea(statusBox!, guideBox!)).toBe(0);
+      expect(overlapArea(conversionBox!, guideBox!)).toBe(0);
+    }
     const rail = page.getByRole("region", { name: /detected prices rail/i });
+    await expect(
+      rail.getByRole("button", { name: /collapse detected prices rail/i })
+    ).toBeVisible();
+    await expect(
+      rail.locator("[data-detected-prices-drag-handle]")
+    ).toBeVisible();
+    await expectCenterOwnedBy(
+      page,
+      rail.getByText("2 Detected Prices", { exact: true }),
+      rail
+    );
+    await expectCenterOwnedBy(page, rail.getByText(/focused.*jpy.*4,142/i), rail);
     const expandPrices = rail.getByRole("button", {
       name: /expand detected prices/i
     });
@@ -262,25 +605,14 @@ test("visual viewport, browser chrome, and rotation recenter the guide without r
   expect(reducedGuide!.y).not.toBe(originalGuide!.y);
   expect(reducedGuide!.y).toBeGreaterThanOrEqual(72);
   expect(reducedGuide!.y + reducedGuide!.height).toBeLessThanOrEqual(692);
-  const [currencyBounds, statusBounds, conversionBounds, manualBounds] =
-    await Promise.all([
-      currencies.boundingBox(),
-      page
-        .getByRole("status", { name: /recognition status/i })
-        .boundingBox(),
-      page
-        .getByRole("region", { name: /focused price conversion/i })
-        .boundingBox(),
-      page
-        .getByRole("button", { name: /open manual price entry/i })
-        .boundingBox()
-    ]);
+  const [currencyBounds, manualBounds] = await Promise.all([
+    currencies.boundingBox(),
+    page
+      .getByRole("group", { name: /manual price entry sheet/i })
+      .boundingBox()
+  ]);
   const unobscuredTop = currencyBounds!.y + currencyBounds!.height;
-  const unobscuredBottom = Math.min(
-    statusBounds!.y,
-    conversionBounds!.y,
-    manualBounds!.y
-  );
+  const unobscuredBottom = manualBounds!.y;
   const guideCenter = reducedGuide!.y + reducedGuide!.height / 2;
   expect(guideCenter).toBeCloseTo(
     (unobscuredTop + unobscuredBottom) / 2,
@@ -330,6 +662,53 @@ test("200% text and software-keyboard reduction keep the focused manual field re
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "200%";
   });
+  const recognitionToggle = page.getByRole("button", {
+    name: /current state: .*show recognition details/i
+  });
+  await expect(recognitionToggle).toBeVisible();
+  const conversion = page.getByRole("region", {
+    name: /focused price conversion/i
+  });
+  const collapsedManual = page.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  const rail = page.getByRole("region", { name: /detected prices rail/i });
+  const [toggleBox, guideBox, focusBox] = await Promise.all([
+    recognitionToggle.boundingBox(),
+    page.getByRole("region", { name: /^capture guide$/i }).boundingBox(),
+    page.locator("[data-focus-target]").boundingBox()
+  ]);
+  expect(toggleBox).not.toBeNull();
+  expect(guideBox).not.toBeNull();
+  expect(focusBox).not.toBeNull();
+  expect(overlapArea(toggleBox!, guideBox!)).toBe(0);
+  expect(overlapArea(toggleBox!, focusBox!)).toBe(0);
+  const conversionDimensions = await conversion.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight
+  }));
+  expect(conversionDimensions.scrollHeight).toBeLessThanOrEqual(
+    conversionDimensions.clientHeight + 1
+  );
+  await recognitionToggle.click();
+  const recognitionStatus = page.getByRole("status", {
+    name: /recognition status/i
+  });
+  const recognitionTitle = recognitionStatus.locator("strong").first();
+  await expect(recognitionTitle).toHaveText("Recorded observation stabilized");
+  await page
+    .getByRole("button", { name: /close recognition details/i })
+    .click();
+  const [conversionBox, manualBox] = await Promise.all([
+    conversion.boundingBox(),
+    collapsedManual.boundingBox()
+  ]);
+  expect(conversionBox).not.toBeNull();
+  expect(manualBox).not.toBeNull();
+  expect(overlapArea(conversionBox!, manualBox!)).toBe(0);
+  await expectNoInternalHorizontalOverflow(rail);
+  await expect(rail).toContainText(/2 detected prices/i);
+  await expect(rail).toContainText(/focused.*jpy.*4,142/i);
   await page
     .getByRole("button", { name: /open manual price entry/i })
     .click();

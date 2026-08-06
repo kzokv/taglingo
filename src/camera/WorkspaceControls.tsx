@@ -854,8 +854,11 @@ export function ConversionLedger({
         : targetCurrencies.map(renderConversion)}
       {compactPrimaryResult && additionalTargets.length > 0 ? (
         <details className="conversion-detail-surface">
-          <summary>
-            All {targetCurrencies.length} Target Currency conversions
+          <summary
+            aria-label={`Toggle all ${targetCurrencies.length.toString()} Target Currency conversions`}
+          >
+            +{additionalTargets.length.toString()} more Target Currency
+            {additionalTargets.length === 1 ? " conversion" : " conversions"}
           </summary>
           <div aria-label="Additional Target Currency conversions">
             {additionalTargets.map(renderConversion)}
