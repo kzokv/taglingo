@@ -153,7 +153,7 @@ function GuestCameraAllowanceNote({
     <aside className="camera-allowance-note" aria-label="Guest Camera Allowance">
       <strong>
         {allowance.remaining} of {GUEST_CAMERA_USAGE_LIMIT} successful camera
-        usages remain in this browser.
+        usages remain in this browser-local allowance.
       </strong>
       <p>
         A usage is charged only when a camera session produces its first Focused

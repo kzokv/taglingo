@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "../src/App";
@@ -14,6 +14,7 @@ import {
   DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
   type MemberPreferences
 } from "../src/member/memberPreferencesApi";
+import { MemberPreferencesRequestError } from "../src/member/memberPreferencesClient";
 import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
 import {
   createCandidateTracker,
@@ -513,8 +514,96 @@ const memberPreferences: MemberPreferences = {
   targetCurrencies: ["USD", "TWD", "EUR"],
   ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
 };
+
+const MEMBER_ACCESS_FIXTURES = [
+  "approved",
+  "loading",
+  "inactive",
+  "unavailable"
+] as const;
+type MemberAccessFixture = (typeof MEMBER_ACCESS_FIXTURES)[number];
+
+const memberPreferenceLoaders: Record<
+  MemberAccessFixture,
+  () => Promise<MemberPreferences | null>
+> = {
+  approved: async () => memberPreferences,
+  loading: () => new Promise<MemberPreferences | null>(() => undefined),
+  inactive: async () => {
+    throw new MemberPreferencesRequestError(
+      "inactive-membership",
+      "Deterministic inactive membership"
+    );
+  },
+  unavailable: async () => {
+    throw new Error("Deterministic member service failure");
+  }
+};
+
+function isMemberAccessFixture(
+  value: string | null
+): value is MemberAccessFixture {
+  return MEMBER_ACCESS_FIXTURES.includes(value as MemberAccessFixture);
+}
+
+function MemberAppFixture({ access }: { access: MemberAccessFixture }) {
+  const [signedIn, setSignedIn] = useState(true);
+  const [savedChanges, setSavedChanges] = useState(0);
+  const loadMemberPreferences = useCallback(
+    () => memberPreferenceLoaders[access](),
+    [access]
+  );
+  const saveMemberPreferences = useCallback(
+    async (preferences: MemberPreferences) => {
+      setSavedChanges((count) => count + 1);
+      return preferences;
+    },
+    []
+  );
+
+  return (
+    <>
+      <App
+        memberSession={
+          signedIn
+            ? {
+                userId: memberPreferences.ownerId,
+                getSessionToken: async () => "deterministic-session-token"
+              }
+            : null
+        }
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+        loadGuestRate={loadRate}
+        createRecognizer={createFixtureRecognizer}
+      />
+      {signedIn ? (
+        <aside
+          aria-label="Fixture account"
+          style={{ position: "fixed", right: 0, bottom: 0, zIndex: 10_000 }}
+        >
+          <button type="button" onClick={() => setSignedIn(false)}>
+            Sign out fixture account
+          </button>
+          <output
+            role="status"
+            aria-label="Member preference synchronization"
+          >
+            {savedChanges} saved {savedChanges === 1 ? "change" : "changes"}
+          </output>
+        </aside>
+      ) : null}
+    </>
+  );
+}
+
 const searchParameters = new URLSearchParams(window.location.search);
 const memberMode = searchParameters.get("mode") === "member";
+const memberAccessParameter = searchParameters.get("access");
+const memberAccess: MemberAccessFixture =
+  isMemberAccessFixture(memberAccessParameter)
+    ? memberAccessParameter
+    : "approved";
 const workspaceMode = searchParameters.get("workspace");
 createRoot(document.getElementById("root")!).render(
   workspaceMode === "lifecycle" ? (
@@ -531,21 +620,7 @@ createRoot(document.getElementById("root")!).render(
       initialManualEntryExpanded={workspaceMode !== "responsive"}
     />
   ) : memberMode ? (
-    <App
-      memberSession={{
-        userId: memberPreferences.ownerId,
-        getSessionToken: async () => "deterministic-session-token"
-      }}
-      loadMemberPreferences={async () => memberPreferences}
-      saveMemberPreferences={async (preferences) => preferences}
-      loadGuestRate={loadRate}
-      createRecognizer={createFixtureRecognizer}
-      admission={
-        <section aria-label="Fixture account">
-          <button type="button">Sign out fixture account</button>
-        </section>
-      }
-    />
+    <MemberAppFixture access={memberAccess} />
   ) : (
     <App
       loadGuestRate={loadRate}

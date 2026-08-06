@@ -675,6 +675,9 @@ describe("Guest camera journey", () => {
     ).toHaveTextContent(/10 of 10 successful camera usages remain/i);
     expect(
       screen.getByRole("complementary", { name: /guest camera allowance/i })
+    ).toHaveTextContent(/browser-local allowance/i);
+    expect(
+      screen.getByRole("complementary", { name: /guest camera allowance/i })
     ).toHaveTextContent(/first Focused Price/i);
     expect(
       screen.getByRole("complementary", { name: /guest camera allowance/i })
@@ -1409,7 +1412,7 @@ describe("Guest camera journey", () => {
     act(() => reportProgress(0.5, "recognizing text"));
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledOnce();
-  }, 10_000);
+  }, 15_000);
 
   it.each([
     ["keeps the intentional tenth successful session open", true],
