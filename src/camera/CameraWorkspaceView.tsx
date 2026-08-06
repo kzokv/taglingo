@@ -54,7 +54,6 @@ import type {
 } from "../member/memberPreferencesApi";
 import {
   useCameraRecognition,
-  type CreateRecognizer,
   type RecognitionController,
   type RecognitionView
 } from "../recognition/useCameraRecognition";
@@ -67,6 +66,10 @@ import { CameraExperienceOverlay } from "../recognition/CameraExperience";
 import { useDemoRecognition } from "../recognition/useDemoRecognition";
 import { RecognitionSummary } from "../recognition/RecognitionSummary";
 import type { RecognitionRuntimeConfiguration } from "../recognition/recognitionRuntime";
+import type {
+  RecognitionPreparation,
+  RecognitionPreparationSnapshot
+} from "../recognition/recognitionPreparation";
 import type {
   RecognitionHealthErrorFamily,
   RecognitionHealthObservation,
@@ -195,18 +198,16 @@ function VideoPreview({
 
 function PreparationStatus({
   detail,
-  progress,
-  sourceCurrency
+  progress
 }: {
   detail: string;
   progress: number;
-  sourceCurrency: SourceCurrencyCode;
 }) {
   return (
     <RecognitionStatusShell>
-      <strong>Preparing {sourceCurrency} recognition…</strong>
+      <strong>Preparing recognition…</strong>
       <progress
-        aria-label={`Preparing ${sourceCurrency} recognition`}
+        aria-label="Preparing recognition"
         max={1}
         value={progress}
       />
@@ -219,14 +220,12 @@ function StatusPanel({
   status,
   demo,
   recognition,
-  sourceCurrency,
   onRetry,
   onRecognitionRetry
 }: {
   status: CameraStatus;
   demo: boolean;
   recognition: RecognitionView;
-  sourceCurrency: SourceCurrencyCode;
   onRetry: () => void;
   onRecognitionRetry: () => void;
 }) {
@@ -236,7 +235,6 @@ function StatusPanel({
         <PreparationStatus
           detail="Loading pinned on-device language assets from TagLingo."
           progress={recognition.progress}
-          sourceCurrency={sourceCurrency}
         />
       );
     }
@@ -253,12 +251,25 @@ function StatusPanel({
     );
   }
 
+  const cameraFailure = !demo && isCameraFailureStatus(status);
+  if (cameraFailure) {
+    const content = statusContent[status]!;
+    return (
+      <RecognitionStatusShell role="alert">
+        <strong>{content.title}</strong>
+        <p>{content.detail}</p>
+        <button className="text-button" type="button" onClick={onRetry}>
+          Try camera again
+        </button>
+      </RecognitionStatusShell>
+    );
+  }
+
   if (recognition.phase === "preparing") {
     return (
       <PreparationStatus
         detail="The camera stays local while the pinned model is prepared."
         progress={recognition.progress}
-        sourceCurrency={sourceCurrency}
       />
     );
   }
@@ -297,19 +308,17 @@ function StatusPanel({
     );
   }
 
-  const isFailure = isCameraFailureStatus(status);
+  const detail =
+    status === "active" &&
+    (recognition.phase === "searching" || recognition.phase === "stabilizing")
+      ? "Looking for prices inside the Capture Guide. Recognition stays on this device."
+      : content.detail;
   return (
     <RecognitionStatusShell
-      role={isFailure ? "alert" : "status"}
       indicatorClassName={status === "active" ? "active-dot" : ""}
     >
       <strong>{content.title}</strong>
-      <p>{content.detail}</p>
-      {isFailure ? (
-        <button className="text-button" type="button" onClick={onRetry}>
-          Try camera again
-        </button>
-      ) : null}
+      <p>{detail}</p>
     </RecognitionStatusShell>
   );
 }
@@ -388,6 +397,7 @@ export function CameraWorkspace({
   actions: CameraWorkspaceActions;
   bindings: CameraWorkspaceBindings;
 }) {
+  const workspaceRef = useRef<HTMLElement>(null);
   const [detectedPricesSheetOpen, setDetectedPricesSheetOpen] = useState(false);
   const selectionRevision = useRef(0);
   const clearHeldPricesRevision = useRef(0);
@@ -432,6 +442,104 @@ export function CameraWorkspace({
     lastExplicitSelectionIdentity.current =
       state.recognition.explicitlyFocusedPriceIdentity;
   }, [state.recognition.explicitlyFocusedPriceIdentity]);
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return undefined;
+    const visualViewport = window.visualViewport;
+    let guidePlacementFrame = 0;
+    const updateGuidePlacement = () => {
+      const preview = workspace.querySelector<HTMLElement>(".preview");
+      const currencyControls = workspace.querySelector<HTMLElement>(
+        ".workspace-currency-controls"
+      );
+      const previewControls = workspace.querySelector<HTMLElement>(
+        ".workspace-preview-controls"
+      );
+      const manualEntry = workspace.querySelector<HTMLElement>(".result-sheet");
+      if (!preview || !currencyControls || !previewControls || !manualEntry) {
+        return;
+      }
+      const previewBounds = preview.getBoundingClientRect();
+      if (previewBounds.width <= 0 || previewBounds.height <= 0) return;
+      const previewCenterX = previewBounds.left + previewBounds.width / 2;
+      const overlapsPreviewCenter = (bounds: DOMRect) =>
+        bounds.width > 0 &&
+        bounds.height > 0 &&
+        bounds.left <= previewCenterX &&
+        bounds.right >= previewCenterX;
+      const topBounds = currencyControls.getBoundingClientRect();
+      const lowerBounds = [
+        previewControls.getBoundingClientRect(),
+        manualEntry.getBoundingClientRect()
+      ].filter(overlapsPreviewCenter);
+      const unobscuredTop = overlapsPreviewCenter(topBounds)
+        ? Math.max(previewBounds.top, topBounds.bottom)
+        : previewBounds.top;
+      const unobscuredBottom = Math.min(
+        previewBounds.bottom,
+        ...lowerBounds.map(({ top }) => top)
+      );
+      const availableHeight = unobscuredBottom - unobscuredTop;
+      workspace.dataset.captureGuideObscured = String(availableHeight < 44);
+      if (availableHeight < 44) return;
+      workspace.style.setProperty(
+        "--camera-guide-center-y",
+        `${(unobscuredTop + unobscuredBottom) / 2 - previewBounds.top}px`
+      );
+      workspace.style.setProperty(
+        "--camera-guide-available-height",
+        `${availableHeight}px`
+      );
+    };
+    const scheduleGuidePlacement = () => {
+      window.cancelAnimationFrame(guidePlacementFrame);
+      guidePlacementFrame = window.requestAnimationFrame(updateGuidePlacement);
+    };
+    const updateViewport = () => {
+      const height = visualViewport?.height ?? window.innerHeight;
+      const width = visualViewport?.width ?? window.innerWidth;
+      workspace.style.setProperty("--camera-viewport-height", `${height}px`);
+      workspace.style.setProperty("--camera-viewport-width", `${width}px`);
+      workspace.style.setProperty(
+        "--camera-viewport-offset-top",
+        `${visualViewport?.offsetTop ?? 0}px`
+      );
+      workspace.style.setProperty(
+        "--camera-viewport-offset-left",
+        `${visualViewport?.offsetLeft ?? 0}px`
+      );
+      updateGuidePlacement();
+      scheduleGuidePlacement();
+    };
+    updateViewport();
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleGuidePlacement);
+    if (resizeObserver) {
+      resizeObserver.observe(workspace);
+      for (const selector of [
+        ".workspace-currency-controls",
+        ".workspace-preview-controls",
+        ".result-sheet"
+      ]) {
+        const element = workspace.querySelector<HTMLElement>(selector);
+        if (element) resizeObserver.observe(element);
+      }
+    }
+    window.addEventListener("resize", updateViewport);
+    window.addEventListener("orientationchange", updateViewport);
+    visualViewport?.addEventListener("resize", updateViewport);
+    visualViewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      window.removeEventListener("orientationchange", updateViewport);
+      visualViewport?.removeEventListener("resize", updateViewport);
+      visualViewport?.removeEventListener("scroll", updateViewport);
+      window.cancelAnimationFrame(guidePlacementFrame);
+      resizeObserver?.disconnect();
+    };
+  }, []);
   const preferences: ExperiencePreferences = {
     ...state.currencies,
     ...state.experiencePreferences
@@ -517,7 +625,11 @@ export function CameraWorkspace({
   };
 
   return (
-    <main className="camera-shell" aria-label="Camera Workspace">
+    <main
+      ref={workspaceRef}
+      className="camera-shell"
+      aria-label="Camera Workspace"
+    >
       <div
         data-camera-workspace-surface=""
         inert={detectedPricesSheetOpen ? true : undefined}
@@ -599,7 +711,6 @@ export function CameraWorkspace({
               status={state.camera.status}
               demo={state.demo}
               recognition={recognition}
-              sourceCurrency={state.currencies.sourceCurrency}
               onRetry={actions.startCamera}
               onRecognitionRetry={actions.retryRecognition}
             />
@@ -645,7 +756,11 @@ export function CameraWorkspace({
         </div>
         </section>
 
-        <section className="result-sheet">
+        <section
+          className="result-sheet"
+          role="group"
+          aria-label="Manual Price Entry sheet"
+        >
         <div className="sheet-handle" aria-hidden="true" />
         <ManualPriceComposer
           sourceCurrency={state.currencies.sourceCurrency}
@@ -707,7 +822,8 @@ export function LiveCameraWorkspace({
   rates,
   onPreferencesChange,
   recognitionRuntime,
-  createRecognizer,
+  recognitionPreparation,
+  recognitionPreparationSnapshot,
   onStop,
   onClose,
   onRetry,
@@ -734,7 +850,8 @@ export function LiveCameraWorkspace({
   rates: GuestRateViews;
   onPreferencesChange: (preferences: ExperiencePreferences) => void;
   recognitionRuntime: RecognitionRuntimeConfiguration;
-  createRecognizer: CreateRecognizer;
+  recognitionPreparation: RecognitionPreparation;
+  recognitionPreparationSnapshot: RecognitionPreparationSnapshot;
   onStop: () => void;
   onClose: (
     outcome: RecognitionHealthTerminalOutcome,
@@ -785,10 +902,22 @@ export function LiveCameraWorkspace({
     video,
     preview,
     captureGuide,
-    createRecognizer,
+    preparation: recognitionPreparation,
     recognitionRestartKey
   });
-  const recognition = demo ? demoRecognition : cameraRecognition;
+  const preparedCameraRecognition: RecognitionController =
+    cameraRecognition.phase === "waiting" &&
+    recognitionPreparationSnapshot.phase === "preparing"
+      ? {
+          ...cameraRecognition,
+          phase: "preparing",
+          progress: recognitionPreparationSnapshot.progress
+        }
+      : cameraRecognition.phase === "waiting" &&
+          recognitionPreparationSnapshot.phase === "error"
+        ? { ...cameraRecognition, phase: "error" }
+        : cameraRecognition;
+  const recognition = demo ? demoRecognition : preparedCameraRecognition;
   const currentFocusedPriceIdentity = recognition.focusedPrice?.identity ?? null;
   const focusTransitionKey = `${confirmationContextKey}:${recognitionRestartKey}:${recognition.focusChangeCount}:${currentFocusedPriceIdentity ?? "none"}`;
   const previewBounds = preview?.getBoundingClientRect();
@@ -1008,8 +1137,10 @@ export function LiveCameraWorkspace({
         setManualPriceEntryExpanded: updateManualEntryExpanded,
         useEnteredPrice: () => setEnteredPriceInUse(true),
         useFocusedPrice,
-        retryRecognition: () =>
-          setRecognitionRestartKey((restartKey) => restartKey + 1),
+        retryRecognition: () => {
+          void recognitionPreparation.retry().catch(() => undefined);
+          setRecognitionRestartKey((restartKey) => restartKey + 1);
+        },
         retryReferenceRate: (targetCurrency) =>
           rates[targetCurrency]?.retry(),
         leaveWorkspace,

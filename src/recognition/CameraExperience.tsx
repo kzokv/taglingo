@@ -265,6 +265,8 @@ export function CameraExperienceOverlay({
       <div
         ref={onCaptureGuideReady}
         className="capture-guide"
+        role="region"
+        aria-label="Capture Guide"
         data-recognition-phase={recognition.phase}
       >
         <div className="capture-guide-label" aria-hidden="true">

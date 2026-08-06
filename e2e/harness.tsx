@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "../src/App";
@@ -14,7 +14,11 @@ import {
   DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS,
   type MemberPreferences
 } from "../src/member/memberPreferencesApi";
-import type { CreateRecognizer } from "../src/recognition/useCameraRecognition";
+import { MemberPreferencesRequestError } from "../src/member/memberPreferencesClient";
+import {
+  createBrowserRecognizer,
+  type CreateRecognizer
+} from "../src/recognition/useCameraRecognition";
 import {
   createCandidateTracker,
   type CandidateTrackingSnapshot
@@ -22,6 +26,8 @@ import {
 import type { DetectedPrice } from "../src/recognition/priceLocalization";
 import { createTestRecognitionProfile } from "../src/test/recognitionProfile";
 import { createCameraWorkspaceFixtureState } from "../src/test/cameraWorkspaceFixture";
+
+const searchParameters = new URLSearchParams(window.location.search);
 
 function fixtureRate(
   source: CurrencyCode,
@@ -42,8 +48,13 @@ function fixtureRate(
   };
 }
 
-const loadRate = async (source: CurrencyCode, target: CurrencyCode) =>
-  fixtureRate(source, target);
+const loadRate = async (source: CurrencyCode, target: CurrencyCode) => {
+  if (searchParameters.get("rate") === "missing" && target === "EUR") {
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    throw new Error("rate unavailable");
+  }
+  return fixtureRate(source, target);
+};
 
 function injectedWorkspaceState(): CameraWorkspaceState {
   return createCameraWorkspaceFixtureState(fixtureRate("JPY", "USD"));
@@ -52,11 +63,13 @@ function injectedWorkspaceState(): CameraWorkspaceState {
 function DeterministicCameraWorkspace({
   startPaused = false,
   currencyJourney = false,
-  overlapPrices = false
+  overlapPrices = false,
+  initialManualEntryExpanded = true
 }: {
   startPaused?: boolean;
   currencyJourney?: boolean;
   overlapPrices?: boolean;
+  initialManualEntryExpanded?: boolean;
 }) {
   const [state, setState] = useState(() => {
     const baseFocusedState = injectedWorkspaceState();
@@ -89,9 +102,16 @@ function DeterministicCameraWorkspace({
           }
         }
       : focusedState;
+    const stateWithManualEntry = {
+      ...initialState,
+      manualPriceEntry: {
+        ...initialState.manualPriceEntry,
+        expanded: initialManualEntryExpanded
+      }
+    };
     return startPaused
       ? {
-          ...initialState,
+          ...stateWithManualEntry,
           demo: false,
           camera: { status: "idle" as const, stream: null },
           recognition: {
@@ -106,7 +126,7 @@ function DeterministicCameraWorkspace({
             focusedPriceConfirmed: false
           }
         }
-      : initialState;
+      : stateWithManualEntry;
   });
   const [leftWorkspace, setLeftWorkspace] = useState(false);
   const actions: CameraWorkspaceActions = {
@@ -443,30 +463,48 @@ function DeterministicEvidenceLifecycleWorkspace() {
 
 const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
+    if (searchParameters.get("preparation") === "delayed") {
+      onProgress(0.25, "holding deterministic preparation fixture");
+      await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+    }
     onProgress(1, "deterministic browser fixture ready");
   },
   async recognize(image, passIdentity) {
+    const frameNumber = Number.parseInt(
+      passIdentity.frameIdentity.match(/frame-(\d+)$/u)?.[1] ?? "0",
+      10
+    );
+    const wobble = searchParameters.get("performance") === "warm"
+      ? [-2, 1, -1, 2][frameNumber % 4]
+      : 0;
     const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
     const canvas = image as HTMLCanvasElement;
     const sourceWidth = canvas.width / scale;
     const sourceHeight = canvas.height / scale;
     const primaryBox = {
-      x: (sourceWidth - 160) / 2,
-      y: (sourceHeight - 80) / 2,
+      x: (sourceWidth - 160) / 2 + wobble,
+      y: (sourceHeight - 80) / 2 - wobble,
       width: 160,
       height: 80
     };
-    const observations =
-      passIdentity.kind === "discovery"
+    const alternateBox = {
+      x: Math.max(20, sourceWidth * 0.16),
+      y: Math.max(20, sourceHeight * 0.72),
+      width: 140,
+      height: 72
+    };
+    const observations = searchParameters.get("performance") === "warm"
+      ? passIdentity.kind === "guide"
+        ? [
+            { text: "4,142円", box: primaryBox },
+            { text: "980円", box: alternateBox }
+          ]
+        : []
+      : passIdentity.kind === "discovery"
         ? [
             {
               text: "980円",
-              box: {
-                x: Math.max(20, sourceWidth * 0.16),
-                y: Math.max(20, sourceHeight * 0.72),
-                width: 140,
-                height: 72
-              }
+              box: alternateBox
             }
           ]
         : [{ text: "4,142円", box: primaryBox }];
@@ -504,41 +542,127 @@ const memberPreferences: MemberPreferences = {
   targetCurrencies: ["USD", "TWD", "EUR"],
   ...DEFAULT_RECOGNITION_EXPERIENCE_SETTINGS
 };
-const searchParameters = new URLSearchParams(window.location.search);
+const MEMBER_ACCESS_FIXTURES = [
+  "approved",
+  "loading",
+  "inactive",
+  "unavailable"
+] as const;
+type MemberAccessFixture = (typeof MEMBER_ACCESS_FIXTURES)[number];
+
+const memberPreferenceLoaders: Record<
+  MemberAccessFixture,
+  () => Promise<MemberPreferences | null>
+> = {
+  approved: async () => memberPreferences,
+  loading: () => new Promise<MemberPreferences | null>(() => undefined),
+  inactive: async () => {
+    throw new MemberPreferencesRequestError(
+      "inactive-membership",
+      "Deterministic inactive membership"
+    );
+  },
+  unavailable: async () => {
+    throw new Error("Deterministic member service failure");
+  }
+};
+
+function isMemberAccessFixture(
+  value: string | null
+): value is MemberAccessFixture {
+  return MEMBER_ACCESS_FIXTURES.includes(value as MemberAccessFixture);
+}
+
+function MemberAppFixture({
+  access,
+  createRecognizer
+}: {
+  access: MemberAccessFixture;
+  createRecognizer: CreateRecognizer;
+}) {
+  const [signedIn, setSignedIn] = useState(true);
+  const [savedChanges, setSavedChanges] = useState(0);
+  const loadMemberPreferences = useCallback(
+    () => memberPreferenceLoaders[access](),
+    [access]
+  );
+  const saveMemberPreferences = useCallback(
+    async (preferences: MemberPreferences) => {
+      setSavedChanges((count) => count + 1);
+      return preferences;
+    },
+    []
+  );
+
+  return (
+    <>
+      <App
+        memberSession={
+          signedIn
+            ? {
+                userId: memberPreferences.ownerId,
+                getSessionToken: async () => "deterministic-session-token"
+              }
+            : null
+        }
+        loadMemberPreferences={loadMemberPreferences}
+        saveMemberPreferences={saveMemberPreferences}
+        loadGuestRate={loadRate}
+        createRecognizer={createRecognizer}
+      />
+      {signedIn ? (
+        <aside
+          aria-label="Fixture account"
+          style={{ position: "fixed", right: 0, bottom: 0, zIndex: 10_000 }}
+        >
+          <button type="button" onClick={() => setSignedIn(false)}>
+            Sign out fixture account
+          </button>
+          <output
+            role="status"
+            aria-label="Member preference synchronization"
+          >
+            {savedChanges} saved {savedChanges === 1 ? "change" : "changes"}
+          </output>
+        </aside>
+      ) : null}
+    </>
+  );
+}
+
 const memberMode = searchParameters.get("mode") === "member";
+const memberAccessParameter = searchParameters.get("access");
+const memberAccess: MemberAccessFixture =
+  isMemberAccessFixture(memberAccessParameter)
+    ? memberAccessParameter
+    : "approved";
 const workspaceMode = searchParameters.get("workspace");
+const selectedRecognizer = searchParameters.get("preparation") === "first-use"
+  ? createBrowserRecognizer
+  : createFixtureRecognizer;
 createRoot(document.getElementById("root")!).render(
   workspaceMode === "lifecycle" ? (
     <DeterministicEvidenceLifecycleWorkspace />
   ) : workspaceMode === "focused" ||
     workspaceMode === "journey" ||
     workspaceMode === "currencies" ||
-    workspaceMode === "overlap" ? (
+    workspaceMode === "overlap" ||
+    workspaceMode === "responsive" ? (
     <DeterministicCameraWorkspace
       startPaused={workspaceMode === "journey"}
       currencyJourney={workspaceMode === "currencies"}
       overlapPrices={workspaceMode === "overlap"}
+      initialManualEntryExpanded={workspaceMode !== "responsive"}
     />
   ) : memberMode ? (
-    <App
-      memberSession={{
-        userId: memberPreferences.ownerId,
-        getSessionToken: async () => "deterministic-session-token"
-      }}
-      loadMemberPreferences={async () => memberPreferences}
-      saveMemberPreferences={async (preferences) => preferences}
-      loadGuestRate={loadRate}
-      createRecognizer={createFixtureRecognizer}
-      admission={
-        <section aria-label="Fixture account">
-          <button type="button">Sign out fixture account</button>
-        </section>
-      }
+    <MemberAppFixture
+      access={memberAccess}
+      createRecognizer={selectedRecognizer}
     />
   ) : (
     <App
       loadGuestRate={loadRate}
-      createRecognizer={createFixtureRecognizer}
+      createRecognizer={selectedRecognizer}
       admission={
         <section aria-label="Fixture member admission">
           <button type="button">Request fixture member access</button>

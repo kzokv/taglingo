@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { isGuestCameraCurrency } from "../src/domain/cameraAccess";
+import { SOURCE_CURRENCIES } from "../src/domain/currencies";
+
 async function installDeniedCamera(page: Page) {
   await page.addInitScript(() => {
     Object.defineProperty(window.navigator, "mediaDevices", {
@@ -15,15 +18,21 @@ async function installDeniedCamera(page: Page) {
 
 async function installDeterministicCamera(page: Page) {
   await page.addInitScript(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1920;
-    canvas.height = 1080;
-    const context = canvas.getContext("2d");
-    context?.fillRect(0, 0, canvas.width, canvas.height);
-    const stream = canvas.captureStream(5);
     Object.defineProperty(window.navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: async () => stream }
+      value: {
+        getUserMedia: async () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 1920;
+          canvas.height = 1080;
+          const context = canvas.getContext("2d");
+          context?.fillRect(0, 0, canvas.width, canvas.height);
+          const stream = canvas.captureStream(5);
+          (window as typeof window & { __cameraPermissionGrantedAt?: number })
+            .__cameraPermissionGrantedAt = performance.now();
+          return stream;
+        }
+      }
     });
   });
 }
@@ -44,6 +53,12 @@ function observeRequestsAfterStart(page: Page) {
       observing = true;
     }
   };
+}
+
+async function convertManualPrice(page: Page) {
+  await page.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
+  await page.getByRole("button", { name: /convert entered price/i }).click();
+  await expect(page.getByText("USD 33.56")).toBeVisible();
 }
 
 test.beforeEach(async ({ context }) => {
@@ -547,36 +562,54 @@ test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired,
 test("Guest camera policy keeps five currencies available and promotes all others to manual", async ({
   page
 }) => {
+  test.setTimeout(120_000);
   await page.goto("/e2e/harness.html");
+  await expect(
+    page.getByRole("complementary", { name: /guest camera allowance/i })
+  ).toContainText(/browser-local allowance/i);
+  await expect(
+    page.getByRole("region", { name: /recognition experience settings/i })
+  ).toHaveCount(0);
   const sourceCurrency = page.getByRole("combobox", {
     name: /source currency/i
   });
 
-  for (const currency of ["USD", "AUD", "JPY", "TWD", "EUR"]) {
-    await sourceCurrency.selectOption(currency);
-    await expect(page.getByRole("button", { name: /open camera/i })).toBeEnabled();
-  }
+  for (const { code } of SOURCE_CURRENCIES) {
+    await sourceCurrency.selectOption(code);
+    if (isGuestCameraCurrency(code)) {
+      await expect(
+        page.getByRole("button", { name: /open camera/i })
+      ).toBeEnabled();
+      continue;
+    }
 
-  await sourceCurrency.selectOption("CAD");
-  await expect(
-    page.getByRole("heading", { name: /manual price entry/i })
-  ).toBeVisible();
-  await expect(page.getByText(/CAD remains available through unlimited/i)).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /manual price entry/i })
+    ).toBeVisible();
+    await expect(
+      page.getByText(new RegExp(`${code} remains available through unlimited`, "i"))
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: /close manual price entry/i })
+      .click();
+  }
 });
 
 test("Guest camera exhaustion shows its rolling refresh while manual stays unlimited", async ({
   page
 }) => {
+  test.setTimeout(45_000);
+  await installDeterministicCamera(page);
   await page.addInitScript(() => {
     const nowMs = Date.now();
     window.localStorage.setItem(
       "taglingo.guest-camera-allowance.v1",
       JSON.stringify({
         version: 1,
-        successfulUsageTimestamps: Array.from(
-          { length: 10 },
-          (_, index) => nowMs - index * 1_000
-        )
+        successfulUsageTimestamps: [
+          nowMs - 3_600_000 + 8_000,
+          ...Array.from({ length: 9 }, (_, index) => nowMs - index * 1_000)
+        ]
       })
     );
   });
@@ -592,10 +625,50 @@ test("Guest camera exhaustion shows its rolling refresh while manual stays unlim
     name: /enter price manually · unlimited/i
   });
   await expect(manual).toBeEnabled();
-  await manual.click();
   await expect(
-    page.getByRole("heading", { name: /manual price entry/i })
-  ).toBeVisible();
+    page.getByRole("button", { name: /open camera/i })
+  ).toBeEnabled({ timeout: 12_000 });
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(
+    page.getByRole("region", { name: /recognition summary/i }).locator("strong")
+  ).toHaveText("Focused Price · JPY 4,142", { timeout: 12_000 });
+  expect(
+    await page.evaluate(() => {
+      const timestamps = (
+        JSON.parse(
+          window.localStorage.getItem("taglingo.guest-camera-allowance.v1") ??
+            "null"
+        ) as { successfulUsageTimestamps?: number[] } | null
+      )?.successfulUsageTimestamps;
+      return {
+        count: timestamps?.length,
+        allUnexpired: timestamps?.every(
+          (timestamp) => timestamp > Date.now() - 3_600_000
+        )
+      };
+    })
+  ).toEqual({ count: 10, allUnexpired: true });
+});
+
+test("Guest keeps camera and unlimited Manual Price Entry when browser storage is blocked", async ({
+  page
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Blocked by browser policy", "SecurityError");
+      }
+    });
+  });
+  await installDeniedCamera(page);
+  await page.goto("/e2e/harness.html");
+
+  await expect(page.getByRole("button", { name: /open camera/i })).toBeEnabled();
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(page.getByRole("alert")).toContainText("Camera access was denied");
+
+  await convertManualPrice(page);
 });
 
 test("Guest converts an Entered Price for a manual-only Source Currency", async ({
@@ -907,6 +980,26 @@ test("Approved Member keeps all-currency camera access and confirms a Focused Pr
         )
       })
     );
+    const originalGetItem = Storage.prototype.getItem;
+    const originalSetItem = Storage.prototype.setItem;
+    let guestAllowanceReads = 0;
+    let guestAllowanceWrites = 0;
+    Storage.prototype.getItem = function (key) {
+      if (key === "taglingo.guest-camera-allowance.v1") {
+        guestAllowanceReads += 1;
+      }
+      return originalGetItem.call(this, key);
+    };
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "taglingo.guest-camera-allowance.v1") {
+        guestAllowanceWrites += 1;
+      }
+      return originalSetItem.call(this, key, value);
+    };
+    Object.defineProperty(window, "__guestAllowanceAccess", {
+      configurable: true,
+      value: () => ({ guestAllowanceReads, guestAllowanceWrites })
+    });
   });
   await page.goto("/e2e/harness.html?mode=member");
 
@@ -927,6 +1020,9 @@ test("Approved Member keeps all-currency camera access and confirms a Focused Pr
   await settings
     .getByRole("combobox", { name: /when a focused price appears/i })
     .selectOption("confirm");
+  await expect(
+    page.getByRole("status", { name: /member preference synchronization/i })
+  ).toHaveText("3 saved changes");
   await page.getByRole("button", { name: /try without camera/i }).click();
 
   await expect(
@@ -939,10 +1035,111 @@ test("Approved Member keeps all-currency camera access and confirms a Focused Pr
   await expect(page.getByText("USD 27.80")).toBeVisible();
   expect(
     await page.evaluate(() =>
+      (
+        window as typeof window & {
+          __guestAllowanceAccess(): {
+            guestAllowanceReads: number;
+            guestAllowanceWrites: number;
+          };
+        }
+      ).__guestAllowanceAccess()
+    )
+  ).toEqual({ guestAllowanceReads: 0, guestAllowanceWrites: 0 });
+  expect(
+    await page.evaluate(() =>
       JSON.parse(
         window.localStorage.getItem("taglingo.guest-camera-allowance.v1") ??
           "null"
       )?.successfulUsageTimestamps.length
     )
   ).toBe(10);
+});
+
+test("Approved Member can start Camera Recognition for every Source Currency", async ({
+  page
+}) => {
+  test.setTimeout(90_000);
+  await page.goto("/e2e/harness.html?mode=member");
+  await expect(page.getByText("Approved Member mode")).toBeVisible();
+  const sourceCurrency = page.getByRole("combobox", {
+    name: /source currency/i
+  });
+
+  for (const { code } of SOURCE_CURRENCIES) {
+    await sourceCurrency.selectOption(code);
+    await expect(
+      page.getByRole("button", { name: /open camera/i })
+    ).toBeEnabled();
+  }
+});
+
+const signedInAccessJourneys = [
+  {
+    access: "loading",
+    status: /checking member access/i,
+    cameraAction: /enter price manually/i,
+    openComposer: false
+  },
+  {
+    access: "inactive",
+    status: /signed in · guest limits/i,
+    cameraAction: /try without camera/i,
+    openComposer: true
+  },
+  {
+    access: "unavailable",
+    status: /member access unavailable/i,
+    cameraAction: /enter price manually/i,
+    openComposer: false
+  }
+] as const;
+
+for (const {
+  access,
+  status,
+  cameraAction,
+  openComposer
+} of signedInAccessJourneys) {
+  test(`Signed-in ${access} access stays truthful while Manual Price Entry works`, async ({
+    page
+  }) => {
+    await page.goto(`/e2e/harness.html?mode=member&access=${access}`);
+
+    await expect(page.getByText(status).first()).toBeVisible();
+    await expect(page.getByText(/^Guest mode$/i)).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: /recognition experience settings/i })
+    ).toHaveCount(0);
+
+    await page
+      .getByRole("button", { name: cameraAction })
+      .click();
+    if (openComposer) {
+      await page
+        .getByRole("region", { name: /manual price entry/i })
+        .getByRole("button", { name: /open manual price entry/i })
+        .click();
+    }
+    await convertManualPrice(page);
+  });
+}
+
+test("Approved Member sign-out removes member settings without losing Manual Price Entry", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?mode=member");
+  await expect(page.getByText("Approved Member mode")).toBeVisible();
+  await page.getByRole("button", { name: /try without camera/i }).click();
+  await page
+    .getByRole("region", { name: /manual price entry/i })
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  await convertManualPrice(page);
+
+  await page.getByRole("button", { name: /sign out fixture account/i }).click();
+  await expect(page.getByText("Guest · 1")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: /recognition experience settings/i })
+  ).toHaveCount(0);
+  await expect(page.getByText("USD 33.56")).toBeVisible();
 });

@@ -45,15 +45,17 @@ test("checked-in generated and real-world bytes produce declared browser-local R
   page
 }, testInfo) => {
   test.setTimeout(180_000);
+  const localOrigin = new URL(testInfo.project.use.baseURL!).origin;
   const externalRequests: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.origin !== "http://127.0.0.1:4173") {
+    if (url.origin !== localOrigin) {
       externalRequests.push(request.url());
     }
   });
-  await page.route(/^https?:\/\/(?!127\.0\.0\.1:4173)/u, (route) =>
-    route.abort("blockedbyclient")
+  await page.route(
+    (url) => url.protocol.startsWith("http") && url.origin !== localOrigin,
+    (route) => route.abort("blockedbyclient")
   );
   await page.goto("/e2e/recognition-fixtures.html");
 

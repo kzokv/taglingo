@@ -7,6 +7,7 @@ import type {
   RecognizerObservation
 } from "./ocrRecognizer";
 import { UNIVERSAL_RECOGNITION_RUNTIME } from "./recognitionRuntime";
+import { createRecognitionPreparation } from "./recognitionPreparation";
 import { useCameraRecognition } from "./useCameraRecognition";
 
 function deferred<T>() {
@@ -115,6 +116,10 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
     terminate: vi.fn().mockResolvedValue(undefined)
   };
   const createRecognizer = () => recognizer;
+  const preparation = createRecognitionPreparation({
+    runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+    createRecognizer
+  });
 
   const { unmount } = renderHook(() =>
     useCameraRecognition({
@@ -124,7 +129,7 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
       video: cameraVideo,
       preview: cameraPreview,
       captureGuide,
-      createRecognizer
+      preparation
     })
   );
 
@@ -164,6 +169,7 @@ it("crops every Guide pass to the visible Capture Guide and discovery to the ful
   );
 
   unmount();
+  preparation.dispose();
 });
 
 it("publishes only stable Detected Prices from distinct completed frames", async () => {
@@ -198,6 +204,10 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   const cameraPreview = preview();
   const cameraVideo = video();
   const createRecognizer = () => recognizer;
+  const preparation = createRecognitionPreparation({
+    runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+    createRecognizer
+  });
 
   const { result, unmount } = renderHook(() =>
     useCameraRecognition({
@@ -207,7 +217,7 @@ it("publishes only stable Detected Prices from distinct completed frames", async
       video: cameraVideo,
       preview: cameraPreview,
       captureGuide: cameraPreview,
-      createRecognizer
+      preparation
     })
   );
 
@@ -236,6 +246,7 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   );
 
   unmount();
+  preparation.dispose();
 });
 
 function observation(): RecognizerObservation {
@@ -260,32 +271,44 @@ function observation(): RecognizerObservation {
   };
 }
 
-it("releases prior generations and discards their stale results", async () => {
+it("serializes generations and discards their stale results", async () => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
     canvasContext()
   );
   const staleRecognition = deferred<RecognizerObservation[]>();
-  const firstRelease = deferred<void>();
-  const firstRecognizer: OcrRecognizer = {
+  let activeRecognitions = 0;
+  let maximumActiveRecognitions = 0;
+  const recognize = vi
+    .fn<() => Promise<RecognizerObservation[]>>()
+    .mockImplementationOnce(async () => {
+      activeRecognitions += 1;
+      maximumActiveRecognitions = Math.max(
+        maximumActiveRecognitions,
+        activeRecognitions
+      );
+      const result = await staleRecognition.promise;
+      activeRecognitions -= 1;
+      return result;
+    })
+    .mockImplementation(async () => {
+      activeRecognitions += 1;
+      maximumActiveRecognitions = Math.max(
+        maximumActiveRecognitions,
+        activeRecognitions
+      );
+      activeRecognitions -= 1;
+      return [];
+    });
+  const recognizer: OcrRecognizer = {
     prepare: vi.fn().mockResolvedValue(undefined),
-    recognize: vi.fn().mockReturnValueOnce(staleRecognition.promise),
-    terminate: vi.fn().mockReturnValue(firstRelease.promise)
-  };
-  const nextRecognizer = (): OcrRecognizer => ({
-    prepare: vi.fn().mockResolvedValue(undefined),
-    recognize: vi.fn().mockResolvedValue([]),
+    recognize,
     terminate: vi.fn().mockResolvedValue(undefined)
+  };
+  const createRecognizer = vi.fn(() => recognizer);
+  const preparation = createRecognitionPreparation({
+    runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+    createRecognizer
   });
-  const secondRecognizer = nextRecognizer();
-  const thirdRecognizer = nextRecognizer();
-  const fourthRecognizer = nextRecognizer();
-  const recognizers = [
-    firstRecognizer,
-    secondRecognizer,
-    thirdRecognizer,
-    fourthRecognizer
-  ];
-  const createRecognizer = vi.fn(() => recognizers.shift()!);
   const firstVideo = video();
   const secondVideo = video();
   const cameraPreview = preview();
@@ -304,7 +327,7 @@ it("releases prior generations and discards their stale results", async () => {
         video: cameraVideo,
         preview: cameraPreview,
         captureGuide: cameraPreview,
-        createRecognizer,
+        preparation,
         recognitionRestartKey: restartKey
       }),
     {
@@ -317,43 +340,44 @@ it("releases prior generations and discards their stale results", async () => {
   );
 
   await waitFor(() =>
-    expect(firstRecognizer.recognize).toHaveBeenCalledOnce()
+    expect(recognizer.recognize).toHaveBeenCalledOnce()
   );
   rerender({
     sourceCurrency: "USD",
     cameraVideo: firstVideo,
     restartKey: 0
   });
-  await waitFor(() => expect(firstRecognizer.terminate).toHaveBeenCalledOnce());
   expect(createRecognizer).toHaveBeenCalledOnce();
-
-  await act(async () => firstRelease.resolve());
-  await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(2));
-  expect(createRecognizer).toHaveBeenLastCalledWith(
-    UNIVERSAL_RECOGNITION_RUNTIME,
-    expect.any(Function)
-  );
+  expect(recognizer.recognize).toHaveBeenCalledOnce();
 
   await act(async () => staleRecognition.resolve([observation()]));
+  await waitFor(() =>
+    expect(recognize.mock.calls.length).toBeGreaterThanOrEqual(6)
+  );
   expect(result.current.focusedPrice).toBeNull();
+  expect(maximumActiveRecognitions).toBe(1);
 
   rerender({
     sourceCurrency: "USD",
     cameraVideo: secondVideo,
     restartKey: 0
   });
-  await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(3));
-  expect(secondRecognizer.terminate).toHaveBeenCalledOnce();
+  const callsAfterSourceChange = recognize.mock.calls.length;
 
   rerender({
     sourceCurrency: "USD",
     cameraVideo: secondVideo,
     restartKey: 1
   });
-  await waitFor(() => expect(createRecognizer).toHaveBeenCalledTimes(4));
-  expect(thirdRecognizer.terminate).toHaveBeenCalledOnce();
+  await waitFor(() =>
+    expect(recognize.mock.calls.length).toBeGreaterThan(
+      callsAfterSourceChange
+    )
+  );
 
   unmount();
-  await waitFor(() => expect(fourthRecognizer.terminate).toHaveBeenCalledOnce());
-  expect(recognizers).toHaveLength(0);
-});
+  expect(recognizer.terminate).not.toHaveBeenCalled();
+  preparation.dispose();
+  await waitFor(() => expect(recognizer.terminate).toHaveBeenCalledOnce());
+  expect(createRecognizer).toHaveBeenCalledOnce();
+}, 15_000);

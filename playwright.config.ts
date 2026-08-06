@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const port = process.env.TAGLINGO_E2E_PORT ?? "4173";
+const baseURL = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "*.spec.ts",
@@ -9,7 +12,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     serviceWorkers: "block",
     screenshot: "only-on-failure",
     trace: "retain-on-failure"
@@ -22,8 +25,8 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "npm run dev:spa -- --host 127.0.0.1 --port 4173 --strictPort",
-    url: "http://127.0.0.1:4173/e2e/harness.html",
+      `npm run dev:spa -- --host 127.0.0.1 --port ${port} --strictPort`,
+    url: `${baseURL}/e2e/harness.html`,
     reuseExistingServer: !process.env.CI
   }
 });

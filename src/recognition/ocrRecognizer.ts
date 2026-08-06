@@ -86,6 +86,11 @@ export interface OcrRecognizer {
   terminate(): Promise<void>;
 }
 
+export type CreateRecognizer = (
+  runtime: RecognitionRuntimeConfiguration,
+  onProgress: (progress: number, status: string) => void
+) => OcrRecognizer;
+
 function defaultWorkerFactory(
   languages: string[],
   engineMode: Tesseract.OEM,
@@ -117,7 +122,10 @@ export async function verifyRecognitionAssets(
   } = {}
 ): Promise<void> {
   for (const { path, hash, decodedHash } of assets) {
-    const response = await fetcher(path, { credentials: "same-origin" });
+    const response = await fetcher(path, {
+      credentials: "same-origin",
+      cache: "force-cache"
+    });
     if (!response.ok) {
       throw new Error(`Recognition asset could not be loaded: ${path}`);
     }
