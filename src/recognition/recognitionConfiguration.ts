@@ -16,7 +16,7 @@ export interface TesseractRecognizerConfiguration {
   readonly runtimeVersion: "7.0.0";
   readonly delivery: {
     readonly gzipModels: true;
-    readonly workerBlobUrl: false;
+    readonly workerBlobUrl: boolean;
     readonly cacheMethod: "none";
   };
   readonly languages: readonly string[];

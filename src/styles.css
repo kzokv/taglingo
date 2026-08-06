@@ -1751,6 +1751,11 @@ button.focus-target {
   font-size: 1.1rem;
 }
 
+.manual-price-composer.is-promoted .manual-composer-toggle {
+  border-color: rgba(151, 232, 198, 0.72);
+  box-shadow: 0 0 0 2px rgba(151, 232, 198, 0.12);
+}
+
 .compact-composer .manual-composer-content {
   padding: 0 14px 14px;
   border: 1px solid rgba(255, 195, 107, 0.22);
@@ -2192,6 +2197,15 @@ button.focus-target {
     );
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .camera-shell .workspace-currency-controls:has(.camera-currency-sheet) {
+    z-index: 80;
+  }
+
+  .camera-shell .camera-currency-sheet {
+    box-shadow: 0 18px 54px rgba(0, 0, 0, 0.58);
   }
 
   .camera-shell .detected-prices-sheet-backdrop {
@@ -2670,6 +2684,79 @@ button.focus-target {
 
   .camera-shell .detected-prices-rail > ul button > em {
     font-size: 0.48rem;
+  }
+
+  .camera-shell .workspace-recognition-controls {
+    width: min(112px, calc(100% - 96px));
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .camera-shell .recognition-status-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 8px;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: rgba(7, 16, 22, 0.92);
+    color: var(--mint);
+  }
+
+  .camera-shell .recognition-status-toggle strong {
+    overflow: hidden;
+    font-size: 0.58rem;
+    text-overflow: ellipsis;
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="error"] {
+    color: var(--coral);
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="paused"] {
+    color: #f2b84b;
+  }
+
+  .camera-shell .recognition-status-content {
+    display: none;
+  }
+
+  .camera-shell .compact-recognition-live {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] {
+    position: absolute;
+    z-index: 75;
+    top: max(8px, var(--camera-inset-top));
+    right: max(8px, var(--camera-inset-right));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    max-height: calc(100% - 16px);
+    padding: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: rgba(7, 16, 22, 0.97);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-toggle {
+    width: min(160px, 100%);
+    margin-left: auto;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-content {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status p,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status progress,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-note {
+    display: block;
   }
 }
 

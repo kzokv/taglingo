@@ -144,7 +144,9 @@ export function CurrencySettings({
   compact = false,
   sourceCurrencyDisabled = false,
   searchableSource = false,
-  showSwap = false
+  showSwap = false,
+  onPickerOpenChange,
+  closePickersRevision = 0
 }: {
   preferences: ExperiencePreferences;
   onChange: (preferences: ExperiencePreferences) => void;
@@ -154,6 +156,8 @@ export function CurrencySettings({
   sourceCurrencyDisabled?: boolean;
   searchableSource?: boolean;
   showSwap?: boolean;
+  onPickerOpenChange?: (open: boolean) => void;
+  closePickersRevision?: number;
 }) {
   const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [sourceQuery, setSourceQuery] = useState("");
@@ -184,6 +188,11 @@ export function CurrencySettings({
           : memberAccessStatus === "guest-choice"
             ? "Signed in · Guest limits"
             : "Guest · 1";
+
+  useEffect(() => {
+    setIsSourcePickerOpen(false);
+    setIsTargetPickerOpen(false);
+  }, [closePickersRevision]);
 
   useEffect(() => {
     if (!isSourcePickerOpen && !isTargetPickerOpen) {
@@ -260,7 +269,6 @@ export function CurrencySettings({
           : [...preferences.targetCurrencies, target]
     });
   };
-
   return (
     <div
       className={`${compact ? "currency-grid compact" : "currency-grid"}${
@@ -282,8 +290,10 @@ export function CurrencySettings({
             aria-controls={isSourcePickerOpen ? sourceListId : undefined}
             disabled={sourceCurrencyDisabled}
             onClick={() => {
+              const nextOpen = !isSourcePickerOpen;
               setIsTargetPickerOpen(false);
-              setIsSourcePickerOpen((open) => !open);
+              setIsSourcePickerOpen(nextOpen);
+              onPickerOpenChange?.(nextOpen);
             }}
           >
             <strong>{preferences.sourceCurrency}</strong>
@@ -291,7 +301,7 @@ export function CurrencySettings({
             <span aria-hidden="true">⌄</span>
           </button>
           {isSourcePickerOpen ? (
-            <div className="source-currency-popover currency-picker-popover">
+            <div className="source-currency-popover currency-picker-popover camera-currency-sheet">
               <div className="target-currency-heading">
                 <div>
                   <strong>Choose Source Currency</strong>
@@ -377,16 +387,18 @@ export function CurrencySettings({
           aria-expanded={isTargetPickerOpen}
           aria-controls={isTargetPickerOpen ? targetListId : undefined}
           onClick={() => {
+            const nextOpen = !isTargetPickerOpen;
             setIsSourcePickerOpen(false);
-            setIsTargetPickerOpen((open) => !open);
+            setIsTargetPickerOpen(nextOpen);
+            onPickerOpenChange?.(nextOpen);
           }}
         >
           <strong>{preferences.targetCurrencies.length} selected</strong>
           <small>{preferences.targetCurrencies.join(" · ")}</small>
           <span aria-hidden="true">⌄</span>
         </button>
-        {isTargetPickerOpen ? (
-          <div className="target-currency-popover">
+          {isTargetPickerOpen ? (
+          <div className="target-currency-popover camera-currency-sheet">
             <div className="target-currency-heading">
               <div>
                 <strong>Choose Target Currencies</strong>
@@ -508,7 +520,8 @@ export function ManualPriceComposer({
   expanded,
   compact = false,
   onEnteredPriceChange,
-  onExpandedChange
+  onExpandedChange,
+  promoted = false
 }: {
   sourceCurrency: SourceCurrencyCode;
   enteredPrice: EnteredPrice | null;
@@ -516,6 +529,7 @@ export function ManualPriceComposer({
   compact?: boolean;
   onEnteredPriceChange: (enteredPrice: EnteredPrice | null) => void;
   onExpandedChange?: (expanded: boolean) => void;
+  promoted?: boolean;
 }) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -574,7 +588,7 @@ export function ManualPriceComposer({
 
   return (
     <section
-      className={`manual-price-composer ${compact ? "compact-composer" : ""}`}
+      className={`manual-price-composer ${compact ? "compact-composer" : ""}${promoted ? " is-promoted" : ""}`}
       aria-label="Manual Price Entry"
     >
       {onExpandedChange ? (
@@ -633,9 +647,6 @@ export function ManualPriceComposer({
             >
               {error ?? entryGuidance.message}
             </p>
-            <button className="primary-button" type="submit">
-              Convert Entered Price <span aria-hidden="true">→</span>
-            </button>
           </form>
 
           {enteredPrice ? (
@@ -787,7 +798,8 @@ export function ConversionLedger({
   emptyMessage = "Point at a price to see the conversion.",
   onContinueAsGuest,
   collapsibleReferenceRateDetails = false,
-  compactPrimaryResult = false
+  compactPrimaryResult = false,
+  onDetailsOpen
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
@@ -798,6 +810,7 @@ export function ConversionLedger({
   onContinueAsGuest: () => void;
   collapsibleReferenceRateDetails?: boolean;
   compactPrimaryResult?: boolean;
+  onDetailsOpen?: () => void;
 }) {
   const accessFailure = targetCurrencies
     .map((targetCurrency) => rates[targetCurrency])
@@ -853,7 +866,12 @@ export function ConversionLedger({
         ? renderConversion(primaryTarget)
         : targetCurrencies.map(renderConversion)}
       {compactPrimaryResult && additionalTargets.length > 0 ? (
-        <details className="conversion-detail-surface">
+        <details
+          className="conversion-detail-surface"
+          onToggle={(event) => {
+            if (event.currentTarget.open) onDetailsOpen?.();
+          }}
+        >
           <summary
             aria-label={`Toggle all ${targetCurrencies.length.toString()} Target Currency conversions`}
           >

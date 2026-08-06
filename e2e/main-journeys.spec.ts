@@ -56,8 +56,15 @@ function observeRequestsAfterStart(page: Page) {
 }
 
 async function convertManualPrice(page: Page) {
-  await page.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
-  await page.getByRole("button", { name: /convert entered price/i }).click();
+  const openComposer = page.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  if ((await openComposer.count()) > 0 && (await openComposer.isVisible())) {
+    await openComposer.click();
+  }
+  const amount = page.getByRole("textbox", { name: /jpy amount/i });
+  await amount.fill("5,000");
+  await amount.press("Enter");
   await expect(page.getByText("USD 33.56")).toBeVisible();
 }
 
@@ -95,6 +102,9 @@ test("Camera Workspace debounces valid manual entry and preserves it through inv
   await expect(
     page.getByRole("status", { name: /price used for conversion/i })
   ).toContainText("Entered Price in use");
+  await expect(
+    page.getByRole("region", { name: /entered price conversion/i })
+  ).toBeVisible();
   await expect(page.getByText("USD 33.56")).toBeVisible();
   await expect(
     page.getByRole("region", { name: /^entered price$/i })
@@ -179,6 +189,80 @@ test("Detected Prices rail preserves its compact context, moves by pointer, and 
   await expect(
     page.getByRole("status", { name: /detected price updates/i })
   ).toContainText(/explicit focus lock renewed.*price 1 of 2/i);
+});
+
+test("Detected Prices rail remembers its position and compact state after reopening the camera", async ({
+  page
+}) => {
+  await installDeterministicCamera(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html");
+  await page.getByRole("button", { name: /open camera/i }).click();
+
+  let rail = page.getByRole("region", { name: /detected prices rail/i });
+  await rail.waitFor();
+  const handle = rail.locator("[data-detected-prices-drag-handle]");
+  const handleBounds = await handle.boundingBox();
+  expect(handleBounds).not.toBeNull();
+  await page.mouse.move(
+    handleBounds!.x + handleBounds!.width / 2,
+    handleBounds!.y + handleBounds!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    handleBounds!.x + handleBounds!.width / 2 + 72,
+    handleBounds!.y + handleBounds!.height / 2 - 32,
+    { steps: 4 }
+  );
+  await page.mouse.up();
+  await rail
+    .getByRole("button", { name: /collapse detected prices rail/i })
+    .click();
+  const beforeClose = await rail.evaluate((element) => ({
+    collapsed: element.classList.contains("is-collapsed"),
+    transform: (element as HTMLElement).style.transform
+  }));
+
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await page.getByRole("button", { name: /open camera/i }).click();
+  rail = page.getByRole("region", { name: /detected prices rail/i });
+  await rail.waitFor();
+  await expect(rail).toHaveClass(/is-collapsed/);
+  await expect
+    .poll(() =>
+      rail.evaluate((element) => (element as HTMLElement).style.transform)
+    )
+    .toBe(beforeClose.transform);
+
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await page.evaluate((storageKey) => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ collapsed: true, offset: { x: 10_000, y: 10_000 } })
+    );
+  }, "taglingo.detected-prices-rail-presentation.v1");
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByRole("button", { name: /open camera/i }).click();
+  rail = page.getByRole("region", { name: /detected prices rail/i });
+  const preview = page.getByRole("region", { name: /price camera/i });
+  await expect
+    .poll(async () => {
+      const [railBounds, previewBounds] = await Promise.all([
+        rail.boundingBox(),
+        preview.boundingBox()
+      ]);
+      return Boolean(
+        railBounds &&
+          previewBounds &&
+          railBounds.x >= previewBounds.x - 1 &&
+          railBounds.y >= previewBounds.y - 1 &&
+          railBounds.x + railBounds.width <=
+            previewBounds.x + previewBounds.width + 1 &&
+          railBounds.y + railBounds.height <=
+            previewBounds.y + previewBounds.height + 1
+      );
+    })
+    .toBe(true);
 });
 
 test("Detected Prices expands to a modal semantic list with inertness and predictable focus recovery", async ({
@@ -370,6 +454,10 @@ test("Camera Workspace keeps primary controls on the dominant preview surface", 
   const manualEntry = workspace.getByRole("region", {
     name: /manual price entry/i
   });
+  const openManualEntry = manualEntry.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  if ((await openManualEntry.count()) > 0) await openManualEntry.click();
   await expect(
     manualEntry.getByRole("textbox", { name: /jpy amount/i })
   ).toBeVisible();
@@ -433,6 +521,9 @@ test("Camera Workspace supports matched currency search, multi-selection, swap, 
     name: /manual price entry/i
   });
   await manualEntry
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  await manualEntry
     .getByRole("textbox", { name: /jpy amount/i })
     .fill("5,000");
   await expect(
@@ -452,9 +543,10 @@ test("Camera Workspace supports matched currency search, multi-selection, swap, 
   await expect(
     currencies.getByRole("button", { name: /source currency: chf/i })
   ).toBeVisible();
-  await expect(
-    manualEntry.getByRole("textbox", { name: /chf amount/i })
-  ).toHaveValue("");
+  await manualEntry
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  await expect(manualEntry.getByRole("textbox", { name: /chf amount/i })).toHaveValue("");
   await expect(
     page.getByRole("region", { name: /^entered price$/i })
   ).toHaveCount(0);
@@ -516,8 +608,8 @@ test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired,
   ).toBe("dotted");
   await expect(page.locator("[data-detected-price]")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: /detected prices — none available/i })
-  ).toBeVisible();
+    page.getByRole("region", { name: /detected prices rail/i })
+  ).toHaveCount(0);
   await expect(page.getByRole("list", { name: /detected prices/i })).toHaveCount(0);
   await expect(summary).toHaveText("No Focused Price yet");
   await expect(page.getByText("USD 27.80")).toHaveCount(0);
@@ -553,8 +645,8 @@ test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired,
   await controls.getByRole("button", { name: /covered miss/i }).click();
   await expect(detection).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: /detected prices — none available/i })
-  ).toBeVisible();
+    page.getByRole("region", { name: /detected prices rail/i })
+  ).toHaveCount(0);
   await expect(summary).toHaveText("No Focused Price yet");
   await expect(page.getByText("USD 27.80")).toHaveCount(0);
 });
@@ -694,10 +786,9 @@ test("Guest converts an Entered Price for a manual-only Source Currency", async 
     page.getByText(/camera recognition is unavailable for this access mode/i)
   ).toBeVisible();
   enteredPriceTraffic.start();
-  await page.getByRole("textbox", { name: /brl amount/i }).fill("R$ 12,34");
-  await page
-    .getByRole("button", { name: /convert entered price/i })
-    .click();
+  const amount = page.getByRole("textbox", { name: /brl amount/i });
+  await amount.fill("R$ 12,34");
+  await amount.press("Enter");
 
   const enteredPrice = page.getByRole("region", { name: /entered price/i });
   await expect(enteredPrice).toContainText("BRL 12,34");
@@ -772,6 +863,9 @@ test("Guest recovers from deterministic camera denial with Manual Price Entry", 
     page.getByRole("button", { name: /use no-camera demo/i })
   ).toHaveCount(0);
   const composer = page.getByRole("region", { name: /manual price entry/i });
+  await composer
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
   await expect(
     composer.getByRole("textbox", { name: /jpy amount/i })
   ).toBeVisible();

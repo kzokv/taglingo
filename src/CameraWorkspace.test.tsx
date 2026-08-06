@@ -225,10 +225,10 @@ describe("Camera Workspace boundary", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       "5,000"
     );
-    await user.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
     expect(actions.enterPrice).toHaveBeenCalledWith({
       provenance: "entered",

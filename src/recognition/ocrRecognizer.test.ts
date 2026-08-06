@@ -65,6 +65,7 @@ describe("Recognizer Adapter", () => {
         corePath: "/ocr/tesseract-core-7.0.0",
         langPath: "/ocr/tessdata_fast-4.1.0",
         gzip: true,
+        workerBlobURL: true,
         cacheMethod: "none"
       })
     );

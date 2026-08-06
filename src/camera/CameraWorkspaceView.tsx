@@ -400,11 +400,9 @@ export function CameraWorkspace({
   const workspaceRef = useRef<HTMLElement>(null);
   const [detectedPricesSheetOpen, setDetectedPricesSheetOpen] = useState(false);
   const [recognitionStatusOpen, setRecognitionStatusOpen] = useState(false);
-  const [compactStatusSurface, setCompactStatusSurface] = useState(() =>
-    typeof window === "undefined"
-      ? false
-      : window.innerWidth <= 340 || window.innerHeight <= 640
-  );
+  const [compactStatusSurface, setCompactStatusSurface] = useState(false);
+  const [currencyPickerCloseRevision, setCurrencyPickerCloseRevision] =
+    useState(0);
   const selectionRevision = useRef(0);
   const clearHeldPricesRevision = useRef(0);
   const lastExplicitSelectionIdentity = useRef(
@@ -414,6 +412,22 @@ export function CameraWorkspace({
     useState<ExplicitPriceSelectionEvent | null>(null);
   const [clearHeldPricesEvent, setClearHeldPricesEvent] =
     useState<ClearHeldPricesEvent | null>(null);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(
+      "(max-width: 680px), (max-height: 640px)"
+    );
+    const updateCompactStatusSurface = () =>
+      setCompactStatusSurface(media.matches);
+    updateCompactStatusSurface();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", updateCompactStatusSurface);
+      return () =>
+        media.removeEventListener("change", updateCompactStatusSurface);
+    }
+    media.addListener(updateCompactStatusSurface);
+    return () => media.removeListener(updateCompactStatusSurface);
+  }, []);
   const explicitlySelectPrice = (
     identity: CameraWorkspaceState["recognition"]["detectedPrices"][number]["identity"]
   ) => {
@@ -444,23 +458,21 @@ export function CameraWorkspace({
       revision: clearHeldPricesRevision.current
     });
   };
+  const closeCurrencyPickers = () =>
+    setCurrencyPickerCloseRevision((revision) => revision + 1);
+  const closeConversionDetails = () => {
+    workspaceRef.current
+      ?.querySelectorAll<HTMLDetailsElement>(
+        ".conversion-detail-surface[open], .reference-rate-details[open]"
+      )
+      .forEach((details) => {
+        details.open = false;
+      });
+  };
   useEffect(() => {
     lastExplicitSelectionIdentity.current =
       state.recognition.explicitlyFocusedPriceIdentity;
   }, [state.recognition.explicitlyFocusedPriceIdentity]);
-  useEffect(() => {
-    const updateCompactStatusSurface = () => {
-      setCompactStatusSurface(
-        window.innerWidth <= 340 || window.innerHeight <= 640
-      );
-    };
-    window.addEventListener("resize", updateCompactStatusSurface);
-    window.addEventListener("orientationchange", updateCompactStatusSurface);
-    return () => {
-      window.removeEventListener("resize", updateCompactStatusSurface);
-      window.removeEventListener("orientationchange", updateCompactStatusSurface);
-    };
-  }, []);
   useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) return undefined;
@@ -471,11 +483,13 @@ export function CameraWorkspace({
       const currencyControls = workspace.querySelector<HTMLElement>(
         ".workspace-currency-controls"
       );
-      const previewControls = workspace.querySelector<HTMLElement>(
-        ".workspace-preview-controls"
-      );
+      const previewControls = [
+        ...workspace.querySelectorAll<HTMLElement>(
+          ".workspace-recognition-controls, .workspace-conversion-controls"
+        )
+      ];
       const manualEntry = workspace.querySelector<HTMLElement>(".result-sheet");
-      if (!preview || !currencyControls || !previewControls || !manualEntry) {
+      if (!preview || !currencyControls || !manualEntry) {
         return;
       }
       const previewBounds = preview.getBoundingClientRect();
@@ -488,7 +502,7 @@ export function CameraWorkspace({
         bounds.right >= previewCenterX;
       const topBounds = currencyControls.getBoundingClientRect();
       const lowerBounds = [
-        previewControls.getBoundingClientRect(),
+        ...previewControls.map((control) => control.getBoundingClientRect()),
         manualEntry.getBoundingClientRect()
       ].filter(overlapsPreviewCenter);
       const unobscuredTop = overlapsPreviewCenter(topBounds)
@@ -542,7 +556,8 @@ export function CameraWorkspace({
       resizeObserver.observe(workspace);
       for (const selector of [
         ".workspace-currency-controls",
-        ".workspace-preview-controls",
+        ".workspace-recognition-controls",
+        ".workspace-conversion-controls",
         ".result-sheet"
       ]) {
         const element = workspace.querySelector<HTMLElement>(selector);
@@ -561,7 +576,11 @@ export function CameraWorkspace({
       window.cancelAnimationFrame(guidePlacementFrame);
       resizeObserver?.disconnect();
     };
-  }, []);
+  }, [
+    recognitionStatusOpen,
+    Boolean(state.enteredPrice),
+    Boolean(state.focusedPrice)
+  ]);
   const preferences: ExperiencePreferences = {
     ...state.currencies,
     ...state.experiencePreferences
@@ -747,6 +766,14 @@ export function CameraWorkspace({
             compact
             searchableSource
             showSwap
+            closePickersRevision={currencyPickerCloseRevision}
+            onPickerOpenChange={(open) => {
+              if (!open) return;
+              setRecognitionStatusOpen(false);
+              closeConversionDetails();
+              if (state.manualPriceEntry.expanded)
+                actions.setManualPriceEntryExpanded(false);
+            }}
           />
         </div>
         <CameraExperienceOverlay
@@ -783,7 +810,18 @@ export function CameraWorkspace({
                   : `Current state: ${compactRecognitionStatus.label}. Show recognition details`
               }
               aria-expanded={recognitionStatusOpen}
-              onClick={() => setRecognitionStatusOpen((open) => !open)}
+              onClick={() =>
+                setRecognitionStatusOpen((open) => {
+                  const nextOpen = !open;
+                  if (nextOpen) {
+                    closeCurrencyPickers();
+                    closeConversionDetails();
+                    if (state.manualPriceEntry.expanded)
+                      actions.setManualPriceEntryExpanded(false);
+                  }
+                  return nextOpen;
+                })
+              }
             >
               <span aria-hidden="true">
                 {compactRecognitionStatus.tone === "error"
@@ -820,10 +858,15 @@ export function CameraWorkspace({
               <RecognitionSummary recognition={recognition} demo={state.demo} />
             </div>
           </div>
-          <section
-            className="workspace-conversion-controls"
-            aria-label="Focused Price conversion"
-          >
+          {state.focusedPrice || state.enteredPrice ? (
+            <section
+              className="workspace-conversion-controls"
+              aria-label={
+                state.priceSelection.enteredPriceInUse && state.enteredPrice
+                  ? "Entered Price conversion"
+                  : "Focused Price conversion"
+              }
+            >
             <section
               className="conversion-price-source"
               role="status"
@@ -852,8 +895,15 @@ export function CameraWorkspace({
               onContinueAsGuest={actions.continueAsGuest}
               collapsibleReferenceRateDetails
               compactPrimaryResult
+              onDetailsOpen={() => {
+                setRecognitionStatusOpen(false);
+                closeCurrencyPickers();
+                if (state.manualPriceEntry.expanded)
+                  actions.setManualPriceEntryExpanded(false);
+              }}
             />
-          </section>
+            </section>
+          ) : null}
         </div>
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
@@ -872,7 +922,15 @@ export function CameraWorkspace({
           expanded={state.manualPriceEntry.expanded}
           compact
           onEnteredPriceChange={actions.enterPrice}
-          onExpandedChange={actions.setManualPriceEntryExpanded}
+          onExpandedChange={(expanded) => {
+            if (expanded) {
+              setRecognitionStatusOpen(false);
+              closeCurrencyPickers();
+              closeConversionDetails();
+            }
+            actions.setManualPriceEntryExpanded(expanded);
+          }}
+          promoted={state.manualPriceEntry.wasPromoted}
         />
         </section>
 
@@ -984,6 +1042,7 @@ export function LiveCameraWorkspace({
   const [recognitionRestartKey, setRecognitionRestartKey] = useState(0);
   const [enteredPrice, setEnteredPrice] = useState<EnteredPrice | null>(null);
   const [manualEntryExpanded, setManualEntryExpanded] = useState(false);
+  const [manualEntryPromoted, setManualEntryPromoted] = useState(false);
   const [enteredPriceInUse, setEnteredPriceInUse] = useState(false);
   const [confirmedFocusedPriceOccurrence, setConfirmedFocusedPriceOccurrence] =
     useState<{
@@ -995,7 +1054,6 @@ export function LiveCameraWorkspace({
     } | null>(null);
   const [focusOccurrenceRevision, setFocusOccurrenceRevision] = useState(0);
   const manualPromotionHandledRef = useRef(false);
-  const manualEntryPromotedRef = useRef(false);
   const demoRecognition = useDemoRecognition(
     demo && preferences.sourceCurrency === "JPY"
   );
@@ -1049,7 +1107,7 @@ export function LiveCameraWorkspace({
     setEnteredPriceInUse(false);
     setConfirmedFocusedPriceOccurrence(null);
     manualPromotionHandledRef.current = false;
-    manualEntryPromotedRef.current = false;
+    setManualEntryPromoted(false);
   }, [preferences.sourceCurrency]);
 
   useEffect(() => {
@@ -1061,14 +1119,14 @@ export function LiveCameraWorkspace({
         return;
       }
       manualPromotionHandledRef.current = true;
-      manualEntryPromotedRef.current = true;
-      setManualEntryExpanded(true);
+      setManualEntryPromoted(true);
     }
   }, [preferences.manualEntryPromotion, recognition.phase, snapshot.status]);
 
   useEffect(() => {
     if (recognition.focusedPrice) {
       manualPromotionHandledRef.current = false;
+      setManualEntryPromoted(false);
       return;
     }
     if (manualEntryExpanded || manualPromotionHandledRef.current) {
@@ -1082,8 +1140,7 @@ export function LiveCameraWorkspace({
     }
     const promotion = window.setTimeout(() => {
       manualPromotionHandledRef.current = true;
-      manualEntryPromotedRef.current = true;
-      setManualEntryExpanded(true);
+      setManualEntryPromoted(true);
     }, promotionDelayMs);
     return () => window.clearTimeout(promotion);
   }, [
@@ -1110,12 +1167,14 @@ export function LiveCameraWorkspace({
   const updateEnteredPrice = (nextEnteredPrice: EnteredPrice | null) => {
     setEnteredPrice(nextEnteredPrice);
     setEnteredPriceInUse(Boolean(nextEnteredPrice));
+    if (nextEnteredPrice) setManualEntryPromoted(false);
   };
 
   const updateManualEntryExpanded = (expanded: boolean) => {
     if (!recognition.focusedPrice) {
       manualPromotionHandledRef.current = true;
     }
+    if (expanded) setManualEntryPromoted(false);
     setManualEntryExpanded(expanded);
   };
 
@@ -1181,7 +1240,7 @@ export function LiveCameraWorkspace({
       recognition,
       enteredPriceInUse,
       enteredPrice,
-      manualEntryWasPromoted: manualEntryPromotedRef.current
+      manualEntryWasPromoted: manualEntryPromoted
     });
     onClose(result.outcome, result.errorFamily);
   };
@@ -1211,7 +1270,7 @@ export function LiveCameraWorkspace({
         },
         manualPriceEntry: {
           expanded: manualEntryExpanded,
-          wasPromoted: manualEntryPromotedRef.current
+          wasPromoted: manualEntryPromoted
         },
         priceSelection: {
           enteredPriceInUse,

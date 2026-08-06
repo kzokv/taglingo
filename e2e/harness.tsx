@@ -496,6 +496,9 @@ function DeterministicEvidenceLifecycleWorkspace() {
 
 const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
+    if (searchParameters.get("preparation") === "failed") {
+      throw new Error("Deterministic recognition preparation failure");
+    }
     if (searchParameters.get("preparation") === "delayed") {
       onProgress(0.25, "holding deterministic preparation fixture");
       await new Promise((resolve) => window.setTimeout(resolve, 1_500));

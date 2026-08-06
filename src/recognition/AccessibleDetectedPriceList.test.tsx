@@ -391,6 +391,39 @@ describe("Accessible Detected Price list", () => {
     expect(close).toHaveFocus();
   });
 
+  it("moves focus to the stable recognition control when the open sheet empties", () => {
+    const first = price("first", 1000, {
+      x: 20,
+      y: 20,
+      width: 30,
+      height: 30
+    });
+    const Fixture = ({ detectedPrices }: { detectedPrices: TrackedDetectedPrice[] }) => (
+      <div>
+        <button className="recognition-status-toggle" type="button">
+          Recognition status
+        </button>
+        <AccessibleDetectedPriceList
+          detectedPrices={detectedPrices}
+          focusedPrice={detectedPrices[0] ?? null}
+          modalOpen
+          locale="en-US"
+          previewSize={previewSize}
+          onModalOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />
+      </div>
+    );
+    const { rerender } = render(<Fixture detectedPrices={[first]} />);
+    screen.getByRole("button", { name: "Close Detected Prices" }).focus();
+
+    rerender(<Fixture detectedPrices={[]} />);
+
+    expect(
+      screen.getByRole("button", { name: "Recognition status" })
+    ).toHaveFocus();
+  });
+
   it("does not announce an expired lock after automatic focus was resumed", () => {
     const first = price("first", 1000, {
       x: 20,

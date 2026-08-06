@@ -111,7 +111,7 @@ export const UNIVERSAL_RECOGNITION_RUNTIME: RecognitionRuntimeConfiguration =
       runtimeVersion: "7.0.0",
       delivery: {
         gzipModels: true,
-        workerBlobUrl: false,
+        workerBlobUrl: true,
         cacheMethod: "none"
       },
       languages: UNIVERSAL_LANGUAGES,

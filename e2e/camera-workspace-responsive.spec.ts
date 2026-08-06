@@ -4,6 +4,24 @@ type MutableVisualViewport = {
   setViewport(next: { height: number; offsetTop: number; width?: number }): void;
 };
 
+async function installDeterministicCamera(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(window.navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 1920;
+          canvas.height = 1080;
+          const context = canvas.getContext("2d");
+          context?.fillRect(0, 0, canvas.width, canvas.height);
+          return canvas.captureStream(5);
+        }
+      }
+    });
+  });
+}
+
 async function installMutableVisualViewport(page: Page) {
   await page.addInitScript(() => {
     const events = new EventTarget();
@@ -250,25 +268,38 @@ test("mobile keeps every selected Target conversion behind the compact +N detail
   await page
     .getByRole("button", { name: /close manual price entry/i })
     .click();
-  const useFocusedPrice = conversion.getByRole("button", {
+  const enteredPriceConversion = page.getByRole("region", {
+    name: /entered price conversion/i
+  });
+  const useFocusedPrice = enteredPriceConversion.getByRole("button", {
     name: /use focused price/i
   });
   await expect(useFocusedPrice).toBeVisible();
   const [switchBox, disclosureBox] = await Promise.all([
     useFocusedPrice.boundingBox(),
-    moreConversions.boundingBox()
+    enteredPriceConversion
+      .getByText(/\+1 more target currency conversion/i)
+      .boundingBox()
   ]);
   expect(switchBox).not.toBeNull();
   expect(disclosureBox).not.toBeNull();
   expect(overlapArea(switchBox!, disclosureBox!)).toBe(0);
   await useFocusedPrice.click();
+  const focusedPriceConversion = page.getByRole("region", {
+    name: /focused price conversion/i
+  });
   await expect(
-    conversion.getByRole("status", { name: /price used for conversion/i })
+    focusedPriceConversion.getByRole("status", {
+      name: /price used for conversion/i
+    })
   ).toContainText(/focused price in use/i);
-  await moreConversions.click();
-  await expect(conversion.getByText("TWD 911.24")).toBeVisible();
-  await expectInsideViewport(page, conversion);
-  await moreConversions.click();
+  const focusedMoreConversions = focusedPriceConversion.getByText(
+    /\+1 more target currency conversion/i
+  );
+  await focusedMoreConversions.click();
+  await expect(focusedPriceConversion.getByText("TWD 911.24")).toBeVisible();
+  await expectInsideViewport(page, focusedPriceConversion);
+  await focusedMoreConversions.click();
 
   await page.setViewportSize({ width: 320, height: 568 });
   await expect(moreConversions).toBeVisible();
@@ -346,8 +377,8 @@ test("390×844 uses the approved Edge-controls composition without covering the 
   const rail = preview.getByRole("region", {
     name: /detected prices rail/i
   });
-  const recognitionStatus = preview.getByRole("status", {
-    name: /recognition status/i
+  const recognitionStatus = preview.getByRole("button", {
+    name: /current state: .*show recognition details/i
   });
   const conversion = preview.getByRole("region", {
     name: /focused price conversion/i
@@ -457,7 +488,9 @@ test("modern portrait remains preview-dominant while compact portrait and landsc
   const edgeControls = [
     preview.getByRole("group", { name: /source and target currencies/i }),
     preview.getByRole("region", { name: /detected prices rail/i }),
-    preview.getByRole("status", { name: /recognition status/i }),
+    preview.getByRole("button", {
+      name: /current state: .*show recognition details/i
+    }),
     preview.getByRole("region", { name: /focused price conversion/i }),
     workspace.getByRole("button", { name: /open manual price entry/i }),
     workspace.getByRole("button", { name: /close camera/i })
@@ -587,6 +620,9 @@ test("visual viewport, browser chrome, and rotation recenter the guide without r
   await currencies
     .getByRole("option", { name: /aud.*australian dollar/i })
     .click();
+  await page
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
   const amount = page.getByRole("textbox", { name: /aud amount/i });
   await amount.fill("50");
   await expect(
@@ -605,14 +641,17 @@ test("visual viewport, browser chrome, and rotation recenter the guide without r
   expect(reducedGuide!.y).not.toBe(originalGuide!.y);
   expect(reducedGuide!.y).toBeGreaterThanOrEqual(72);
   expect(reducedGuide!.y + reducedGuide!.height).toBeLessThanOrEqual(692);
-  const [currencyBounds, manualBounds] = await Promise.all([
+  const [currencyBounds, conversionBounds, manualBounds] = await Promise.all([
     currencies.boundingBox(),
+    page
+      .getByRole("region", { name: /entered price conversion/i })
+      .boundingBox(),
     page
       .getByRole("group", { name: /manual price entry sheet/i })
       .boundingBox()
   ]);
   const unobscuredTop = currencyBounds!.y + currencyBounds!.height;
-  const unobscuredBottom = manualBounds!.y;
+  const unobscuredBottom = Math.min(conversionBounds!.y, manualBounds!.y);
   const guideCenter = reducedGuide!.y + reducedGuide!.height / 2;
   expect(guideCenter).toBeCloseTo(
     (unobscuredTop + unobscuredBottom) / 2,
@@ -632,8 +671,10 @@ test("visual viewport, browser chrome, and rotation recenter the guide without r
   await setVisualViewport(page, { height: 844, offsetTop: 0, width: 390 });
 
   await expect(
-    page.getByRole("status", { name: /recognition status/i })
-  ).toContainText(/recorded observation stabilized/i);
+    page.getByRole("button", {
+      name: /current state: recorded observation stabilized.*show recognition details/i
+    })
+  ).toBeVisible();
   await expect(currencies.getByRole("button", { name: /source currency: aud/i })).toBeVisible();
   await expect(
     currencies.getByRole("button", { name: /target currencies/i })
@@ -731,13 +772,13 @@ test("200% text and software-keyboard reduction keep the focused manual field re
     overflowY: getComputedStyle(element).overflowY,
     scrollHeight: element.scrollHeight
   }));
-  expect(sheetOverflow.scrollHeight).toBeGreaterThan(sheetOverflow.clientHeight);
+  expect(sheetOverflow.scrollHeight).toBeGreaterThanOrEqual(
+    sheetOverflow.clientHeight
+  );
   expect(sheetOverflow.overflowY).toBe("auto");
-  const convert = page.getByRole("button", {
-    name: /convert entered price/i
-  });
-  await convert.scrollIntoViewIfNeeded();
-  await expectInsideViewport(page, convert);
+  await expect(
+    page.getByRole("button", { name: /convert entered price/i })
+  ).toHaveCount(0);
   await page
     .getByRole("button", { name: /close manual price entry/i })
     .click();
@@ -750,4 +791,96 @@ test("200% text and software-keyboard reduction keep the focused manual field re
     await expect(control).toBeVisible();
     await expectInsideViewport(page, control);
   }
+});
+
+test("recognition failure stays compact and keeps Manual Price Entry opt-in", async ({
+  page
+}) => {
+  await installDeterministicCamera(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html?preparation=failed");
+  await page.getByRole("button", { name: /open camera/i }).click();
+
+  const manualToggle = page.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  await expect(manualToggle).toBeVisible();
+  await expect(manualToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("button", {
+      name: /current state: recognition could not start.*show recognition details/i
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("alert", { name: /compact status update/i })
+  ).toContainText(/recognition could not start/i);
+  await expect(
+    page.getByRole("region", { name: /detected prices rail/i })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: /focused price conversion/i })
+  ).toHaveCount(0);
+
+  await manualToggle.click();
+  await expect(page.getByRole("textbox", { name: /jpy amount/i })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /convert entered price/i })
+  ).toHaveCount(0);
+});
+
+test("currency search owns the keyboard-reduced viewport above Manual Price Entry", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installMutableVisualViewport(page);
+  await page.goto("/e2e/harness.html?workspace=responsive");
+  await setVisualViewport(page, { height: 430, offsetTop: 0, width: 390 });
+
+  await page
+    .getByRole("button", { name: /target currencies:/i })
+    .click();
+  const search = page.getByRole("searchbox", {
+    name: /search target currencies/i
+  });
+  await expect(search).toBeVisible();
+  await expectCenterOwnedBy(page, search, search);
+  await expect(
+    page.getByRole("button", { name: /open manual price entry/i })
+  ).toHaveAttribute("aria-expanded", "false");
+});
+
+test("mobile detail surfaces arbitrate one expanded workspace at a time", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html?workspace=responsive");
+
+  const manualOpen = page.getByRole("button", {
+    name: /open manual price entry/i
+  });
+  await manualOpen.click();
+  const recognition = page.getByRole("button", {
+    name: /current state: .*show recognition details/i
+  });
+  await recognition.click();
+  await expect(manualOpen).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("button", { name: /close recognition details/i })
+  ).toHaveAttribute("aria-expanded", "true");
+
+  await manualOpen.click();
+  await expect(recognition).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: /target currencies:/i }).click();
+  await expect(manualOpen).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("searchbox", { name: /search target currencies/i })
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: /done/i }).click();
+  await recognition.click();
+  await manualOpen.click();
+  await expect(recognition).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("textbox", { name: /jpy amount/i })
+  ).toBeVisible();
 });

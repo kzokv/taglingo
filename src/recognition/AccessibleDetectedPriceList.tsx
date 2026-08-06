@@ -21,6 +21,55 @@ interface PreviewSize {
   readonly height: number;
 }
 
+interface DetectedPricesRailPresentation {
+  readonly collapsed: boolean;
+  readonly offset: { readonly x: number; readonly y: number };
+}
+
+const DETECTED_PRICES_RAIL_PRESENTATION_KEY =
+  "taglingo.detected-prices-rail-presentation.v1";
+const DEFAULT_RAIL_PRESENTATION: DetectedPricesRailPresentation = {
+  collapsed: false,
+  offset: { x: 0, y: 0 }
+};
+
+function readRailPresentation(): DetectedPricesRailPresentation {
+  try {
+    const stored = window.localStorage.getItem(
+      DETECTED_PRICES_RAIL_PRESENTATION_KEY
+    );
+    if (!stored) return DEFAULT_RAIL_PRESENTATION;
+    const parsed = JSON.parse(stored) as Partial<DetectedPricesRailPresentation>;
+    const x = parsed.offset?.x;
+    const y = parsed.offset?.y;
+    if (
+      typeof parsed.collapsed !== "boolean" ||
+      typeof x !== "number" ||
+      !Number.isFinite(x) ||
+      typeof y !== "number" ||
+      !Number.isFinite(y)
+    ) {
+      return DEFAULT_RAIL_PRESENTATION;
+    }
+    return { collapsed: parsed.collapsed, offset: { x, y } };
+  } catch {
+    return DEFAULT_RAIL_PRESENTATION;
+  }
+}
+
+function writeRailPresentation(
+  presentation: DetectedPricesRailPresentation
+): void {
+  try {
+    window.localStorage.setItem(
+      DETECTED_PRICES_RAIL_PRESENTATION_KEY,
+      JSON.stringify(presentation)
+    );
+  } catch {
+    // Rail customization is optional when browser storage is unavailable.
+  }
+}
+
 interface DetectedPriceTransition {
   readonly count: number;
   readonly focusedIdentity: DetectedPriceIdentity | null;
@@ -184,11 +233,13 @@ export function AccessibleDetectedPriceList({
 }) {
   const headingId = useId();
   const dialogHeadingId = useId();
-  const [collapsed, setCollapsed] = useState(false);
+  const initialPresentation = useRef(readRailPresentation()).current;
+  const [collapsed, setCollapsed] = useState(initialPresentation.collapsed);
   const [uncontrolledModalOpen, setUncontrolledModalOpen] = useState(false);
   const isModalOpen = modalOpen ?? uncontrolledModalOpen;
-  const [railOffset, setRailOffset] = useState({ x: 0, y: 0 });
+  const [railOffset, setRailOffset] = useState(initialPresentation.offset);
   const railRef = useRef<HTMLElement>(null);
+  const previewRef = useRef<HTMLElement | null>(null);
   const drag = useRef<{
     pointerId: number;
     startX: number;
@@ -254,6 +305,44 @@ export function AccessibleDetectedPriceList({
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const returnFocusAfterClose = useRef(false);
+  useEffect(() => {
+    writeRailPresentation({ collapsed, offset: railOffset });
+  }, [collapsed, railOffset]);
+
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    const preview = rail?.parentElement;
+    if (!rail || !preview) return;
+    previewRef.current = preview;
+    if (typeof ResizeObserver === "undefined") return;
+    const keepRailInsidePreview = () => {
+      const railBounds = rail.getBoundingClientRect();
+      const previewBounds = preview.getBoundingClientRect();
+      const correctionX =
+        railBounds.left < previewBounds.left
+          ? previewBounds.left - railBounds.left
+          : railBounds.right > previewBounds.right
+            ? previewBounds.right - railBounds.right
+            : 0;
+      const correctionY =
+        railBounds.top < previewBounds.top
+          ? previewBounds.top - railBounds.top
+          : railBounds.bottom > previewBounds.bottom
+            ? previewBounds.bottom - railBounds.bottom
+            : 0;
+      if (Math.abs(correctionX) < 0.5 && Math.abs(correctionY) < 0.5) return;
+      setRailOffset((offset) => ({
+        x: offset.x + correctionX,
+        y: offset.y + correctionY
+      }));
+    };
+    keepRailInsidePreview();
+    const resizeObserver = new ResizeObserver(keepRailInsidePreview);
+    resizeObserver.observe(preview);
+    resizeObserver.observe(rail);
+    return () => resizeObserver.disconnect();
+  }, [collapsed, detectedPrices.length > 0]);
+
   useLayoutEffect(() => {
     const previousFocusedControl = keyboardFocusedControlIdentity.current;
     if (previousFocusedControl && !pricesByIdentity.has(previousFocusedControl)) {
@@ -264,7 +353,12 @@ export function AccessibleDetectedPriceList({
           : buttonRefs.current.get(focusedPrice.identity);
         focusedControl?.focus();
       } else {
-        (isModalOpen ? dialogHeadingRef.current : headingRef.current)?.focus();
+        const fallback = isModalOpen
+          ? previewRef.current?.querySelector<HTMLButtonElement>(
+              ".recognition-status-toggle"
+            )
+          : headingRef.current;
+        (fallback ?? headingRef.current)?.focus();
       }
     }
   }, [isModalOpen, membershipRevision]);
@@ -287,6 +381,21 @@ export function AccessibleDetectedPriceList({
       expandButtonRef.current?.focus();
     }
   }, [isModalOpen]);
+
+  useLayoutEffect(() => {
+    if (detectedPrices.length > 0 || !isModalOpen) return;
+    const fallback =
+      previewRef.current?.querySelector<HTMLButtonElement>(
+        ".recognition-status-toggle"
+      ) ?? headingRef.current;
+    fallback?.focus();
+  }, [detectedPrices.length, isModalOpen]);
+
+  useEffect(() => {
+    if (detectedPrices.length > 0 || !isModalOpen) return;
+    setUncontrolledModalOpen(false);
+    onModalOpenChange?.(false);
+  }, [detectedPrices.length, isModalOpen, onModalOpenChange]);
 
   const [announcement, setAnnouncement] = useState("");
   const localExplicitFocus = useRef<DetectedPriceIdentity | null>(null);
@@ -491,6 +600,25 @@ export function AccessibleDetectedPriceList({
     }
   };
 
+  if (detectedPrices.length === 0) {
+    return (
+      <>
+        <div
+          className="visually-hidden"
+          role="status"
+          aria-label="Detected Price updates"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
+        </div>
+        <h2 ref={headingRef} className="visually-hidden" tabIndex={-1}>
+          Detected Prices — none available
+        </h2>
+      </>
+    );
+  }
+
   const modal = isModalOpen
     ? createPortal(
         <div
@@ -557,6 +685,15 @@ export function AccessibleDetectedPriceList({
 
   return (
     <>
+      <div
+        className="visually-hidden"
+        role="status"
+        aria-label="Detected Price updates"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </div>
       <section
         ref={railRef}
         className={`accessible-price-list detected-prices-rail${
@@ -650,15 +787,6 @@ export function AccessibleDetectedPriceList({
             Clear held prices
           </button>
         ) : null}
-        <div
-          className="visually-hidden"
-          role="status"
-          aria-label="Detected Price updates"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {announcement}
-        </div>
       </section>
       {modal}
     </>
