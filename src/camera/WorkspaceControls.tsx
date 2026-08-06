@@ -519,6 +519,7 @@ export function ManualPriceComposer({
 }) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const pendingConversionRef = useRef<number | null>(null);
   const composerContentId = useId();
   const amountInputId = useId();
   const enteredPriceHeadingId = useId();
@@ -530,8 +531,7 @@ export function ManualPriceComposer({
     setError(null);
   }, [sourceCurrency]);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const convertAmount = () => {
     const result = parseManualPriceEntry(sourceCurrency, amount);
     if (!result.ok) {
       setError(result.message);
@@ -539,6 +539,31 @@ export function ManualPriceComposer({
     }
     setError(null);
     onEnteredPriceChange(result.enteredPrice);
+  };
+
+  useEffect(() => {
+    if (!amount) {
+      return undefined;
+    }
+    pendingConversionRef.current = window.setTimeout(() => {
+      pendingConversionRef.current = null;
+      convertAmount();
+    }, 300);
+    return () => {
+      if (pendingConversionRef.current !== null) {
+        window.clearTimeout(pendingConversionRef.current);
+        pendingConversionRef.current = null;
+      }
+    };
+  }, [amount, sourceCurrency]);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pendingConversionRef.current !== null) {
+      window.clearTimeout(pendingConversionRef.current);
+      pendingConversionRef.current = null;
+    }
+    convertAmount();
   };
 
   const reset = () => {
@@ -595,7 +620,10 @@ export function ManualPriceComposer({
                 value={amount}
                 aria-describedby={amountHelpId}
                 aria-invalid={Boolean(error)}
-                onChange={(event) => setAmount(event.target.value)}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setError(null);
+                }}
                 placeholder={entryGuidance.placeholder}
               />
             </div>

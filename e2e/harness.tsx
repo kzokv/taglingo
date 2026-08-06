@@ -139,6 +139,7 @@ function DeterministicCameraWorkspace({
       setState((current) => ({
         ...current,
         currencies,
+        enteredPrice: null,
         focusedPrice: current.focusedPrice
           ? { ...current.focusedPrice, currency: currencies.sourceCurrency }
           : null,
@@ -149,7 +150,11 @@ function DeterministicCameraWorkspace({
             currency: currencies.sourceCurrency
           }))
         },
-        referenceRates: loadingRates
+        referenceRates: loadingRates,
+        priceSelection: {
+          enteredPriceInUse: false,
+          focusedPriceConfirmed: current.focusedPrice !== null
+        }
       }));
       window.setTimeout(() => {
         setState((current) => {

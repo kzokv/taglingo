@@ -50,7 +50,7 @@ test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
 
-test("deterministic harness injects Camera Workspace state without recognition internals", async ({
+test("Camera Workspace debounces valid manual entry and preserves it through invalid drafts", async ({
   page
 }) => {
   const recognitionAssetRequests: string[] = [];
@@ -77,7 +77,18 @@ test("deterministic harness injects Camera Workspace state without recognition i
 
   const composer = page.getByRole("region", { name: /manual price entry/i });
   await composer.getByRole("textbox", { name: /jpy amount/i }).fill("5,000");
-  await composer.getByRole("textbox", { name: /jpy amount/i }).press("Enter");
+  await expect(
+    page.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Entered Price in use");
+  await expect(page.getByText("USD 33.56")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: /^entered price$/i })
+  ).toContainText("Entered manually · not camera-derived");
+
+  await composer.getByRole("textbox", { name: /jpy amount/i }).fill("1e3");
+  await expect(
+    composer.getByText(/decimal and grouping separators/i)
+  ).toBeVisible();
   await expect(
     page.getByRole("status", { name: /price used for conversion/i })
   ).toContainText("Entered Price in use");
@@ -203,6 +214,16 @@ test("Camera Workspace supports matched currency search, multi-selection, swap, 
     .click();
   await expect(conversions.getByText("TWD 911.24")).toBeVisible();
 
+  const manualEntry = workspace.getByRole("region", {
+    name: /manual price entry/i
+  });
+  await manualEntry
+    .getByRole("textbox", { name: /jpy amount/i })
+    .fill("5,000");
+  await expect(
+    preview.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Entered Price in use");
+
   await currencies
     .getByRole("button", { name: /source currency: jpy/i })
     .click();
@@ -216,6 +237,15 @@ test("Camera Workspace supports matched currency search, multi-selection, swap, 
   await expect(
     currencies.getByRole("button", { name: /source currency: chf/i })
   ).toBeVisible();
+  await expect(
+    manualEntry.getByRole("textbox", { name: /chf amount/i })
+  ).toHaveValue("");
+  await expect(
+    page.getByRole("region", { name: /^entered price$/i })
+  ).toHaveCount(0);
+  await expect(
+    preview.getByRole("status", { name: /price used for conversion/i })
+  ).toContainText("Focused Price in use");
 
   await currencies
     .getByRole("button", { name: /source currency: chf/i })

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CameraWorkspace } from "./camera/CameraWorkspaceView";
 import type {
@@ -27,6 +27,10 @@ const referenceRate: GuestReferenceRate = {
   attribution: "Frankfurter · deterministic workspace fixture"
 };
 const [focusedPrice, otherPrice] = CAMERA_WORKSPACE_FIXTURE_PRICES;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function readyReferenceRate(target: "USD" | "TWD" | "EUR") {
   return {
@@ -85,6 +89,96 @@ function workspaceBindings(): CameraWorkspaceBindings {
 }
 
 describe("Camera Workspace boundary", () => {
+  it("converts an unchanged valid Entered Price after 300 ms and Enter immediately", () => {
+    vi.useFakeTimers();
+    const actions = workspaceActions();
+
+    render(
+      <CameraWorkspace
+        state={workspaceState()}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    const amount = within(
+      screen.getByRole("region", { name: /manual price entry/i })
+    ).getByRole("textbox", { name: /jpy amount/i });
+
+    fireEvent.change(amount, { target: { value: "5,000" } });
+    act(() => vi.advanceTimersByTime(299));
+    expect(actions.enterPrice).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(actions.enterPrice).toHaveBeenLastCalledWith({
+      provenance: "entered",
+      currency: "JPY",
+      minorUnits: 5_000,
+      displayAmount: "5,000"
+    });
+
+    fireEvent.change(amount, { target: { value: "6,000" } });
+    fireEvent.submit(amount.closest("form")!);
+    expect(actions.enterPrice).toHaveBeenLastCalledWith({
+      provenance: "entered",
+      currency: "JPY",
+      minorUnits: 6_000,
+      displayAmount: "6,000"
+    });
+    expect(actions.enterPrice).toHaveBeenCalledTimes(2);
+
+    act(() => vi.advanceTimersByTime(300));
+    expect(actions.enterPrice).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the current Entered Price conversion when a new draft is incomplete or invalid", () => {
+    vi.useFakeTimers();
+    const actions = workspaceActions();
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          enteredPrice: {
+            provenance: "entered",
+            currency: "JPY",
+            minorUnits: 5_000,
+            displayAmount: "5,000"
+          },
+          priceSelection: {
+            enteredPriceInUse: true,
+            focusedPriceConfirmed: true
+          }
+        })}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    const composer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    const amount = within(composer).getByRole("textbox", {
+      name: /jpy amount/i
+    });
+
+    fireEvent.change(amount, { target: { value: "1e3" } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(
+      within(composer).getByText(/decimal and grouping separators/i)
+    ).toBeVisible();
+    expect(amount).toHaveAttribute("aria-invalid", "true");
+    expect(actions.enterPrice).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("status", { name: /price used for conversion/i })
+    ).toHaveTextContent("Entered Price in use");
+    expect(screen.getByText("USD 33.56")).toBeVisible();
+
+    fireEvent.change(amount, { target: { value: "6," } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(within(composer).getByText(/selected JPY/i)).toBeVisible();
+    expect(actions.enterPrice).not.toHaveBeenCalled();
+    expect(screen.getByText("USD 33.56")).toBeVisible();
+  });
+
   it("renders injected state and routes shopper changes through one action boundary", async () => {
     const user = userEvent.setup();
     const state = workspaceState();
