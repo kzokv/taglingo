@@ -24,6 +24,10 @@ _Avoid_: Stale Price, Cached Price, Missing Price
 The detected price currently selected for conversion.
 _Avoid_: Active price, primary price
 
+**Explicit Focus Lock**:
+A shopper-controlled state created by selecting a Fresh Detection Outline or a Detected Price rail control. It keeps that Detected Price focused until the shopper selects another price, resumes automatic focus, clears the affected Held Detected Price, or the price is removed. Selecting the same price renews the lock.
+_Avoid_: Pinned price, manual focus
+
 **Manual Price Entry**:
 A shopper-provided price used when camera recognition is unavailable, unreliable, or slower than the shopper is willing to wait.
 _Avoid_: Manual override, fallback price

@@ -346,4 +346,115 @@ describe("Accessible Detected Price list", () => {
       "Explicitly Focused Price expired. No Detected Prices available"
     );
   });
+
+  it("does not move modal focus when recognition adds another Detected Price", () => {
+    const first = price("first", 1000, {
+      x: 20,
+      y: 20,
+      width: 30,
+      height: 30
+    });
+    const second = price("second", 2000, {
+      x: 220,
+      y: 220,
+      width: 30,
+      height: 30
+    });
+    const { rerender } = render(
+      <AccessibleDetectedPriceList
+        detectedPrices={[first]}
+        focusedPrice={first}
+        modalOpen
+        locale="en-US"
+        previewSize={previewSize}
+        onModalOpenChange={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    );
+    const close = screen.getByRole("button", {
+      name: "Close Detected Prices"
+    });
+    close.focus();
+
+    rerender(
+      <AccessibleDetectedPriceList
+        detectedPrices={[first, second]}
+        focusedPrice={first}
+        modalOpen
+        locale="en-US"
+        previewSize={previewSize}
+        onModalOpenChange={vi.fn()}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(close).toHaveFocus();
+  });
+
+  it("does not announce an expired lock after automatic focus was resumed", () => {
+    const first = price("first", 1000, {
+      x: 20,
+      y: 20,
+      width: 30,
+      height: 30
+    });
+    const second = price("second", 2000, {
+      x: 220,
+      y: 220,
+      width: 30,
+      height: 30
+    });
+    const { rerender } = render(
+      <AccessibleDetectedPriceList
+        detectedPrices={[first, second]}
+        focusedPrice={second}
+        explicitlyFocusedPriceIdentity={null}
+        selectionEvent={{
+          identity: second.identity,
+          renewed: false,
+          revision: 1
+        }}
+        locale="en-US"
+        previewSize={previewSize}
+        onSelect={vi.fn()}
+      />
+    );
+    rerender(
+      <AccessibleDetectedPriceList
+        detectedPrices={[first, second]}
+        focusedPrice={second}
+        explicitlyFocusedPriceIdentity={null}
+        selectionEvent={{
+          identity: second.identity,
+          renewed: false,
+          revision: 1
+        }}
+        locale="en-US"
+        previewSize={previewSize}
+        onSelect={vi.fn()}
+      />
+    );
+
+    rerender(
+      <AccessibleDetectedPriceList
+        detectedPrices={[first]}
+        focusedPrice={first}
+        explicitlyFocusedPriceIdentity={null}
+        selectionEvent={{
+          identity: second.identity,
+          renewed: false,
+          revision: 1
+        }}
+        locale="en-US"
+        previewSize={previewSize}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole("status", { name: "Detected Price updates" })
+    ).toHaveTextContent(
+      "Focused Price changed to Price 1 of 1, JPY 1,000, upper left"
+    );
+  });
 });
