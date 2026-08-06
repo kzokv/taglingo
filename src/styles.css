@@ -297,10 +297,12 @@ h1 em {
   color: var(--muted);
 }
 
+.source-currency-picker,
 .target-currency-picker {
   position: relative;
 }
 
+.source-currency-trigger,
 .target-currency-trigger {
   display: grid;
   width: 100%;
@@ -317,6 +319,8 @@ h1 em {
   text-align: left;
 }
 
+.source-currency-trigger strong,
+.source-currency-trigger small,
 .target-currency-trigger strong,
 .target-currency-trigger small {
   overflow: hidden;
@@ -324,12 +328,14 @@ h1 em {
   white-space: nowrap;
 }
 
+.source-currency-trigger strong,
 .target-currency-trigger strong {
   font-size: 0.8rem;
   letter-spacing: 0;
   text-transform: none;
 }
 
+.source-currency-trigger small,
 .target-currency-trigger small {
   color: var(--mint);
   font-size: 0.68rem;
@@ -337,11 +343,13 @@ h1 em {
   letter-spacing: 0.06em;
 }
 
+.source-currency-trigger > span,
 .target-currency-trigger > span {
   grid-column: 2;
   grid-row: 1 / span 2;
 }
 
+.source-currency-popover,
 .target-currency-popover {
   position: absolute;
   z-index: 30;
@@ -353,6 +361,36 @@ h1 em {
   border-radius: 16px;
   background: #15232c;
   box-shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+}
+
+.source-currency-popover {
+  right: auto;
+  left: 0;
+}
+
+.currency-grid.has-swap {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.currency-swap-button {
+  display: grid;
+  min-width: 44px;
+  min-height: 48px;
+  padding: 6px;
+  border: 1px solid rgba(246, 244, 237, 0.18);
+  border-radius: 12px;
+  place-items: center;
+  background: rgba(246, 244, 237, 0.06);
+  color: var(--mint);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.currency-swap-button span:first-child {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .target-currency-heading {
@@ -1300,9 +1338,16 @@ button.focus-target {
   height: 44px;
 }
 
+.compact .source-currency-popover,
 .compact .target-currency-popover {
   top: auto;
   bottom: calc(100% + 8px);
+}
+
+.workspace-currency-controls .compact .source-currency-popover,
+.workspace-currency-controls .compact .target-currency-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
 }
 
 .scan-status {
@@ -1570,6 +1615,28 @@ button.focus-target {
 }
 
 .conversion-ledger .conversion-card + .conversion-card {
+  margin-top: 0;
+}
+
+.conversion-detail-surface {
+  padding-top: 9px;
+  border-top: 1px solid rgba(246, 244, 237, 0.12);
+}
+
+.conversion-detail-surface > summary {
+  min-height: 32px;
+  color: var(--mint);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.conversion-detail-surface > div {
+  display: grid;
+  gap: 10px;
+}
+
+.conversion-detail-surface .conversion-card {
   margin-top: 0;
 }
 

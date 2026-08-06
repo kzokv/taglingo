@@ -95,8 +95,8 @@ test("Camera Workspace keeps primary controls on the dominant preview surface", 
   const currencies = preview.getByRole("group", {
     name: /source and target currencies/i
   });
-  const sourceCurrency = currencies.getByRole("combobox", {
-    name: /source currency/i
+  const sourceCurrency = currencies.getByRole("button", {
+    name: /source currency: jpy/i
   });
   const targetCurrency = currencies.getByRole("button", {
     name: /target currencies/i
@@ -153,6 +153,100 @@ test("Camera Workspace keeps primary controls on the dominant preview surface", 
     page.getByRole("heading", { name: /camera workspace left/i })
   ).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Camera stopped");
+});
+
+test("Camera Workspace supports matched currency search, multi-selection, swap, and truthful rates", async ({
+  page
+}) => {
+  await page.goto("/e2e/harness.html?workspace=currencies");
+  const workspace = page.getByRole("main", { name: /camera workspace/i });
+  const preview = workspace.getByRole("region", { name: /price camera/i });
+  const currencies = preview.getByRole("group", {
+    name: /source and target currencies/i
+  });
+
+  await currencies
+    .getByRole("button", { name: /target currencies: 1 selected/i })
+    .click();
+  const targetSearch = currencies.getByRole("searchbox", {
+    name: /search target currencies/i
+  });
+  await targetSearch.fill("Taiwan");
+  await currencies
+    .getByRole("option", { name: /twd.*new taiwan dollar/i })
+    .click();
+  await expect(
+    currencies.getByRole("button", { name: /target currencies: 2 selected/i })
+  ).toContainText("USD · TWD");
+
+  await currencies
+    .getByRole("option", { name: /twd.*new taiwan dollar/i })
+    .click();
+  await expect(
+    currencies.getByRole("button", { name: /target currencies: 1 selected/i })
+  ).toContainText("USD");
+  await currencies
+    .getByRole("option", { name: /twd.*new taiwan dollar/i })
+    .click();
+
+  await targetSearch.fill("Japanese Yen");
+  await expect(currencies.getByRole("option", { name: /jpy/i })).toHaveCount(0);
+  await expect(currencies.getByText("No matching currency")).toBeVisible();
+  await currencies.getByRole("button", { name: /done/i }).click();
+
+  const conversions = preview.getByRole("region", {
+    name: /focused price conversion/i
+  });
+  await expect(conversions.getByText("USD 27.80")).toBeVisible();
+  await conversions
+    .getByText(/all 2 target currency conversions/i)
+    .click();
+  await expect(conversions.getByText("TWD 911.24")).toBeVisible();
+
+  await currencies
+    .getByRole("button", { name: /source currency: jpy/i })
+    .click();
+  const sourceSearch = currencies.getByRole("searchbox", {
+    name: /search source currencies/i
+  });
+  await sourceSearch.fill("Swiss");
+  await currencies
+    .getByRole("option", { name: /chf.*swiss franc/i })
+    .click();
+  await expect(
+    currencies.getByRole("button", { name: /source currency: chf/i })
+  ).toBeVisible();
+
+  await currencies
+    .getByRole("button", { name: /source currency: chf/i })
+    .click();
+  await currencies
+    .getByRole("searchbox", { name: /search source currencies/i })
+    .fill("Japanese Yen");
+  await currencies
+    .getByRole("option", { name: /jpy.*japanese yen/i })
+    .click();
+
+  await currencies
+    .getByRole("button", {
+      name: /swap source jpy with primary target usd/i
+    })
+    .click();
+  await expect(
+    currencies.getByRole("button", { name: /source currency: usd/i })
+  ).toBeVisible();
+  await expect(
+    currencies.getByRole("button", { name: /target currencies: 2 selected/i })
+  ).toContainText("JPY · TWD");
+  await expect(
+    conversions.getByText("Loading Reference Rate…").first()
+  ).toBeVisible();
+  await expect(conversions.getByRole("alert")).toContainText(
+    "Conversion unavailable"
+  );
+  await expect(
+    preview.getByRole("region", { name: /recognition summary/i })
+  ).toContainText("Focused Price · USD");
 });
 
 test("Camera Workspace shows the truthful Candidate, Detected, Held, reacquired, and removed journey", async ({
@@ -553,12 +647,19 @@ test("Approved Member completes a deterministic three-currency journey", async (
   await expect(
     page.getByRole("region", { name: /recognition summary/i }).locator("strong")
   ).toHaveText("Focused Price · JPY 4,142");
-  await expect(page.getByText("USD 27.80")).toBeVisible();
-  await expect(page.getByText("TWD 911.24")).toBeVisible();
-  await expect(page.getByText("EUR 24.02")).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: /approved member conversions/i })
-  ).toContainText("Reference estimate; your payment rate may differ.");
+  const conversions = page.getByRole("region", {
+    name: /approved member conversions/i
+  });
+  await expect(conversions.getByText("USD 27.80")).toBeVisible();
+  await expect(conversions.getByText("TWD 911.24")).toBeHidden();
+  await conversions
+    .getByText(/all 3 target currency conversions/i)
+    .click();
+  await expect(conversions.getByText("TWD 911.24")).toBeVisible();
+  await expect(conversions.getByText("EUR 24.02")).toBeVisible();
+  await expect(conversions).toContainText(
+    "Reference estimate; your payment rate may differ."
+  );
 });
 
 test("Approved Member keeps all-currency camera access and confirms a Focused Price when synchronized", async ({

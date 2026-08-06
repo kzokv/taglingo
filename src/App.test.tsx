@@ -460,8 +460,8 @@ describe("anonymous recognition-health consent", () => {
     await user.click(screen.getByRole("button", { name: /open camera/i }));
     await screen.findByText(/camera access was denied/i);
     expect(
-      screen.getByRole("combobox", { name: /source currency/i })
-    ).toBeDisabled();
+      screen.getByRole("button", { name: /source currency: jpy/i })
+    ).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /close camera/i }));
 
     const invitation = screen.getByRole("region", {

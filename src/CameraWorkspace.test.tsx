@@ -28,6 +28,23 @@ const referenceRate: GuestReferenceRate = {
 };
 const [focusedPrice, otherPrice] = CAMERA_WORKSPACE_FIXTURE_PRICES;
 
+function readyReferenceRate(target: "USD" | "TWD" | "EUR") {
+  return {
+    phase: "ready" as const,
+    rate: {
+      ...referenceRate,
+      target,
+      value:
+        target === "USD"
+          ? "0.0067123"
+          : target === "TWD"
+            ? "0.22"
+            : "0.0058"
+    },
+    error: null
+  };
+}
+
 function workspaceState(
   overrides: Partial<CameraWorkspaceState> = {}
 ): CameraWorkspaceState {
@@ -91,9 +108,15 @@ describe("Camera Workspace boundary", () => {
     );
     expect(actions.selectPrice).toHaveBeenCalledWith(otherPrice.identity);
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /source currency/i }),
-      "AUD"
+    await user.click(
+      screen.getByRole("button", { name: /source currency: jpy/i })
+    );
+    await user.type(
+      screen.getByRole("searchbox", { name: /search source currencies/i }),
+      "Australian"
+    );
+    await user.click(
+      screen.getByRole("option", { name: /aud.*australian dollar/i })
     );
     expect(actions.changeCurrencies).toHaveBeenCalledWith({
       sourceCurrency: "AUD",
@@ -191,6 +214,146 @@ describe("Camera Workspace boundary", () => {
     expect(
       within(conversion).getByText("1 JPY = 0.0067123 USD")
     ).toBeVisible();
+  });
+
+  it("preserves valid targets when swapping Source and primary Target Currencies", async () => {
+    const user = userEvent.setup();
+    const actions = workspaceActions();
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          currencies: {
+            sourceCurrency: "JPY",
+            targetCurrencies: ["USD", "TWD"]
+          },
+          shopperAccess: {
+            ...workspaceState().shopperAccess,
+            status: "approved",
+            isApprovedMember: true
+          },
+          referenceRates: {
+            USD: readyReferenceRate("USD"),
+            TWD: readyReferenceRate("TWD")
+          }
+        })}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /swap source jpy with primary target usd/i
+      })
+    );
+
+    expect(actions.changeCurrencies).toHaveBeenCalledWith({
+      sourceCurrency: "USD",
+      targetCurrencies: ["JPY", "TWD"]
+    });
+  });
+
+  it("adds a searched Target Currency once and excludes the Source Currency", async () => {
+    const user = userEvent.setup();
+    const actions = workspaceActions();
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          shopperAccess: {
+            ...workspaceState().shopperAccess,
+            status: "approved",
+            isApprovedMember: true
+          }
+        })}
+        actions={actions}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /target currencies: 1 selected/i })
+    );
+    const targetSearch = screen.getByRole("searchbox", {
+      name: /search target currencies/i
+    });
+    await user.type(targetSearch, "Taiwan");
+    await user.click(
+      screen.getByRole("option", { name: /twd.*new taiwan dollar/i })
+    );
+    expect(actions.changeCurrencies).toHaveBeenCalledWith({
+      sourceCurrency: "JPY",
+      targetCurrencies: ["USD", "TWD"]
+    });
+
+    await user.clear(targetSearch);
+    await user.type(targetSearch, "Japanese Yen");
+    expect(screen.queryByRole("option", { name: /jpy/i })).toBeNull();
+    expect(screen.getByText("No matching currency")).toBeVisible();
+  });
+
+  it("keeps the primary conversion visible and discloses every selected Target Currency", async () => {
+    const user = userEvent.setup();
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          currencies: {
+            sourceCurrency: "JPY",
+            targetCurrencies: ["USD", "TWD", "EUR"]
+          },
+          shopperAccess: {
+            ...workspaceState().shopperAccess,
+            status: "approved",
+            isApprovedMember: true
+          },
+          referenceRates: {
+            USD: readyReferenceRate("USD"),
+            TWD: readyReferenceRate("TWD"),
+            EUR: readyReferenceRate("EUR")
+          }
+        })}
+        actions={workspaceActions()}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    const conversion = screen.getByRole("region", {
+      name: /focused price conversion/i
+    });
+    expect(within(conversion).getByText("USD 27.80")).toBeVisible();
+    expect(within(conversion).getByText("TWD 911.24")).not.toBeVisible();
+    expect(within(conversion).getByText("EUR 24.02")).not.toBeVisible();
+
+    await user.click(
+      within(conversion).getByText(/all 3 target currency conversions/i)
+    );
+    expect(within(conversion).getByText("TWD 911.24")).toBeVisible();
+    expect(within(conversion).getByText("EUR 24.02")).toBeVisible();
+  });
+
+  it("shows rate loading or unavailability without hiding the Focused Price", () => {
+    render(
+      <CameraWorkspace
+        state={workspaceState({
+          referenceRates: {
+            USD: {
+              phase: "error",
+              rate: null,
+              error: "A validated Reference Rate is unavailable.",
+              reason: "unavailable"
+            }
+          }
+        })}
+        actions={workspaceActions()}
+        bindings={workspaceBindings()}
+      />
+    );
+
+    expect(
+      screen.getByRole("region", { name: /recognition summary/i })
+    ).toHaveTextContent("Focused Price · JPY 4,142");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Conversion unavailable"
+    );
   });
 
   it.each([

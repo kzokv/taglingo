@@ -15,6 +15,7 @@ import {
   formatCurrencyMinorUnits,
   searchTargetCurrencies,
   SOURCE_CURRENCIES,
+  type Currency,
   type CurrencyAmount,
   type CurrencyCode,
   type SourceCurrencyCode
@@ -54,13 +55,96 @@ export function TagLingoMark() {
   );
 }
 
+function CurrencySearchResults({
+  listId,
+  listLabel,
+  searchLabel,
+  inputName,
+  query,
+  matches,
+  ariaMultiselectable,
+  isSelected,
+  isDisabled = () => false,
+  onQueryChange,
+  onSelect
+}: {
+  listId: string;
+  listLabel: string;
+  searchLabel: string;
+  inputName: string;
+  query: string;
+  matches: readonly Currency[];
+  ariaMultiselectable?: boolean;
+  isSelected: (currency: CurrencyCode) => boolean;
+  isDisabled?: (currency: CurrencyCode) => boolean;
+  onQueryChange: (query: string) => void;
+  onSelect: (currency: CurrencyCode) => void;
+}) {
+  return (
+    <>
+      <label className="target-currency-search">
+        <span className="visually-hidden">{searchLabel}</span>
+        <input
+          name={inputName}
+          type="search"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search code, currency, or alias"
+          autoComplete="off"
+          autoFocus
+        />
+      </label>
+      <div
+        id={listId}
+        className="target-currency-list"
+        role="listbox"
+        aria-label={listLabel}
+        aria-multiselectable={ariaMultiselectable}
+      >
+        {matches.map((currency) => {
+          const selected = isSelected(currency.code);
+          const disabled = isDisabled(currency.code);
+          return (
+            <button
+              key={currency.code}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              aria-disabled={disabled}
+              disabled={disabled}
+              onClick={() => onSelect(currency.code)}
+            >
+              <span className="target-currency-name">
+                <strong>{currency.code}</strong>
+                <small>{currency.name}</small>
+              </span>
+              <span className="target-currency-check" aria-hidden="true">
+                {selected
+                  ? "✓"
+                  : ariaMultiselectable === undefined
+                    ? ""
+                    : "+"}
+              </span>
+            </button>
+          );
+        })}
+        {matches.length === 0 ? (
+          <p className="target-currency-empty">No matching currency</p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 export function CurrencySettings({
   preferences,
   onChange,
   isApprovedMember,
   memberAccessStatus = isApprovedMember ? "approved" : "guest",
   compact = false,
-  sourceCurrencyDisabled = false
+  sourceCurrencyDisabled = false,
+  searchableSource = false,
+  showSwap = false
 }: {
   preferences: ExperiencePreferences;
   onChange: (preferences: ExperiencePreferences) => void;
@@ -68,14 +152,25 @@ export function CurrencySettings({
   memberAccessStatus?: MemberAccessStatus;
   compact?: boolean;
   sourceCurrencyDisabled?: boolean;
+  searchableSource?: boolean;
+  showSwap?: boolean;
 }) {
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
+  const [sourceQuery, setSourceQuery] = useState("");
   const [isTargetPickerOpen, setIsTargetPickerOpen] = useState(false);
   const [targetQuery, setTargetQuery] = useState("");
+  const sourcePickerRef = useRef<HTMLDivElement>(null);
+  const sourceTriggerRef = useRef<HTMLButtonElement>(null);
   const targetPickerRef = useRef<HTMLDivElement>(null);
   const targetTriggerRef = useRef<HTMLButtonElement>(null);
+  const sourceListId = useId();
   const targetListId = useId();
+  const sourceMatches = searchTargetCurrencies(sourceQuery);
   const matches = searchTargetCurrencies(targetQuery).filter(
     ({ code }) => code !== preferences.sourceCurrency
+  );
+  const selectedSource = SOURCE_CURRENCIES.find(
+    ({ code }) => code === preferences.sourceCurrency
   );
   const maxTargets = isApprovedMember ? 3 : 1;
   const accessLabel = isApprovedMember
@@ -91,18 +186,28 @@ export function CurrencySettings({
             : "Guest · 1";
 
   useEffect(() => {
-    if (!isTargetPickerOpen) {
+    if (!isSourcePickerOpen && !isTargetPickerOpen) {
       return undefined;
     }
     const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!targetPickerRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!sourcePickerRef.current?.contains(target)) {
+        setIsSourcePickerOpen(false);
+      }
+      if (!targetPickerRef.current?.contains(target)) {
         setIsTargetPickerOpen(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (isSourcePickerOpen) {
+          setIsSourcePickerOpen(false);
+          sourceTriggerRef.current?.focus();
+        }
         setIsTargetPickerOpen(false);
-        targetTriggerRef.current?.focus();
+        if (isTargetPickerOpen) {
+          targetTriggerRef.current?.focus();
+        }
       }
     };
     document.addEventListener("pointerdown", closeOnOutsidePress);
@@ -111,14 +216,27 @@ export function CurrencySettings({
       document.removeEventListener("pointerdown", closeOnOutsidePress);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isTargetPickerOpen]);
+  }, [isSourcePickerOpen, isTargetPickerOpen]);
 
-  const updateSource = (event: ChangeEvent<HTMLSelectElement>) => {
-    const sourceCurrency = event.target.value as SourceCurrencyCode;
+  const updateSource = (sourceCurrency: SourceCurrencyCode) => {
     const targetCurrencies = preferences.targetCurrencies.map((target) =>
       target === sourceCurrency ? preferences.sourceCurrency : target
     );
     onChange({ ...preferences, sourceCurrency, targetCurrencies });
+  };
+  const swapCurrencies = () => {
+    const [primaryTarget, ...additionalTargets] = preferences.targetCurrencies;
+    if (!primaryTarget) return;
+    onChange({
+      ...preferences,
+      sourceCurrency: primaryTarget,
+      targetCurrencies: [
+        preferences.sourceCurrency,
+        ...additionalTargets.filter(
+          (target) => target !== preferences.sourceCurrency
+        )
+      ]
+    });
   };
   const toggleTarget = (target: CurrencyCode) => {
     const isSelected = preferences.targetCurrencies.includes(target);
@@ -144,22 +262,107 @@ export function CurrencySettings({
   };
 
   return (
-    <div className={compact ? "currency-grid compact" : "currency-grid"}>
-      <label className="field">
-        <span>Source Currency</span>
-        <select
-          name={compact ? "cameraSourceCurrency" : "sourceCurrency"}
-          value={preferences.sourceCurrency}
-          disabled={sourceCurrencyDisabled}
-          onChange={updateSource}
+    <div
+      className={`${compact ? "currency-grid compact" : "currency-grid"}${
+        showSwap ? " has-swap" : ""
+      }`}
+    >
+      {searchableSource ? (
+        <div className="source-currency-picker field" ref={sourcePickerRef}>
+          <span>Source Currency</span>
+          <button
+            ref={sourceTriggerRef}
+            className="source-currency-trigger"
+            type="button"
+            aria-label={`Source Currency: ${preferences.sourceCurrency} — ${
+              selectedSource?.name ?? preferences.sourceCurrency
+            }`}
+            aria-haspopup="listbox"
+            aria-expanded={isSourcePickerOpen}
+            aria-controls={isSourcePickerOpen ? sourceListId : undefined}
+            disabled={sourceCurrencyDisabled}
+            onClick={() => {
+              setIsTargetPickerOpen(false);
+              setIsSourcePickerOpen((open) => !open);
+            }}
+          >
+            <strong>{preferences.sourceCurrency}</strong>
+            <small>{selectedSource?.name}</small>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          {isSourcePickerOpen ? (
+            <div className="source-currency-popover currency-picker-popover">
+              <div className="target-currency-heading">
+                <div>
+                  <strong>Choose Source Currency</strong>
+                  <span>Single selection</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSourcePickerOpen(false);
+                    sourceTriggerRef.current?.focus();
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+              <CurrencySearchResults
+                listId={sourceListId}
+                listLabel="Source Currencies"
+                searchLabel="Search Source Currencies"
+                inputName={
+                  compact
+                    ? "cameraSourceCurrencySearch"
+                    : "sourceCurrencySearch"
+                }
+                query={sourceQuery}
+                matches={sourceMatches}
+                isSelected={(currency) =>
+                  currency === preferences.sourceCurrency
+                }
+                onQueryChange={setSourceQuery}
+                onSelect={(currency) => {
+                  updateSource(currency);
+                  setIsSourcePickerOpen(false);
+                  setSourceQuery("");
+                  sourceTriggerRef.current?.focus();
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <label className="field">
+          <span>Source Currency</span>
+          <select
+            name={compact ? "cameraSourceCurrency" : "sourceCurrency"}
+            value={preferences.sourceCurrency}
+            disabled={sourceCurrencyDisabled}
+            onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+              updateSource(event.target.value as SourceCurrencyCode)
+            }
+          >
+            {SOURCE_CURRENCIES.map((currency) => (
+              <option key={currency.code} value={currency.code}>
+                {currency.code} — {currency.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {showSwap ? (
+        <button
+          className="currency-swap-button"
+          type="button"
+          aria-label={`Swap Source ${preferences.sourceCurrency} with primary Target ${preferences.targetCurrencies[0]}`}
+          onClick={swapCurrencies}
         >
-          {SOURCE_CURRENCIES.map((currency) => (
-            <option key={currency.code} value={currency.code}>
-              {currency.code} — {currency.name}
-            </option>
-          ))}
-        </select>
-      </label>
+          <span aria-hidden="true">⇄</span>
+          <span>Swap</span>
+        </button>
+      ) : null}
 
       <div className="target-currency-picker field" ref={targetPickerRef}>
         <span>
@@ -173,7 +376,10 @@ export function CurrencySettings({
           aria-haspopup="listbox"
           aria-expanded={isTargetPickerOpen}
           aria-controls={isTargetPickerOpen ? targetListId : undefined}
-          onClick={() => setIsTargetPickerOpen((open) => !open)}
+          onClick={() => {
+            setIsSourcePickerOpen(false);
+            setIsTargetPickerOpen((open) => !open);
+          }}
         >
           <strong>{preferences.targetCurrencies.length} selected</strong>
           <small>{preferences.targetCurrencies.join(" · ")}</small>
@@ -198,58 +404,34 @@ export function CurrencySettings({
                 Done
               </button>
             </div>
-            <label className="target-currency-search">
-              <span className="visually-hidden">Search Target Currencies</span>
-              <input
-                name={compact ? "cameraTargetCurrencySearch" : "targetCurrencySearch"}
-                type="search"
-                value={targetQuery}
-                onChange={(event) => setTargetQuery(event.target.value)}
-                placeholder="Search code, currency, or alias"
-                autoComplete="off"
-                autoFocus
-              />
-            </label>
-            <div
-              id={targetListId}
-              className="target-currency-list"
-              role="listbox"
-              aria-label="Target Currencies"
-              aria-multiselectable={isApprovedMember}
-            >
-              {matches.map((currency) => {
-                const isSelected = preferences.targetCurrencies.includes(
-                  currency.code
-                );
-                const isDisabled =
-                  (isSelected && preferences.targetCurrencies.length === 1) ||
-                  (!isSelected &&
-                    maxTargets > 1 &&
-                    preferences.targetCurrencies.length >= maxTargets);
+            <CurrencySearchResults
+              listId={targetListId}
+              listLabel="Target Currencies"
+              searchLabel="Search Target Currencies"
+              inputName={
+                compact
+                  ? "cameraTargetCurrencySearch"
+                  : "targetCurrencySearch"
+              }
+              query={targetQuery}
+              matches={matches}
+              ariaMultiselectable={isApprovedMember}
+              isSelected={(currency) =>
+                preferences.targetCurrencies.includes(currency)
+              }
+              isDisabled={(currency) => {
+                const selected =
+                  preferences.targetCurrencies.includes(currency);
                 return (
-                  <button
-                    key={currency.code}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    aria-disabled={isDisabled}
-                    disabled={isDisabled}
-                    onClick={() => toggleTarget(currency.code)}
-                  >
-                    <span className="target-currency-name">
-                      <strong>{currency.code}</strong>
-                      <small>{currency.name}</small>
-                    </span>
-                    <span className="target-currency-check" aria-hidden="true">
-                      {isSelected ? "✓" : "+"}
-                    </span>
-                  </button>
+                  (selected && preferences.targetCurrencies.length === 1) ||
+                  (!selected &&
+                    maxTargets > 1 &&
+                    preferences.targetCurrencies.length >= maxTargets)
                 );
-              })}
-              {matches.length === 0 ? (
-                <p className="target-currency-empty">No matching currency</p>
-              ) : null}
-            </div>
+              }}
+              onQueryChange={setTargetQuery}
+              onSelect={toggleTarget}
+            />
           </div>
         ) : null}
       </div>
@@ -576,7 +758,8 @@ export function ConversionLedger({
   rates,
   emptyMessage = "Point at a price to see the conversion.",
   onContinueAsGuest,
-  collapsibleReferenceRateDetails = false
+  collapsibleReferenceRateDetails = false,
+  compactPrimaryResult = false
 }: {
   price: CurrencyAmount | null;
   sourceCurrency: CurrencyCode;
@@ -586,6 +769,7 @@ export function ConversionLedger({
   emptyMessage?: string;
   onContinueAsGuest: () => void;
   collapsibleReferenceRateDetails?: boolean;
+  compactPrimaryResult?: boolean;
 }) {
   const accessFailure = targetCurrencies
     .map((targetCurrency) => rates[targetCurrency])
@@ -594,6 +778,29 @@ export function ConversionLedger({
         rate?.phase === "error" &&
         (rate.reason === "unauthenticated" || rate.reason === "unauthorized")
     );
+  const renderConversion = (targetCurrency: CurrencyCode) =>
+    rates[targetCurrency]?.phase === "error" &&
+    (rates[targetCurrency].reason === "unauthenticated" ||
+      rates[targetCurrency].reason === "unauthorized") ? null : (
+      <ConversionRow
+        key={targetCurrency}
+        price={price}
+        sourceCurrency={sourceCurrency}
+        targetCurrency={targetCurrency}
+        guestRate={
+          rates[targetCurrency] ?? {
+            phase: "loading",
+            rate: null,
+            error: null,
+            retry: () => undefined
+          }
+        }
+        emptyMessage={emptyMessage}
+        collapsibleReferenceRateDetails={collapsibleReferenceRateDetails}
+      />
+    );
+  const [primaryTarget, ...additionalTargets] = targetCurrencies;
+
   return (
     <section
       className="conversion-ledger"
@@ -614,28 +821,19 @@ export function ConversionLedger({
           </button>
         </div>
       ) : null}
-      {targetCurrencies.map((targetCurrency) => (
-        rates[targetCurrency]?.phase === "error" &&
-        (rates[targetCurrency].reason === "unauthenticated" ||
-          rates[targetCurrency].reason === "unauthorized") ? null : (
-          <ConversionRow
-            key={targetCurrency}
-            price={price}
-            sourceCurrency={sourceCurrency}
-            targetCurrency={targetCurrency}
-            guestRate={
-              rates[targetCurrency] ?? {
-                phase: "loading",
-                rate: null,
-                error: null,
-                retry: () => undefined
-              }
-            }
-            emptyMessage={emptyMessage}
-            collapsibleReferenceRateDetails={collapsibleReferenceRateDetails}
-          />
-        )
-      ))}
+      {compactPrimaryResult && primaryTarget
+        ? renderConversion(primaryTarget)
+        : targetCurrencies.map(renderConversion)}
+      {compactPrimaryResult && additionalTargets.length > 0 ? (
+        <details className="conversion-detail-surface">
+          <summary>
+            All {targetCurrencies.length} Target Currency conversions
+          </summary>
+          <div aria-label="Additional Target Currency conversions">
+            {additionalTargets.map(renderConversion)}
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }

@@ -50,19 +50,31 @@ function injectedWorkspaceState(): CameraWorkspaceState {
 }
 
 function DeterministicCameraWorkspace({
-  startPaused = false
+  startPaused = false,
+  currencyJourney = false
 }: {
   startPaused?: boolean;
+  currencyJourney?: boolean;
 }) {
   const [state, setState] = useState(() => {
     const focusedState = injectedWorkspaceState();
-    return startPaused
+    const initialState = currencyJourney
       ? {
           ...focusedState,
+          shopperAccess: {
+            ...focusedState.shopperAccess,
+            status: "approved" as const,
+            isApprovedMember: true
+          }
+        }
+      : focusedState;
+    return startPaused
+      ? {
+          ...initialState,
           demo: false,
           camera: { status: "idle" as const, stream: null },
           recognition: {
-            ...focusedState.recognition,
+            ...initialState.recognition,
             phase: "waiting" as const,
             detectedPrices: [],
             explicitlyFocusedPriceIdentity: null
@@ -73,7 +85,7 @@ function DeterministicCameraWorkspace({
             focusedPriceConfirmed: false
           }
         }
-      : focusedState;
+      : initialState;
   });
   const [leftWorkspace, setLeftWorkspace] = useState(false);
   const actions: CameraWorkspaceActions = {
@@ -117,8 +129,60 @@ function DeterministicCameraWorkspace({
         },
         focusedPrice: current.recognition.detectedPrices[0] ?? null
       })),
-    changeCurrencies: (currencies) =>
-      setState((current) => ({ ...current, currencies })),
+    changeCurrencies: (currencies) => {
+      const loadingRates = Object.fromEntries(
+        currencies.targetCurrencies.map((target) => [
+          target,
+          { phase: "loading" as const, rate: null, error: null }
+        ])
+      );
+      setState((current) => ({
+        ...current,
+        currencies,
+        focusedPrice: current.focusedPrice
+          ? { ...current.focusedPrice, currency: currencies.sourceCurrency }
+          : null,
+        recognition: {
+          ...current.recognition,
+          detectedPrices: current.recognition.detectedPrices.map((price) => ({
+            ...price,
+            currency: currencies.sourceCurrency
+          }))
+        },
+        referenceRates: loadingRates
+      }));
+      window.setTimeout(() => {
+        setState((current) => {
+          if (
+            current.currencies.sourceCurrency !== currencies.sourceCurrency ||
+            current.currencies.targetCurrencies.join(",") !==
+              currencies.targetCurrencies.join(",")
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            referenceRates: Object.fromEntries(
+              currencies.targetCurrencies.map((target) => [
+                target,
+                currencies.sourceCurrency === "USD" && target === "JPY"
+                  ? {
+                      phase: "error" as const,
+                      rate: null,
+                      error: "A validated Reference Rate is unavailable.",
+                      reason: "unavailable" as const
+                    }
+                  : {
+                      phase: "ready" as const,
+                      rate: fixtureRate(currencies.sourceCurrency, target),
+                      error: null
+                    }
+              ])
+            )
+          };
+        });
+      }, 150);
+    },
     changeExperiencePreferences: (experiencePreferences) =>
       setState((current) => ({ ...current, experiencePreferences })),
     enterPrice: (enteredPrice) =>
@@ -393,8 +457,13 @@ const workspaceMode = searchParameters.get("workspace");
 createRoot(document.getElementById("root")!).render(
   workspaceMode === "lifecycle" ? (
     <DeterministicEvidenceLifecycleWorkspace />
-  ) : workspaceMode === "focused" || workspaceMode === "journey" ? (
-    <DeterministicCameraWorkspace startPaused={workspaceMode === "journey"} />
+  ) : workspaceMode === "focused" ||
+    workspaceMode === "journey" ||
+    workspaceMode === "currencies" ? (
+    <DeterministicCameraWorkspace
+      startPaused={workspaceMode === "journey"}
+      currencyJourney={workspaceMode === "currencies"}
+    />
   ) : memberMode ? (
     <App
       memberSession={{

@@ -79,8 +79,10 @@ export interface CameraWorkspaceRecognitionEvidence {
   explicitlyFocusedPriceIdentity: CameraWorkspaceDetectedPriceIdentity | null;
 }
 
+type WithoutRetry<T> = T extends unknown ? Omit<T, "retry"> : never;
+
 export type CameraWorkspaceReferenceRates = Partial<
-  Record<CurrencyCode, Omit<GuestRateView, "retry">>
+  Record<CurrencyCode, WithoutRetry<GuestRateView>>
 >;
 
 export interface CameraWorkspaceState {

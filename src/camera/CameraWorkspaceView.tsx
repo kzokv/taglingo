@@ -517,7 +517,8 @@ export function CameraWorkspace({
             isApprovedMember={state.shopperAccess.isApprovedMember}
             memberAccessStatus={state.shopperAccess.status}
             compact
-            sourceCurrencyDisabled={!state.demo}
+            searchableSource
+            showSwap
           />
         </div>
         <CameraExperienceOverlay
@@ -577,6 +578,7 @@ export function CameraWorkspace({
               rates={referenceRates}
               onContinueAsGuest={actions.continueAsGuest}
               collapsibleReferenceRateDetails
+              compactPrimaryResult
             />
           </section>
         </div>
