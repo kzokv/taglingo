@@ -135,6 +135,31 @@ function overlapArea(
   return width * height;
 }
 
+test("mobile centers the shipped Capture Guide in the visual viewport", async ({
+  page
+}) => {
+  await installDeterministicCamera(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /open camera/i }).click();
+
+  const guide = page
+    .getByRole("region", { name: /price camera/i })
+    .locator(".capture-guide");
+  await expect(guide).toBeVisible();
+  await expect
+    .poll(async () => {
+      const bounds = await guide.boundingBox();
+      const viewportWidth = await page.evaluate(
+        () => window.visualViewport?.width ?? window.innerWidth
+      );
+      return bounds
+        ? Math.abs(bounds.x + bounds.width / 2 - viewportWidth / 2)
+        : null;
+    })
+    .toBeLessThanOrEqual(1);
+});
+
 test("320×568 resting workspace exposes every primary edge control without document scrolling", async ({
   page
 }) => {
