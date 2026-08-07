@@ -189,6 +189,14 @@ describe("installable application metadata", () => {
     expect(
       existsSync(resolve(ocrRoot, "tesseract-7.0.0/worker.min.js"))
     ).toBe(true);
+    const workerSourceMapPath = resolve(
+      ocrRoot,
+      "tesseract-7.0.0/worker.min.js.map"
+    );
+    expect(existsSync(workerSourceMapPath)).toBe(true);
+    expect(
+      JSON.parse(readFileSync(workerSourceMapPath, "utf8"))
+    ).toEqual(expect.objectContaining({ version: 3 }));
     expect(
       existsSync(
         resolve(

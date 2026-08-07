@@ -116,6 +116,25 @@ describe("Recognizer Adapter", () => {
     ]);
   });
 
+  it("still propagates genuine engine recognition failures", async () => {
+    const ocrWorker = worker();
+    ocrWorker.recognize.mockRejectedValueOnce(
+      new Error("recognition engine crashed")
+    );
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
+      workerFactory: vi.fn().mockResolvedValue(ocrWorker),
+      verifyAssets: vi.fn().mockResolvedValue(undefined)
+    });
+
+    await expect(
+      recognizer.recognize(document.createElement("canvas"), {
+        kind: "guide",
+        frameIdentity: "frame-failure",
+        preprocessingIdentity: "raw"
+      })
+    ).rejects.toThrow("recognition engine crashed");
+  });
+
   it("does not attempt another engine when initialization fails", async () => {
     const workerFactory = vi.fn().mockRejectedValue(new Error("unavailable"));
     const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {

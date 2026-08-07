@@ -160,6 +160,41 @@ test("mobile centers the shipped Capture Guide in the visual viewport", async ({
     .toBeLessThanOrEqual(1);
 });
 
+test("mobile renders four distinct L-shaped Capture Guide corners", async ({
+  page
+}) => {
+  await installDeterministicCamera(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /open camera/i }).click();
+
+  const corners = page
+    .getByRole("region", { name: /capture guide/i })
+    .locator(":scope > i");
+  await expect(corners).toHaveCount(4);
+  const geometry = await corners.evaluateAll((elements) =>
+    elements.map((element) => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const visibleBorders = [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth
+      ].filter((width) => width !== "0px").length;
+      return {
+        position: `${Math.round(bounds.x)}:${Math.round(bounds.y)}`,
+        visibleBorders
+      };
+    })
+  );
+
+  expect(geometry.map(({ visibleBorders }) => visibleBorders)).toEqual([
+    2, 2, 2, 2
+  ]);
+  expect(new Set(geometry.map(({ position }) => position)).size).toBe(4);
+});
+
 test("320×568 resting workspace exposes every primary edge control without document scrolling", async ({
   page
 }) => {

@@ -18,6 +18,10 @@ await Promise.all([
   copyFile(
     resolve(root, "node_modules/tesseract.js/dist/worker.min.js.LICENSE.txt"),
     resolve(workerTarget, "worker.min.js.LICENSE.txt")
+  ),
+  copyFile(
+    resolve(root, "node_modules/tesseract.js/dist/worker.min.js.map"),
+    resolve(workerTarget, "worker.min.js.map")
   )
 ]);
 

@@ -186,6 +186,7 @@ export function createOcrRecognizer(
       .then(async (worker) => {
         try {
           await worker.setParameters({
+            debug_file: "/dev/null",
             tessedit_pageseg_mode:
               configuration.parameters.guidePageSegmentationMode,
             preserve_interword_spaces:
