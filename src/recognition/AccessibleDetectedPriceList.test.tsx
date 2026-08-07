@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   DetectedPriceIdentity,
@@ -26,7 +26,15 @@ function price(
 
 const previewSize = { width: 300, height: 300 };
 
+function expandRail(): void {
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show Detected Price controls" })
+  );
+}
+
 describe("Accessible Detected Price list", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("exposes one native button per price with localized names and current semantics", () => {
     const upperRight = price("upper-right", 4142, {
       x: 230,
@@ -51,6 +59,7 @@ describe("Accessible Detected Price list", () => {
         onSelect={selectDetectedPrice}
       />
     );
+    expandRail();
 
     const list = screen.getByRole("list", { name: "Detected Prices" });
     const buttons = within(list).getAllByRole("button");
@@ -88,6 +97,7 @@ describe("Accessible Detected Price list", () => {
         onSelect={vi.fn()}
       />
     );
+    expandRail();
     const list = screen.getByRole("list", { name: "Detected Prices" });
     expect(within(list).getAllByRole("button").map((button) => button.textContent)).toEqual([
       expect.stringContaining("1,000"),
@@ -154,6 +164,7 @@ describe("Accessible Detected Price list", () => {
         onSelect={vi.fn()}
       />
     );
+    expandRail();
     const secondButton = screen.getByRole("button", {
       name: /jpy 2,000/i
     });
@@ -328,6 +339,7 @@ describe("Accessible Detected Price list", () => {
         onSelect={vi.fn()}
       />
     );
+    expandRail();
     fireEvent.click(screen.getByRole("button", { name: /jpy 4,142/i }));
 
     rerender(
@@ -389,6 +401,39 @@ describe("Accessible Detected Price list", () => {
     );
 
     expect(close).toHaveFocus();
+  });
+
+  it("moves focus to the stable recognition control when the open sheet empties", () => {
+    const first = price("first", 1000, {
+      x: 20,
+      y: 20,
+      width: 30,
+      height: 30
+    });
+    const Fixture = ({ detectedPrices }: { detectedPrices: TrackedDetectedPrice[] }) => (
+      <div>
+        <button className="recognition-status-toggle" type="button">
+          Recognition status
+        </button>
+        <AccessibleDetectedPriceList
+          detectedPrices={detectedPrices}
+          focusedPrice={detectedPrices[0] ?? null}
+          modalOpen
+          locale="en-US"
+          previewSize={previewSize}
+          onModalOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />
+      </div>
+    );
+    const { rerender } = render(<Fixture detectedPrices={[first]} />);
+    screen.getByRole("button", { name: "Close Detected Prices" }).focus();
+
+    rerender(<Fixture detectedPrices={[]} />);
+
+    expect(
+      screen.getByRole("button", { name: "Recognition status" })
+    ).toHaveFocus();
   });
 
   it("does not announce an expired lock after automatic focus was resumed", () => {

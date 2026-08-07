@@ -9,6 +9,7 @@ self.addEventListener("install", (event) => {
           "/icon.svg",
           "/icon-192.png",
           "/icon-512.png",
+          "/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js",
           "/ocr/tesseract-7.0.0/worker.min.js",
           "/ocr/tessdata_fast-4.1.0/manifest.json",
           "/ocr/tesseract-core-7.0.0/tesseract-core-lstm.wasm",

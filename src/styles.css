@@ -1030,6 +1030,18 @@ h1 em {
   margin-top: 10px;
 }
 
+.recognition-status-toggle {
+  display: none;
+}
+
+.recognition-status-content {
+  display: contents;
+}
+
+.compact-recognition-live {
+  display: none;
+}
+
 .workspace-details {
   width: min(720px, calc(100% - 40px));
   margin: 0 auto;
@@ -1183,28 +1195,28 @@ button.focus-target {
   border-style: solid;
 }
 
-.capture-guide i:nth-child(1) {
+.capture-guide i:nth-of-type(1) {
   top: 0;
   left: 0;
   border-width: 1px 0 0 1px;
   border-radius: 8px 0 0;
 }
 
-.capture-guide i:nth-child(2) {
+.capture-guide i:nth-of-type(2) {
   top: 0;
   right: 0;
   border-width: 1px 1px 0 0;
   border-radius: 0 8px 0 0;
 }
 
-.capture-guide i:nth-child(3) {
+.capture-guide i:nth-of-type(3) {
   bottom: 0;
   left: 0;
   border-width: 0 0 1px 1px;
   border-radius: 0 0 0 8px;
 }
 
-.capture-guide i:nth-child(4) {
+.capture-guide i:nth-of-type(4) {
   right: 0;
   bottom: 0;
   border-width: 0 1px 1px 0;
@@ -1487,9 +1499,14 @@ button.focus-target {
 
 .detected-prices-drag-handle {
   display: grid;
+  width: auto;
   height: 24px;
   margin: -4px -6px 2px;
+  padding: 0;
+  border: 0;
   place-items: center;
+  background: transparent;
+  color: inherit;
   cursor: grab;
   touch-action: none;
 }
@@ -1548,6 +1565,10 @@ button.focus-target {
   color: var(--mint);
   font-size: 0.68rem;
   font-weight: 800;
+}
+
+.expand-detected-prices-compact {
+  display: none;
 }
 
 .clear-held-prices {
@@ -1733,6 +1754,11 @@ button.focus-target {
 .manual-composer-toggle > span:last-child {
   color: var(--mint);
   font-size: 1.1rem;
+}
+
+.manual-price-composer.is-promoted .manual-composer-toggle {
+  border-color: rgba(151, 232, 198, 0.72);
+  box-shadow: 0 0 0 2px rgba(151, 232, 198, 0.12);
 }
 
 .compact-composer .manual-composer-content {
@@ -2176,6 +2202,15 @@ button.focus-target {
     );
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .camera-shell .workspace-currency-controls:has(.camera-currency-sheet) {
+    z-index: 80;
+  }
+
+  .camera-shell .camera-currency-sheet {
+    box-shadow: 0 18px 54px rgba(0, 0, 0, 0.58);
   }
 
   .camera-shell .detected-prices-sheet-backdrop {
@@ -2197,7 +2232,7 @@ button.focus-target {
     top: var(--camera-guide-center-y, calc(50% - 13px));
     height: min(
       clamp(112px, 24%, 160px),
-      max(44px, calc(var(--camera-guide-available-height, 168px) - 8px))
+      max(112px, calc(var(--camera-guide-available-height, 168px) - 8px))
     );
   }
 
@@ -2266,6 +2301,481 @@ button.focus-target {
   .conversion-card dl {
     grid-template-columns: 1fr;
   }
+
+  /* Approved #93 Variant B: controls hug the preview edges. */
+  .camera-shell .camera-header {
+    padding: max(10px, var(--camera-inset-top))
+      max(12px, var(--camera-inset-right)) 8px
+      max(12px, var(--camera-inset-left));
+  }
+
+  .camera-shell .camera-privacy-button,
+  .camera-shell .privacy-chip,
+  .camera-shell .capture-guide-label,
+  .camera-shell .capture-guide > p {
+    display: none;
+  }
+
+  .camera-shell .brand-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .camera-shell .close-button {
+    min-height: 44px;
+    padding: 6px 12px;
+  }
+
+  .camera-shell .workspace-currency-controls {
+    top: max(62px, calc(var(--camera-inset-top) + 52px));
+    right: max(8px, var(--camera-inset-right));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    padding: 5px;
+    border-radius: 14px;
+  }
+
+  .camera-shell .workspace-currency-controls .field > span {
+    display: none;
+  }
+
+  .camera-shell .workspace-currency-controls .currency-grid.has-swap {
+    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .camera-shell .workspace-currency-controls .source-currency-trigger,
+  .camera-shell .workspace-currency-controls .target-currency-trigger,
+  .camera-shell .workspace-currency-controls .currency-swap-button {
+    min-height: 48px;
+  }
+
+  .camera-shell .workspace-preview-controls {
+    display: contents;
+  }
+
+  .camera-shell .workspace-recognition-controls {
+    position: absolute;
+    z-index: 12;
+    top: max(122px, calc(var(--camera-inset-top) + 112px));
+    right: max(8px, var(--camera-inset-right));
+    width: min(180px, calc(100% - 96px));
+    min-height: 0;
+    max-height: none;
+    padding: 5px 7px;
+    overflow: visible;
+    border-radius: 13px;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status {
+    min-height: 44px;
+    gap: 8px;
+    margin: 0;
+    padding: 8px;
+    align-items: center;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status p,
+  .camera-shell .workspace-recognition-controls .scan-status progress,
+  .camera-shell .workspace-recognition-controls .recognition-note {
+    display: none;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status strong {
+    font-size: 0.68rem;
+    overflow-wrap: anywhere;
+  }
+
+  .camera-shell .workspace-recognition-controls:has(.scan-status button) {
+    max-height: none;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status:has(button) {
+    min-height: 88px;
+    align-items: flex-start;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status:has(button) > div {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status:has(button) strong {
+    overflow-wrap: anywhere;
+  }
+
+  .camera-shell .workspace-recognition-controls .scan-status button {
+    min-height: 44px;
+    margin: 0;
+    padding: 6px 8px;
+  }
+
+  .camera-shell .workspace-conversion-controls {
+    position: absolute;
+    z-index: 18;
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(108px, calc(var(--camera-inset-bottom) + 100px));
+    left: max(82px, calc(var(--camera-inset-left) + 74px));
+    min-height: 52px;
+    max-height: none;
+    padding: 5px;
+    overflow: visible;
+    border-radius: 13px;
+  }
+
+  .camera-shell .workspace-conversion-controls .reference-rate-details,
+  .camera-shell .workspace-conversion-controls .conversion-card p,
+  .camera-shell .workspace-conversion-controls .conversion-card dl {
+    display: none;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface {
+    position: static;
+    max-width: none;
+    padding-top: 4px;
+    border-top: 1px solid rgba(246, 244, 237, 0.12);
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface > summary {
+    display: flex;
+    min-height: 44px;
+    overflow: hidden;
+    padding: 8px;
+    border-radius: 7px;
+    background: rgba(7, 16, 22, 0.9);
+    font-size: 0.55rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    align-items: center;
+  }
+
+  .camera-shell .workspace-conversion-controls:has(
+      .conversion-detail-surface[open]
+    ) {
+    position: fixed;
+    z-index: 75;
+    top: max(8px, var(--camera-inset-top));
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(8px, var(--camera-inset-bottom));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    max-height: none;
+    padding: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 16px;
+    box-shadow: 0 0 0 100vmax rgba(1, 6, 9, 0.68);
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface[open] {
+    padding-top: 9px;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface[open] > summary {
+    min-height: 44px;
+    padding: 12px 8px;
+    background: rgba(152, 224, 192, 0.08);
+    font-size: 0.68rem;
+    white-space: normal;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface[open] .conversion-card p,
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface[open] .conversion-card dl,
+  .camera-shell .workspace-conversion-controls .conversion-detail-surface[open] .reference-rate-details {
+    display: block;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-price-source {
+    min-height: 16px;
+    gap: 6px;
+    margin: 0;
+    padding: 0 4px 3px;
+    border: 0;
+    background: transparent;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-price-source strong {
+    display: block;
+    overflow: hidden;
+    font-size: 0.52rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-price-source p {
+    display: none;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-price-source .text-button {
+    min-height: 44px;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-ledger {
+    gap: 4px;
+    margin: 0;
+  }
+
+  .camera-shell .workspace-conversion-controls:has(.conversion-detail-surface) {
+    bottom: max(68px, calc(var(--camera-inset-bottom) + 60px));
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-ledger:has(
+      .conversion-detail-surface
+    ) {
+    grid-template-columns: minmax(0, 1fr) minmax(92px, 0.85fr);
+    align-items: stretch;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-ledger:has(
+      .conversion-detail-surface
+    ) > .conversion-detail-surface {
+    padding-top: 0;
+    border-top: 0;
+    border-left: 1px solid rgba(246, 244, 237, 0.12);
+  }
+
+  .camera-shell .workspace-conversion-controls:has(
+      .conversion-detail-surface[open]
+    ) .conversion-ledger {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-shell .workspace-conversion-controls:has(
+      .conversion-detail-surface[open]
+    ) .conversion-detail-surface {
+    padding-top: 9px;
+    border-top: 1px solid rgba(246, 244, 237, 0.12);
+    border-left: 0;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-card {
+    min-height: 44px;
+    margin: 0;
+    padding: 8px 9px;
+    border-radius: 10px;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-heading {
+    min-height: 28px;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-heading span {
+    display: none;
+  }
+
+  .camera-shell .workspace-conversion-controls .conversion-heading strong {
+    overflow: hidden;
+    font-size: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .camera-shell .result-sheet .workspace-conversion-controls {
+    position: static;
+    inset: auto;
+    width: 100%;
+    min-height: 0;
+    margin: 8px 0 0;
+    padding: 8px;
+    overflow: visible;
+  }
+
+  .camera-shell .detected-prices-rail {
+    --detected-prices-resting-translate-y: -50%;
+    top: 50%;
+    left: max(8px, var(--camera-inset-left));
+    width: 64px;
+    max-height: min(310px, 52%);
+    padding: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 13px;
+  }
+
+  .camera-shell .detected-prices-rail.is-collapsed {
+    width: 52px;
+  }
+
+  .camera-shell .detected-prices-drag-handle {
+    height: 44px;
+    margin: -2px 0 2px;
+  }
+
+  .camera-shell .detected-prices-drag-handle span {
+    width: 30px;
+  }
+
+  .camera-shell .detected-prices-rail-heading {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    overflow: hidden;
+  }
+
+  .camera-shell .detected-prices-rail > *,
+  .camera-shell .detected-prices-rail-heading > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .camera-shell .detected-prices-rail-heading > div {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .camera-shell .detected-prices-rail-heading h2 {
+    display: none;
+  }
+
+  .camera-shell .detected-prices-rail-heading p,
+  .camera-shell .detected-prices-focused-summary {
+    overflow: hidden;
+    margin: 0;
+    font-size: 0.52rem;
+    line-height: 1.25;
+    text-align: center;
+    text-overflow: ellipsis;
+  }
+
+  .camera-shell .detected-prices-focused-summary strong {
+    display: block;
+  }
+
+  .camera-shell .detected-prices-rail-heading > button {
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+  }
+
+  .camera-shell .expand-detected-prices,
+  .camera-shell .detected-prices-rail > .clear-held-prices {
+    min-height: 44px;
+    margin-top: 5px;
+    padding: 4px;
+    overflow: hidden;
+    font-size: 0.55rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .camera-shell .expand-detected-prices-full {
+    display: none;
+  }
+
+  .camera-shell .expand-detected-prices-compact {
+    display: inline;
+  }
+
+  .camera-shell .detected-prices-rail > ul {
+    gap: 4px;
+    margin-top: 5px;
+  }
+
+  .camera-shell .detected-prices-rail > ul button {
+    display: grid;
+    min-height: 44px;
+    gap: 2px;
+    padding: 5px 3px;
+    place-items: center;
+    text-align: center;
+  }
+
+  .camera-shell .detected-prices-rail > ul button strong {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.55rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .camera-shell .detected-prices-rail > ul button small,
+  .camera-shell .detected-prices-rail > ul button > span:last-child {
+    display: none;
+  }
+
+  .camera-shell .detected-prices-rail > ul button > em {
+    font-size: 0.48rem;
+  }
+
+  .camera-shell .workspace-recognition-controls {
+    width: min(112px, calc(100% - 96px));
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .camera-shell .recognition-status-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 8px;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: rgba(7, 16, 22, 0.92);
+    color: var(--mint);
+  }
+
+  .camera-shell .recognition-status-toggle strong {
+    overflow: hidden;
+    font-size: 0.58rem;
+    text-overflow: ellipsis;
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="error"] {
+    color: var(--coral);
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="paused"] {
+    color: #f2b84b;
+  }
+
+  .camera-shell .recognition-status-content {
+    display: none;
+  }
+
+  .camera-shell .compact-recognition-live {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] {
+    position: absolute;
+    z-index: 75;
+    top: max(8px, var(--camera-inset-top));
+    right: max(8px, var(--camera-inset-right));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    max-height: calc(100% - 16px);
+    padding: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: rgba(7, 16, 22, 0.97);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-toggle {
+    width: min(160px, 100%);
+    margin-left: auto;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-content {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status p,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status progress,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-note {
+    display: block;
+  }
 }
 
 @media (max-width: 380px), (max-height: 700px) {
@@ -2275,9 +2785,7 @@ button.focus-target {
   .camera-shell .capture-guide-label,
   .camera-shell .capture-guide > p,
   .camera-shell .recognition-note,
-  .camera-shell .conversion-price-source,
   .camera-shell .reference-rate-details,
-  .camera-shell .conversion-detail-surface,
   .camera-shell .conversion-card p,
   .camera-shell .conversion-card dl {
     display: none;
@@ -2336,22 +2844,18 @@ button.focus-target {
   }
 
   .camera-shell .detected-prices-rail {
-    top: max(
-      108px,
-      calc(var(--camera-inset-top) + 104px)
-    );
+    --detected-prices-resting-translate-y: -50%;
+    top: 47%;
     left: max(8px, var(--camera-inset-left));
-    width: min(164px, calc(100% - 16px));
-    max-height: none;
-    padding: 7px 8px 8px;
-    overflow: hidden;
+    width: 68px;
+    max-height: min(260px, 46%);
+    padding: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
     border-radius: 13px;
-    transform: none !important;
   }
 
-  .camera-shell .detected-prices-drag-handle,
   .camera-shell .detected-prices-rail-heading h2,
-  .camera-shell .detected-prices-rail-heading > button,
   .camera-shell .detected-prices-rail > ul,
   .camera-shell .detected-prices-rail > .clear-held-prices {
     display: none;
@@ -2360,32 +2864,99 @@ button.focus-target {
   .camera-shell .detected-prices-rail-heading p,
   .camera-shell .detected-prices-focused-summary {
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .camera-shell .expand-detected-prices {
     margin-top: 5px;
   }
 
-  .camera-shell .workspace-preview-controls {
-    right: max(8px, var(--camera-inset-right));
-    bottom: max(
-      67px,
-      calc(var(--camera-inset-bottom) + 59px)
-    );
-    left: max(8px, var(--camera-inset-left));
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-    gap: 6px;
-  }
-
   .camera-shell .workspace-recognition-controls,
   .camera-shell .workspace-conversion-controls {
     min-height: 52px;
-    max-height: 58px;
     padding: 4px;
-    overflow: hidden;
     border-radius: 13px;
+  }
+
+  .camera-shell .workspace-recognition-controls {
+    width: 96px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .camera-shell .recognition-status-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: rgba(7, 16, 22, 0.92);
+    color: var(--mint);
+  }
+
+  .camera-shell .recognition-status-toggle strong {
+    font-size: 0.58rem;
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="error"] {
+    color: var(--coral);
+  }
+
+  .camera-shell .recognition-status-toggle[data-tone="paused"] {
+    color: #f2b84b;
+  }
+
+  .camera-shell .recognition-status-content {
+    display: none;
+  }
+
+  .camera-shell .compact-recognition-live {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] {
+    position: absolute;
+    z-index: 75;
+    top: max(8px, var(--camera-inset-top));
+    right: max(8px, var(--camera-inset-right));
+    left: max(8px, var(--camera-inset-left));
+    width: auto;
+    max-height: none;
+    padding: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: rgba(7, 16, 22, 0.96);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-toggle {
+    margin-left: auto;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-status-content {
+    display: block;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .compact-recognition-live {
+    display: none;
+  }
+
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status p,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .scan-status progress,
+  .camera-shell .workspace-recognition-controls[data-expanded="true"] .recognition-note {
+    display: block;
+  }
+
+  .camera-shell .workspace-conversion-controls {
+    max-height: none;
+    overflow: visible;
   }
 
   .camera-shell .scan-status {
@@ -2401,11 +2972,8 @@ button.focus-target {
   }
 
   .camera-shell .scan-status strong {
-    display: -webkit-box;
-    overflow: hidden;
     font-size: 0.68rem;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    overflow-wrap: anywhere;
   }
 
   .camera-shell .conversion-card {
@@ -2474,13 +3042,23 @@ button.focus-target {
   }
 
   .camera-shell .detected-prices-rail {
-    top: max(56px, calc(var(--camera-inset-top) + 52px));
+    --detected-prices-resting-translate-y: 0px;
+    top: max(64px, calc(var(--camera-inset-top) + 60px));
     width: 142px;
+    max-height: min(188px, calc(100% - 128px));
   }
 
-  .camera-shell .workspace-preview-controls {
-    bottom: max(63px, calc(var(--camera-inset-bottom) + 55px));
-    left: max(150px, calc(var(--camera-inset-left) + 142px));
+  .camera-shell .workspace-recognition-controls {
+    top: max(64px, calc(var(--camera-inset-top) + 60px));
+    right: max(8px, var(--camera-inset-right));
+    width: 100px;
+  }
+
+  .camera-shell .workspace-conversion-controls {
+    right: max(8px, var(--camera-inset-right));
+    bottom: max(60px, calc(var(--camera-inset-bottom) + 56px));
+    left: auto;
+    width: 136px;
   }
 
   .camera-shell .capture-guide {

@@ -50,6 +50,7 @@ export interface CandidateTrackingSnapshot {
 }
 
 export interface CandidateTracker {
+  beginObservation(frameIdentity: string): void;
   observe(
     pass: CandidateTrackingPass,
     currentCaptureGuide?: Rectangle
@@ -127,6 +128,7 @@ interface CandidateTrack {
   readonly observedFrames: Set<string>;
   readonly expiresAtMs: number;
   readonly corroborationKind: RecognitionPassIdentity["kind"];
+  pendingCorroborationFrameIdentity: string | null;
   coveredMisses: number;
 }
 
@@ -197,12 +199,32 @@ function smoothRectangle(
 function removeExpiredCandidateTracks(
   tracks: CandidateTrack[],
   requiredDistinctFrames: number,
-  cutoffTimeMs: number
+  cutoffTimeMs: number,
+  currentPass?: Pick<CandidateTrackingPass, "frameIdentity" | "candidates">,
+  maximumDisplacementInTextHeights = 0
 ): void {
   for (let index = tracks.length - 1; index >= 0; index -= 1) {
+    const track = tracks[index];
+    const isAwaitingReservedPass = Boolean(
+      !currentPass && track.pendingCorroborationFrameIdentity
+    );
+    const isCompletingReservedPass = Boolean(
+      currentPass &&
+        track.pendingCorroborationFrameIdentity ===
+          currentPass.frameIdentity &&
+        currentPass.candidates.some((candidate) =>
+          areCandidatesCompatible(
+            track.price,
+            candidate,
+            maximumDisplacementInTextHeights
+          )
+        )
+    );
     if (
-      tracks[index].observedFrames.size < requiredDistinctFrames &&
-      tracks[index].expiresAtMs <= cutoffTimeMs
+      track.observedFrames.size < requiredDistinctFrames &&
+      track.expiresAtMs <= cutoffTimeMs &&
+      !isAwaitingReservedPass &&
+      !isCompletingReservedPass
     ) {
       tracks.splice(index, 1);
     }
@@ -301,13 +323,27 @@ export function createCandidateTracker(options: {
   };
 
   return {
+    beginObservation(frameIdentity) {
+      for (const track of tracks) {
+        if (
+          track.observedFrames.size <
+            options.stabilization.requiredDistinctFrames &&
+          track.pendingCorroborationFrameIdentity === null
+        ) {
+          track.pendingCorroborationFrameIdentity = frameIdentity;
+        }
+      }
+    },
+
     observe(pass, currentCaptureGuide = options.captureGuide) {
       lastCaptureGuide = currentCaptureGuide;
       currentTimeMs = Math.max(currentTimeMs, pass.observedAtMs);
       removeExpiredCandidateTracks(
         tracks,
         options.stabilization.requiredDistinctFrames,
-        pass.observedAtMs
+        pass.observedAtMs,
+        pass,
+        options.geometry.maximumDisplacementInTextHeights
       );
       const matchedTracks = new Set<CandidateTrack>();
       const matchedCandidateIndexes = new Set<number>();
@@ -386,6 +422,7 @@ export function createCandidateTracker(options: {
         ) {
           track.observedFrames.add(pass.frameIdentity);
         }
+        track.pendingCorroborationFrameIdentity = null;
         if (
           !wasDetected &&
           track.observedFrames.size >=
@@ -440,6 +477,7 @@ export function createCandidateTracker(options: {
             expiresAtMs:
               pass.observedAtMs + CANDIDATE_OUTLINE_LIFETIME_MS,
             corroborationKind: pass.kind,
+            pendingCorroborationFrameIdentity: null,
             coveredMisses: 0
           };
           tracks.push(created);
@@ -448,6 +486,9 @@ export function createCandidateTracker(options: {
         }
       });
       for (const track of tracks) {
+        if (track.pendingCorroborationFrameIdentity === pass.frameIdentity) {
+          track.pendingCorroborationFrameIdentity = null;
+        }
         if (
           !matchedTracks.has(track) &&
           containsRegion(pass.coverage, track.price.box)

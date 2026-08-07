@@ -21,6 +21,55 @@ interface PreviewSize {
   readonly height: number;
 }
 
+interface DetectedPricesRailPresentation {
+  readonly collapsed: boolean;
+  readonly offset: { readonly x: number; readonly y: number };
+}
+
+const DETECTED_PRICES_RAIL_PRESENTATION_KEY =
+  "taglingo.detected-prices-rail-presentation.v2";
+const DEFAULT_RAIL_PRESENTATION: DetectedPricesRailPresentation = {
+  collapsed: true,
+  offset: { x: 0, y: 0 }
+};
+
+function readRailPresentation(): DetectedPricesRailPresentation {
+  try {
+    const stored = window.localStorage.getItem(
+      DETECTED_PRICES_RAIL_PRESENTATION_KEY
+    );
+    if (!stored) return DEFAULT_RAIL_PRESENTATION;
+    const parsed = JSON.parse(stored) as Partial<DetectedPricesRailPresentation>;
+    const x = parsed.offset?.x;
+    const y = parsed.offset?.y;
+    if (
+      typeof parsed.collapsed !== "boolean" ||
+      typeof x !== "number" ||
+      !Number.isFinite(x) ||
+      typeof y !== "number" ||
+      !Number.isFinite(y)
+    ) {
+      return DEFAULT_RAIL_PRESENTATION;
+    }
+    return { collapsed: parsed.collapsed, offset: { x, y } };
+  } catch {
+    return DEFAULT_RAIL_PRESENTATION;
+  }
+}
+
+function writeRailPresentation(
+  presentation: DetectedPricesRailPresentation
+): void {
+  try {
+    window.localStorage.setItem(
+      DETECTED_PRICES_RAIL_PRESENTATION_KEY,
+      JSON.stringify(presentation)
+    );
+  } catch {
+    // Rail customization is optional when browser storage is unavailable.
+  }
+}
+
 interface DetectedPriceTransition {
   readonly count: number;
   readonly focusedIdentity: DetectedPriceIdentity | null;
@@ -184,11 +233,13 @@ export function AccessibleDetectedPriceList({
 }) {
   const headingId = useId();
   const dialogHeadingId = useId();
-  const [collapsed, setCollapsed] = useState(false);
+  const initialPresentation = useRef(readRailPresentation()).current;
+  const [collapsed, setCollapsed] = useState(initialPresentation.collapsed);
   const [uncontrolledModalOpen, setUncontrolledModalOpen] = useState(false);
   const isModalOpen = modalOpen ?? uncontrolledModalOpen;
-  const [railOffset, setRailOffset] = useState({ x: 0, y: 0 });
+  const [railOffset, setRailOffset] = useState(initialPresentation.offset);
   const railRef = useRef<HTMLElement>(null);
+  const previewRef = useRef<HTMLElement | null>(null);
   const drag = useRef<{
     pointerId: number;
     startX: number;
@@ -254,6 +305,44 @@ export function AccessibleDetectedPriceList({
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const returnFocusAfterClose = useRef(false);
+  useEffect(() => {
+    writeRailPresentation({ collapsed, offset: railOffset });
+  }, [collapsed, railOffset]);
+
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    const preview = rail?.parentElement;
+    if (!rail || !preview) return;
+    previewRef.current = preview;
+    if (typeof ResizeObserver === "undefined") return;
+    const keepRailInsidePreview = () => {
+      const railBounds = rail.getBoundingClientRect();
+      const previewBounds = preview.getBoundingClientRect();
+      const correctionX =
+        railBounds.left < previewBounds.left
+          ? previewBounds.left - railBounds.left
+          : railBounds.right > previewBounds.right
+            ? previewBounds.right - railBounds.right
+            : 0;
+      const correctionY =
+        railBounds.top < previewBounds.top
+          ? previewBounds.top - railBounds.top
+          : railBounds.bottom > previewBounds.bottom
+            ? previewBounds.bottom - railBounds.bottom
+            : 0;
+      if (Math.abs(correctionX) < 0.5 && Math.abs(correctionY) < 0.5) return;
+      setRailOffset((offset) => ({
+        x: offset.x + correctionX,
+        y: offset.y + correctionY
+      }));
+    };
+    keepRailInsidePreview();
+    const resizeObserver = new ResizeObserver(keepRailInsidePreview);
+    resizeObserver.observe(preview);
+    resizeObserver.observe(rail);
+    return () => resizeObserver.disconnect();
+  }, [collapsed, detectedPrices.length > 0]);
+
   useLayoutEffect(() => {
     const previousFocusedControl = keyboardFocusedControlIdentity.current;
     if (previousFocusedControl && !pricesByIdentity.has(previousFocusedControl)) {
@@ -264,7 +353,12 @@ export function AccessibleDetectedPriceList({
           : buttonRefs.current.get(focusedPrice.identity);
         focusedControl?.focus();
       } else {
-        (isModalOpen ? dialogHeadingRef.current : headingRef.current)?.focus();
+        const fallback = isModalOpen
+          ? previewRef.current?.querySelector<HTMLButtonElement>(
+              ".recognition-status-toggle"
+            )
+          : headingRef.current;
+        (fallback ?? headingRef.current)?.focus();
       }
     }
   }, [isModalOpen, membershipRevision]);
@@ -287,6 +381,21 @@ export function AccessibleDetectedPriceList({
       expandButtonRef.current?.focus();
     }
   }, [isModalOpen]);
+
+  useLayoutEffect(() => {
+    if (detectedPrices.length > 0 || !isModalOpen) return;
+    const fallback =
+      previewRef.current?.querySelector<HTMLButtonElement>(
+        ".recognition-status-toggle"
+      ) ?? headingRef.current;
+    fallback?.focus();
+  }, [detectedPrices.length, isModalOpen]);
+
+  useEffect(() => {
+    if (detectedPrices.length > 0 || !isModalOpen) return;
+    setUncontrolledModalOpen(false);
+    onModalOpenChange?.(false);
+  }, [detectedPrices.length, isModalOpen, onModalOpenChange]);
 
   const [announcement, setAnnouncement] = useState("");
   const localExplicitFocus = useRef<DetectedPriceIdentity | null>(null);
@@ -433,7 +542,7 @@ export function AccessibleDetectedPriceList({
     if (dismissModal) closeModal();
   };
 
-  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const rail = railRef.current;
     const preview = rail?.parentElement;
     if (!rail || !preview) return;
@@ -448,7 +557,7 @@ export function AccessibleDetectedPriceList({
       previewBounds: preview.getBoundingClientRect()
     };
   };
-  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const requestedX = event.clientX - current.startX;
@@ -464,10 +573,31 @@ export function AccessibleDetectedPriceList({
         current.originY + Math.min(maxY, Math.max(minY, requestedY))
     });
   };
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return;
     drag.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  const nudgeRail = (x: number, y: number) => {
+    const rail = railRef.current;
+    const preview = rail?.parentElement;
+    if (!rail || !preview) return;
+    const railBounds = rail.getBoundingClientRect();
+    const previewBounds = preview.getBoundingClientRect();
+    const constrainedX = Math.min(
+      previewBounds.right - railBounds.right,
+      Math.max(previewBounds.left - railBounds.left, x)
+    );
+    const constrainedY = Math.min(
+      previewBounds.bottom - railBounds.bottom,
+      Math.max(previewBounds.top - railBounds.top, y)
+    );
+    setRailOffset((offset) => ({
+      x: offset.x + constrainedX,
+      y: offset.y + constrainedY
+    }));
   };
   const trapDialogFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -557,27 +687,54 @@ export function AccessibleDetectedPriceList({
 
   return (
     <>
+      <div
+        className="visually-hidden"
+        role="status"
+        aria-label="Detected Price updates"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </div>
       <section
         ref={railRef}
         className={`accessible-price-list detected-prices-rail${
           collapsed ? " is-collapsed" : ""
         }`}
         style={{
-          transform: `translate(${railOffset.x.toString()}px, ${railOffset.y.toString()}px)`
+          transform: `translate(${railOffset.x.toString()}px, calc(var(--detected-prices-resting-translate-y, 0px) + ${railOffset.y.toString()}px))`
         }}
         aria-label="Detected Prices rail"
       >
-        <div
+        <button
+          type="button"
           className="detected-prices-drag-handle"
           data-detected-prices-drag-handle=""
-          aria-hidden="true"
+          aria-label="Drag Detected Prices. Arrow keys also move it; double tap resets it."
+          aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
           onPointerDown={startDrag}
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onLostPointerCapture={() => {
+            drag.current = null;
+          }}
+          onDoubleClick={() => setRailOffset({ x: 0, y: 0 })}
+          onKeyDown={(event) => {
+            const movement: Record<string, [number, number]> = {
+              ArrowUp: [0, -12],
+              ArrowDown: [0, 12],
+              ArrowLeft: [-12, 0],
+              ArrowRight: [12, 0]
+            };
+            const next = movement[event.key];
+            if (!next) return;
+            event.preventDefault();
+            nudgeRail(...next);
+          }}
         >
-          <span />
-        </div>
+          <span aria-hidden="true" />
+        </button>
         <div className="detected-prices-rail-heading">
           <div>
             <h2 id={headingId} ref={headingRef} tabIndex={-1}>
@@ -611,10 +768,16 @@ export function AccessibleDetectedPriceList({
           className="expand-detected-prices"
           type="button"
           onClick={() => setModalState(true)}
+          aria-label="Expand Detected Prices"
           aria-haspopup="dialog"
           aria-expanded={isModalOpen}
         >
-          Expand Detected Prices
+          <span className="expand-detected-prices-full">
+            Expand Detected Prices
+          </span>
+          <span className="expand-detected-prices-compact" aria-hidden="true">
+            All prices
+          </span>
         </button>
         {!collapsed && orderedPrices.length > 0 ? (
           <SemanticPriceList
@@ -644,15 +807,6 @@ export function AccessibleDetectedPriceList({
             Clear held prices
           </button>
         ) : null}
-        <div
-          className="visually-hidden"
-          role="status"
-          aria-label="Detected Price updates"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {announcement}
-        </div>
       </section>
       {modal}
     </>

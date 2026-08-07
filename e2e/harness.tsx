@@ -64,12 +64,14 @@ function DeterministicCameraWorkspace({
   startPaused = false,
   currencyJourney = false,
   overlapPrices = false,
-  initialManualEntryExpanded = true
+  initialManualEntryExpanded = true,
+  compactStatus = null
 }: {
   startPaused?: boolean;
   currencyJourney?: boolean;
   overlapPrices?: boolean;
   initialManualEntryExpanded?: boolean;
+  compactStatus?: "held" | "requesting" | null;
 }) {
   const [state, setState] = useState(() => {
     const baseFocusedState = injectedWorkspaceState();
@@ -109,6 +111,37 @@ function DeterministicCameraWorkspace({
         expanded: initialManualEntryExpanded
       }
     };
+    if (compactStatus === "held") {
+      const heldPrice = {
+        ...stateWithManualEntry.recognition.detectedPrices[0],
+        state: "held" as const
+      };
+      return {
+        ...stateWithManualEntry,
+        demo: false,
+        recognition: {
+          ...stateWithManualEntry.recognition,
+          phase: "focused" as const,
+          detectedPrices: [
+            heldPrice,
+            ...stateWithManualEntry.recognition.detectedPrices.slice(1)
+          ]
+        },
+        focusedPrice: heldPrice
+      };
+    }
+    if (compactStatus === "requesting") {
+      return {
+        ...stateWithManualEntry,
+        demo: false,
+        camera: { status: "requesting" as const, stream: null },
+        recognition: {
+          ...stateWithManualEntry.recognition,
+          phase: "waiting" as const
+        },
+        focusedPrice: null
+      };
+    }
     return startPaused
       ? {
           ...stateWithManualEntry,
@@ -463,6 +496,9 @@ function DeterministicEvidenceLifecycleWorkspace() {
 
 const createFixtureRecognizer: CreateRecognizer = (_runtime, onProgress) => ({
   async prepare() {
+    if (searchParameters.get("preparation") === "failed") {
+      throw new Error("Deterministic recognition preparation failure");
+    }
     if (searchParameters.get("preparation") === "delayed") {
       onProgress(0.25, "holding deterministic preparation fixture");
       await new Promise((resolve) => window.setTimeout(resolve, 1_500));
@@ -647,12 +683,21 @@ createRoot(document.getElementById("root")!).render(
     workspaceMode === "journey" ||
     workspaceMode === "currencies" ||
     workspaceMode === "overlap" ||
-    workspaceMode === "responsive" ? (
+    workspaceMode === "responsive" ||
+    workspaceMode === "responsive-held" ||
+    workspaceMode === "responsive-requesting" ? (
     <DeterministicCameraWorkspace
       startPaused={workspaceMode === "journey"}
       currencyJourney={workspaceMode === "currencies"}
       overlapPrices={workspaceMode === "overlap"}
-      initialManualEntryExpanded={workspaceMode !== "responsive"}
+      initialManualEntryExpanded={!workspaceMode?.startsWith("responsive")}
+      compactStatus={
+        workspaceMode === "responsive-held"
+          ? "held"
+          : workspaceMode === "responsive-requesting"
+            ? "requesting"
+            : null
+      }
     />
   ) : memberMode ? (
     <MemberAppFixture

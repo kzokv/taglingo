@@ -83,6 +83,43 @@ describe("Candidate tracking", () => {
     });
   });
 
+  it("expires the outline but corroborates the reserved next OCR pass when it finishes slowly", () => {
+    const tracker = createTracker();
+    const price = candidate();
+
+    tracker.observe(pass("frame-1", [price], fullPreview, 100));
+    tracker.beginObservation("frame-2");
+    expect(tracker.advanceTime(1_600).candidateOutlines).toEqual([]);
+    const stabilized = tracker.observe(
+      pass("frame-2", [price], fullPreview, 5_400)
+    );
+
+    expect(stabilized.candidateOutlines).toEqual([]);
+    expect(stabilized.detectedPrices).toEqual([
+      expect.objectContaining({
+        identity: "detected-price-1",
+        minorUnits: price.minorUnits,
+        state: "fresh"
+      })
+    ]);
+  });
+
+  it("does not corroborate an expired track from an unreserved later frame", () => {
+    const tracker = createTracker();
+    const price = candidate();
+
+    tracker.observe(pass("frame-1", [price], fullPreview, 100));
+    tracker.advanceTime(1_600);
+    const later = tracker.observe(
+      pass("frame-9", [price], fullPreview, 5_400)
+    );
+
+    expect(later.detectedPrices).toEqual([]);
+    expect(later.candidateOutlines).toEqual([
+      expect.objectContaining({ identity: "detected-price-2" })
+    ]);
+  });
+
   it("replaces contradictory provisional evidence immediately and expires it after 1.5 seconds", () => {
     const tracker = createTracker();
     const first = candidate({ minorUnits: 4_142 });

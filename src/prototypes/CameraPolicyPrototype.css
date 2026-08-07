@@ -69,11 +69,11 @@
 .simulated-tag { position: absolute; left: 23%; top: 28%; width: 54%; min-height: 115px; padding: 15px 18px; background: #f7f1df; color: #1d1711; border-radius: 4px; transform: rotate(-3deg); box-shadow: 0 12px 40px rgba(0,0,0,.35); display: grid; grid-template-columns: 1fr auto; align-items: end; }
 .simulated-tag strong { grid-column: 1 / -1; font-size: clamp(2rem, 6vw, 3.5rem); letter-spacing: -.06em; }
 .simulated-tag small, .simulated-tag span { font-weight: 700; }
-.capture-guide { position: absolute; z-index: 2; inset: 21% 12% 25%; border: 2px solid rgba(255,255,255,.72); border-radius: 20px; }
-.capture-guide i::before, .capture-guide i::after { content: ""; position: absolute; background: var(--lime); }
-.capture-guide i::before { width: 30px; height: 3px; left: calc(50% - 15px); top: calc(50% - 1px); }
-.capture-guide i::after { height: 30px; width: 3px; left: calc(50% - 1px); top: calc(50% - 15px); }
-.capture-guide span { position: absolute; left: 50%; bottom: -42px; transform: translateX(-50%); width: max-content; max-width: 90%; padding: 7px 12px; background: rgba(10,17,14,.82); border-radius: 999px; font-size: .78rem; }
+.policy-capture-guide { position: absolute; z-index: 2; inset: 21% 12% 25%; border: 2px solid rgba(255,255,255,.72); border-radius: 20px; }
+.policy-capture-guide i::before, .policy-capture-guide i::after { content: ""; position: absolute; background: var(--lime); }
+.policy-capture-guide i::before { width: 30px; height: 3px; left: calc(50% - 15px); top: calc(50% - 1px); }
+.policy-capture-guide i::after { height: 30px; width: 3px; left: calc(50% - 1px); top: calc(50% - 15px); }
+.policy-capture-guide span { position: absolute; left: 50%; bottom: -42px; transform: translateX(-50%); width: max-content; max-width: 90%; padding: 7px 12px; background: rgba(10,17,14,.82); border-radius: 999px; font-size: .78rem; }
 .detection-outline { position: absolute; z-index: 3; left: 25%; top: 39%; width: 50%; padding: 10px; border: 3px solid var(--lime); border-radius: 8px; color: transparent; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
 
 .scenario-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

@@ -178,12 +178,18 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
     canvasContext()
   );
+  const slowFirstRecognition = deferred<RecognizerObservation[]>();
+  const slowSecondRecognition = deferred<RecognizerObservation[]>();
+  let firstFrameIdentity: string | null = null;
+  let delayedFirstResult: RecognizerObservation[] = [];
+  let delayedSecondResult: RecognizerObservation[] = [];
+  let delayedSecondPass = false;
   const recognizer: OcrRecognizer = {
     prepare: vi.fn().mockResolvedValue(undefined),
-    recognize: vi.fn(async (_image, passIdentity) => {
+    recognize: vi.fn((_image, passIdentity) => {
       const recognized = observation();
       const scale = passIdentity.preprocessingIdentity === "raw" ? 1 : 2;
-      return [
+      const result = [
         {
           ...recognized,
           box: {
@@ -198,6 +204,20 @@ it("publishes only stable Detected Prices from distinct completed frames", async
           })) as unknown as RecognizerObservation["polygon"]
         }
       ];
+      if (firstFrameIdentity === null) {
+        firstFrameIdentity = passIdentity.frameIdentity;
+        delayedFirstResult = result;
+        return slowFirstRecognition.promise;
+      }
+      if (
+        passIdentity.frameIdentity !== firstFrameIdentity &&
+        !delayedSecondPass
+      ) {
+        delayedSecondPass = true;
+        delayedSecondResult = result;
+        return slowSecondRecognition.promise;
+      }
+      return Promise.resolve(result);
     }),
     terminate: vi.fn().mockResolvedValue(undefined)
   };
@@ -221,7 +241,12 @@ it("publishes only stable Detected Prices from distinct completed frames", async
     })
   );
 
-  await act(async () => vi.advanceTimersByTimeAsync(0));
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(result.current.candidateOutlines).toEqual([]);
+  await act(async () => {
+    slowFirstRecognition.resolve(delayedFirstResult);
+    await Promise.resolve();
+  });
   expect(result.current.phase).toBe("stabilizing");
   expect(result.current.candidateOutlines).toEqual([
     expect.objectContaining({
@@ -232,7 +257,17 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   expect(result.current.detectedPrices).toEqual([]);
   expect(result.current.focusedPrice).toBeNull();
 
-  await act(async () => vi.advanceTimersByTimeAsync(1_500));
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(delayedSecondPass).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1_250));
+  expect(result.current.phase).toBe("searching");
+  expect(result.current.candidateOutlines).toEqual([]);
+  expect(result.current.detectedPrices).toEqual([]);
+
+  await act(async () => {
+    slowSecondRecognition.resolve(delayedSecondResult);
+    await Promise.resolve();
+  });
   expect(result.current.phase).toBe("focused");
   expect(result.current.detectedPrices).toEqual([
     expect.objectContaining({
@@ -244,6 +279,54 @@ it("publishes only stable Detected Prices from distinct completed frames", async
   expect(result.current.focusedPrice).toBe(
     result.current.detectedPrices[0]
   );
+
+  unmount();
+  preparation.dispose();
+});
+
+it("clears provisional presentation when a genuine OCR pass fails", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    canvasContext()
+  );
+  let firstFrameIdentity: string | null = null;
+  const recognizer: OcrRecognizer = {
+    prepare: vi.fn().mockResolvedValue(undefined),
+    recognize: vi.fn((_image, passIdentity) => {
+      firstFrameIdentity ??= passIdentity.frameIdentity;
+      return passIdentity.frameIdentity === firstFrameIdentity
+        ? Promise.resolve([observation()])
+        : Promise.reject(new Error("genuine OCR failure"));
+    }),
+    terminate: vi.fn().mockResolvedValue(undefined)
+  };
+  const preparation = createRecognitionPreparation({
+    runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+    createRecognizer: () => recognizer
+  });
+  const cameraVideo = video();
+  const cameraPreview = preview();
+  const { result, unmount } = renderHook(() =>
+    useCameraRecognition({
+      enabled: true,
+      runtime: UNIVERSAL_RECOGNITION_RUNTIME,
+      sourceCurrency: "JPY",
+      video: cameraVideo,
+      preview: cameraPreview,
+      captureGuide: cameraPreview,
+      preparation
+    })
+  );
+
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(result.current.phase).toBe("stabilizing");
+  expect(result.current.candidateOutlines.length).toBeGreaterThan(0);
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(result.current.phase).toBe("error");
+  expect(result.current.candidateOutlines).toEqual([]);
+  await act(async () => vi.advanceTimersByTimeAsync(2_000));
+  expect(result.current.phase).toBe("error");
 
   unmount();
   preparation.dispose();

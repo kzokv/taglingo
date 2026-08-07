@@ -61,10 +61,11 @@ describe("Recognizer Adapter", () => {
       ["eng", "jpn", "chi_sim", "chi_tra", "kor"],
       expect.anything(),
       expect.objectContaining({
-        workerPath: "/ocr/tesseract-7.0.0/worker.min.js",
+        workerPath: "/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js",
         corePath: "/ocr/tesseract-core-7.0.0",
         langPath: "/ocr/tessdata_fast-4.1.0",
         gzip: true,
+        workerBlobURL: true,
         cacheMethod: "none"
       })
     );
@@ -113,6 +114,25 @@ describe("Recognizer Adapter", () => {
         passIdentity
       })
     ]);
+  });
+
+  it("still propagates genuine engine recognition failures", async () => {
+    const ocrWorker = worker();
+    ocrWorker.recognize.mockRejectedValueOnce(
+      new Error("recognition engine crashed")
+    );
+    const recognizer = createOcrRecognizer(UNIVERSAL_RECOGNITION_RUNTIME, {
+      workerFactory: vi.fn().mockResolvedValue(ocrWorker),
+      verifyAssets: vi.fn().mockResolvedValue(undefined)
+    });
+
+    await expect(
+      recognizer.recognize(document.createElement("canvas"), {
+        kind: "guide",
+        frameIdentity: "frame-failure",
+        preprocessingIdentity: "raw"
+      })
+    ).rejects.toThrow("recognition engine crashed");
   });
 
   it("does not attempt another engine when initialization fails", async () => {
@@ -187,6 +207,29 @@ describe("Recognizer Adapter", () => {
             hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             decodedHash:
               "sha256:e448702be15b6819d770e81d254dd0211081ae5cccef71a8c46294fc67cdabf5"
+          }
+        ],
+        {
+          fetcher: vi.fn().mockResolvedValue(
+            new Response(decodedBytes, {
+              headers: { "content-encoding": "gzip" }
+            })
+          )
+        }
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("validates a plain pinned asset after transparent HTTP gzip decoding", async () => {
+    const decodedBytes = new TextEncoder().encode("plain worker bytes");
+
+    await expect(
+      verifyRecognitionAssets(
+        [
+          {
+            path: "/ocr/worker.min.js",
+            hash:
+              "sha256:0d93f7e2f2e7be9dbe75261f7c66f9e34e89a1a58917b6ba7c7904fbf5db9166"
           }
         ],
         {

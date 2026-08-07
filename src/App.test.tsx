@@ -204,7 +204,7 @@ beforeEach(() => {
 });
 
 describe("Manual Price Entry journey", () => {
-  it("promotes the camera-sheet composer after five seconds without moving focus", async () => {
+  it("promotes the camera-sheet trigger after five seconds without opening it or moving focus", async () => {
     vi.useFakeTimers();
     const cameraPermission = createDeferred<MediaStream>();
     useMediaDevices(vi.fn().mockReturnValue(cameraPermission.promise));
@@ -240,12 +240,23 @@ describe("Manual Price Entry journey", () => {
     await act(async () => {
       vi.advanceTimersByTime(1);
     });
+    expect(composer).toHaveClass("is-promoted");
+    expect(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    );
     const amountInput = within(composer).getByRole("textbox", {
       name: /jpy amount/i
     });
     expect(amountInput).toBeInTheDocument();
     expect(amountInput).not.toHaveFocus();
-
     fireEvent.click(
       within(composer).getByRole("button", {
         name: /close manual price entry/i
@@ -290,10 +301,10 @@ describe("Manual Price Entry journey", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       { target: { value: "5,000" } }
     );
-    fireEvent.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
 
     expect(
@@ -318,10 +329,10 @@ describe("Manual Price Entry journey", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       { target: { value: "1e3" } }
     );
-    fireEvent.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
     expect(
       within(composer).getByText(/decimal and grouping separators/i)
@@ -441,9 +452,7 @@ describe("Manual Price Entry journey", () => {
     ).toBeInTheDocument();
 
     await user.type(amountInput, "R$ 12,34");
-    await user.click(
-      screen.getByRole("button", { name: /convert entered price/i })
-    );
+    fireEvent.submit(amountInput.closest("form")!);
 
     const enteredPrice = screen.getByRole("region", {
       name: /entered price/i
@@ -955,11 +964,15 @@ describe("Guest camera journey", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /camera access was denied/i
     );
-    const promotedInput = await screen.findByRole("textbox", {
-      name: /jpy amount/i
+    const promotedComposer = screen.getByRole("region", {
+      name: /manual price entry/i
     });
-    expect(promotedInput).toBeInTheDocument();
-    expect(promotedInput).not.toHaveFocus();
+    expect(promotedComposer).toHaveClass("is-promoted");
+    expect(
+      within(promotedComposer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
 
     await user.click(screen.getByRole("button", { name: /try camera again/i }));
     expect(
@@ -1038,6 +1051,9 @@ describe("Guest camera journey", () => {
     expect(
       screen.getByText(/focused price · jpy 4,142/i)
     ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPriceList = screen.getByRole("list", {
       name: /detected prices/i
     });
@@ -1123,10 +1139,10 @@ describe("Guest camera journey", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       "5,000"
     );
-    await user.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
 
     expect(
@@ -1229,9 +1245,15 @@ describe("Guest camera journey", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /recognition could not start/i
     );
+    const promotedComposer = screen.getByRole("region", {
+      name: /manual price entry/i
+    });
+    expect(promotedComposer).toHaveClass("is-promoted");
     expect(
-      await screen.findByRole("textbox", { name: /jpy amount/i })
-    ).toBeInTheDocument();
+      within(promotedComposer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
     expect(createRecognizer).toHaveBeenCalledOnce();
     expect(
       screen.queryByRole("button", { name: /use no-camera demo/i })
@@ -1436,10 +1458,10 @@ describe("Guest camera journey", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       "5,000"
     );
-    await user.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
     await user.click(
       screen.getByRole("button", {
@@ -1731,6 +1753,9 @@ describe("Guest camera journey", () => {
       name: /recognition summary/i
     });
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
+    await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPriceButtons = within(
       screen.getByRole("list", { name: /detected prices/i })
     ).getAllByRole("button");
@@ -1959,8 +1984,11 @@ describe("Approved Member journey", () => {
     ).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
     expect(
-      within(composer).getByRole("textbox", { name: /jpy amount/i })
-    ).toBeInTheDocument();
+      within(composer).getByRole("button", {
+        name: /open manual price entry/i
+      })
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(composer).toHaveClass("is-promoted");
   });
 
   it("keeps request-only Manual Price Entry collapsed after camera failure", async () => {
@@ -2470,9 +2498,11 @@ describe("Approved Member journey", () => {
     });
     fireEvent.loadedMetadata(video);
 
-    const status = screen.getByRole("status", {
-      name: /price used for conversion/i
-    });
+    const status = await screen.findByRole(
+      "status",
+      { name: /price used for conversion/i },
+      { timeout: 3_000 }
+    );
     await waitFor(
       () => expect(status).toHaveTextContent(/waiting for confirmation/i),
       { timeout: 3_000 }
@@ -2484,6 +2514,9 @@ describe("Approved Member journey", () => {
     );
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
 
+    await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPrices = screen.getByRole("list", {
       name: /detected prices/i
     });

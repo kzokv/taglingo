@@ -199,6 +199,9 @@ describe("Camera Workspace boundary", () => {
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
 
     await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
+    await user.click(
       screen.getByRole("button", { name: /price 2 of 2, jpy 980/i })
     );
     expect(actions.selectPrice).toHaveBeenCalledWith(otherPrice.identity);
@@ -225,10 +228,10 @@ describe("Camera Workspace boundary", () => {
       within(composer).getByRole("textbox", { name: /jpy amount/i }),
       "5,000"
     );
-    await user.click(
-      within(composer).getByRole("button", {
-        name: /convert entered price/i
-      })
+    fireEvent.submit(
+      within(composer)
+        .getByRole("textbox", { name: /jpy amount/i })
+        .closest("form")!
     );
     expect(actions.enterPrice).toHaveBeenCalledWith({
       provenance: "entered",
@@ -419,7 +422,7 @@ describe("Camera Workspace boundary", () => {
     expect(within(conversion).getByText("EUR 24.02")).not.toBeVisible();
 
     await user.click(
-      within(conversion).getByText(/all 3 target currency conversions/i)
+      within(conversion).getByText(/\+2 more target currency conversions/i)
     );
     expect(within(conversion).getByText("TWD 911.24")).toBeVisible();
     expect(within(conversion).getByText("EUR 24.02")).toBeVisible();

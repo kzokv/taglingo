@@ -51,7 +51,7 @@ function CameraStage({
         <strong>{sample}</strong>
         <span>{sourceCurrency}</span>
       </div>
-      <div className="capture-guide">
+      <div className="policy-capture-guide">
         <i />
         <span>{status}</span>
       </div>

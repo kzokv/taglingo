@@ -118,3 +118,26 @@ test("checked-in generated and real-world bytes produce declared browser-local R
     contentType: "application/json"
   });
 });
+
+test("successful browser-local recognition keeps native diagnostics out of console errors", async ({
+  page
+}) => {
+  test.setTimeout(60_000);
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.goto("/e2e/recognition-fixtures.html");
+
+  const result = await page.evaluate(() =>
+    window.recognitionFixtures.run("aud-organic-food-shelf")
+  );
+  expect(
+    result.detectedPrices.map(({ currency, minorUnits }) => ({
+      currency,
+      minorUnits
+    }))
+  ).toContainEqual({ currency: "AUD", minorUnits: 698 });
+  await page.evaluate(() => window.recognitionFixtures.terminate());
+  expect(consoleErrors).toEqual([]);
+});

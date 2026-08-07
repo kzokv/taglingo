@@ -42,6 +42,8 @@ export interface RecognitionRuntimeConfiguration {
 
 const HASHES = {
   worker:
+    "sha256:896f24ab21a898c697cfae2896269210dab0a449721974660863fe1e6d64b85e",
+  workerRuntime:
     "sha256:576b7df7e3393e137e51849357c9adb53fe7ac1bb69bfa06cf3d61520f182c6d",
   core: {
     "tesseract-core-lstm.wasm":
@@ -111,15 +113,21 @@ export const UNIVERSAL_RECOGNITION_RUNTIME: RecognitionRuntimeConfiguration =
       runtimeVersion: "7.0.0",
       delivery: {
         gzipModels: true,
-        workerBlobUrl: false,
+        workerBlobUrl: true,
         cacheMethod: "none"
       },
       languages: UNIVERSAL_LANGUAGES,
       assets: {
         worker: {
-          path: "/ocr/tesseract-7.0.0/worker.min.js",
+          path: "/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js",
           hash: HASHES.worker
         },
+        workerDependencies: [
+          {
+            path: "/ocr/tesseract-7.0.0/worker.min.js",
+            hash: HASHES.workerRuntime
+          }
+        ],
         runtime: {
           basePath: "/ocr/tesseract-core-7.0.0",
           files: TESSERACT_LSTM_RUNTIME_FILE_NAMES.map((fileName) => ({

@@ -90,7 +90,14 @@ describe("installable application metadata", () => {
     await installed;
 
     expect(
-      cachedResponses.has("https://taglingo.test/ocr/tesseract-7.0.0/worker.min.js")
+      cachedResponses.has(
+        "https://taglingo.test/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js"
+      )
+    ).toBe(true);
+    expect(
+      cachedResponses.has(
+        "https://taglingo.test/ocr/tesseract-7.0.0/worker.min.js"
+      )
     ).toBe(true);
     expect(
       cachedResponses.has(
@@ -189,6 +196,14 @@ describe("installable application metadata", () => {
     expect(
       existsSync(resolve(ocrRoot, "tesseract-7.0.0/worker.min.js"))
     ).toBe(true);
+    const workerSourceMapPath = resolve(
+      ocrRoot,
+      "tesseract-7.0.0/worker.min.js.map"
+    );
+    expect(existsSync(workerSourceMapPath)).toBe(true);
+    expect(
+      JSON.parse(readFileSync(workerSourceMapPath, "utf8"))
+    ).toEqual(expect.objectContaining({ version: 3 }));
     expect(
       existsSync(
         resolve(
@@ -216,6 +231,55 @@ describe("installable application metadata", () => {
         expectedHash
       );
     }
+  });
+
+  it("filters only known nonfatal native diagnostics inside the Tesseract worker", () => {
+    const workerSource = readFileSync(
+      resolve(
+        process.cwd(),
+        "public/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js"
+      ),
+      "utf8"
+    );
+    const runtimeMarker = "/* TagLingo Tesseract runtime follows. */";
+    const markerIndex = workerSource.indexOf(runtimeMarker);
+    expect(markerIndex).toBeGreaterThan(0);
+    expect(workerSource).toContain(
+      'self.location.origin + "/ocr/tesseract-7.0.0/worker.min.js"'
+    );
+    expect(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          "public/ocr/tesseract-7.0.0/worker.min.js"
+        ),
+        "utf8"
+      )
+    ).toContain("//# sourceMappingURL=worker.min.js.map");
+
+    const forwardedError = vi.fn();
+    const workerConsole = { error: forwardedError };
+    vm.runInNewContext(workerSource.slice(0, markerIndex), {
+      Set,
+      console: workerConsole
+    });
+
+    workerConsole.error(
+      "Error in boxClipToRectangle: box outside rectangle"
+    );
+    workerConsole.error("Error in pixScanForForeground: invalid box");
+    workerConsole.error("RuntimeError: OCR worker aborted");
+    workerConsole.error(new Error("OCR promise rejected"));
+
+    expect(forwardedError).toHaveBeenCalledTimes(2);
+    expect(forwardedError).toHaveBeenNthCalledWith(
+      1,
+      "RuntimeError: OCR worker aborted"
+    );
+    expect(forwardedError).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ message: "OCR promise rejected" })
+    );
   });
 
   it("self-hosts the pinned PaddleOCR.js worker, WASM runtime, and model archives", () => {
