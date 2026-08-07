@@ -706,6 +706,59 @@ export function CameraWorkspace({
     actions.leaveWorkspace();
   };
 
+  const conversionControls =
+    state.focusedPrice || state.enteredPrice ? (
+      <section
+        className="workspace-conversion-controls"
+        aria-label={
+          state.priceSelection.enteredPriceInUse && state.enteredPrice
+            ? "Entered Price conversion"
+            : "Focused Price conversion"
+        }
+      >
+        <section
+          className="conversion-price-source"
+          role="status"
+          aria-label="Price used for conversion"
+        >
+          <div>
+            <strong>{priceInUse.title}</strong>
+            <p>{priceInUse.detail}</p>
+          </div>
+          {priceInUse.switchLabel ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={priceInUse.onSwitch}
+            >
+              {priceInUse.switchLabel}
+            </button>
+          ) : null}
+        </section>
+        <ConversionLedger
+          price={priceInUse.price}
+          sourceCurrency={state.currencies.sourceCurrency}
+          targetCurrencies={state.currencies.targetCurrencies}
+          isApprovedMember={state.shopperAccess.isApprovedMember}
+          rates={referenceRates}
+          onContinueAsGuest={actions.continueAsGuest}
+          collapsibleReferenceRateDetails
+          compactPrimaryResult
+          onDetailsOpen={() => {
+            setRecognitionStatusOpen(false);
+            closeCurrencyPickers();
+            if (state.manualPriceEntry.expanded)
+              actions.setManualPriceEntryExpanded(false);
+          }}
+        />
+      </section>
+    ) : null;
+  const manualEntryOwnsConversion = Boolean(
+    state.manualPriceEntry.expanded &&
+      state.priceSelection.enteredPriceInUse &&
+      state.enteredPrice
+  );
+
   return (
     <main
       ref={workspaceRef}
@@ -858,52 +911,7 @@ export function CameraWorkspace({
               <RecognitionSummary recognition={recognition} demo={state.demo} />
             </div>
           </div>
-          {state.focusedPrice || state.enteredPrice ? (
-            <section
-              className="workspace-conversion-controls"
-              aria-label={
-                state.priceSelection.enteredPriceInUse && state.enteredPrice
-                  ? "Entered Price conversion"
-                  : "Focused Price conversion"
-              }
-            >
-            <section
-              className="conversion-price-source"
-              role="status"
-              aria-label="Price used for conversion"
-            >
-              <div>
-                <strong>{priceInUse.title}</strong>
-                <p>{priceInUse.detail}</p>
-              </div>
-              {priceInUse.switchLabel ? (
-                <button
-                  className="text-button"
-                  type="button"
-                  onClick={priceInUse.onSwitch}
-                >
-                  {priceInUse.switchLabel}
-                </button>
-              ) : null}
-            </section>
-            <ConversionLedger
-              price={priceInUse.price}
-              sourceCurrency={state.currencies.sourceCurrency}
-              targetCurrencies={state.currencies.targetCurrencies}
-              isApprovedMember={state.shopperAccess.isApprovedMember}
-              rates={referenceRates}
-              onContinueAsGuest={actions.continueAsGuest}
-              collapsibleReferenceRateDetails
-              compactPrimaryResult
-              onDetailsOpen={() => {
-                setRecognitionStatusOpen(false);
-                closeCurrencyPickers();
-                if (state.manualPriceEntry.expanded)
-                  actions.setManualPriceEntryExpanded(false);
-              }}
-            />
-            </section>
-          ) : null}
+          {manualEntryOwnsConversion ? null : conversionControls}
         </div>
         <div className="privacy-chip">
           <span aria-hidden="true">●</span> Local preview
@@ -932,6 +940,7 @@ export function CameraWorkspace({
           }}
           promoted={state.manualPriceEntry.wasPromoted}
         />
+        {manualEntryOwnsConversion ? conversionControls : null}
         </section>
 
         <aside

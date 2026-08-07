@@ -2574,6 +2574,16 @@ button.focus-target {
     white-space: nowrap;
   }
 
+  .camera-shell .result-sheet .workspace-conversion-controls {
+    position: static;
+    inset: auto;
+    width: 100%;
+    min-height: 0;
+    margin: 8px 0 0;
+    padding: 8px;
+    overflow: visible;
+  }
+
   .camera-shell .detected-prices-rail {
     --detected-prices-resting-translate-y: -50%;
     top: 50%;

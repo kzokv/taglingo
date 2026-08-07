@@ -998,6 +998,42 @@ test("recognition failure stays compact and keeps Manual Price Entry opt-in", as
   ).toHaveCount(0);
 });
 
+test("an expanded Manual Price Entry keeps its entered conversion visible and operable", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/e2e/harness.html?workspace=responsive");
+
+  await page
+    .getByRole("button", { name: /open manual price entry/i })
+    .click();
+  await page.getByRole("textbox", { name: /jpy amount/i }).fill("6980");
+
+  const conversion = page.getByRole("region", {
+    name: /entered price conversion/i
+  });
+  const sheet = page.getByRole("group", {
+    name: /manual price entry sheet/i
+  });
+  await expect(conversion).toBeVisible();
+  await expect(conversion).toContainText(/usd 46\.85/i);
+
+  const [conversionBox, sheetBox] = await Promise.all([
+    conversion.boundingBox(),
+    sheet.boundingBox()
+  ]);
+  expect(conversionBox).not.toBeNull();
+  expect(sheetBox).not.toBeNull();
+  await expect(
+    sheet.getByRole("region", { name: /entered price conversion/i })
+  ).toBeVisible();
+  expect(conversionBox!.y).toBeGreaterThanOrEqual(sheetBox!.y);
+  expect(conversionBox!.y + conversionBox!.height).toBeLessThanOrEqual(
+    sheetBox!.y + sheetBox!.height + 1
+  );
+  await expectCenterOwnedBy(page, conversion, conversion);
+});
+
 test("currency search owns the keyboard-reduced viewport above Manual Price Entry", async ({
   page
 }) => {
