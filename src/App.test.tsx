@@ -1051,6 +1051,9 @@ describe("Guest camera journey", () => {
     expect(
       screen.getByText(/focused price · jpy 4,142/i)
     ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPriceList = screen.getByRole("list", {
       name: /detected prices/i
     });
@@ -1750,6 +1753,9 @@ describe("Guest camera journey", () => {
       name: /recognition summary/i
     });
     expect(recognitionSummary).toHaveTextContent(/Focused Price · JPY 4,142/i);
+    await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPriceButtons = within(
       screen.getByRole("list", { name: /detected prices/i })
     ).getAllByRole("button");
@@ -2508,6 +2514,9 @@ describe("Approved Member journey", () => {
     );
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
 
+    await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
     const detectedPrices = screen.getByRole("list", {
       name: /detected prices/i
     });

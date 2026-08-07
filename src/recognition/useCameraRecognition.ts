@@ -236,13 +236,9 @@ export function useCameraRecognition({
       const nextExpiry = Math.min(
         ...snapshot.candidateOutlines.map(({ expiresAtMs }) => expiresAtMs)
       );
-      if (!Number.isFinite(nextExpiry)) {
-        return;
-      }
+      if (!Number.isFinite(nextExpiry)) return;
       candidateExpiryTimer = setTimeout(() => {
-        if (!active) {
-          return;
-        }
+        if (!active) return;
         const expiredSnapshot = tracker.advanceTime(performance.now());
         const phase = phaseFor(expiredSnapshot);
         scheduler.setState(phase, expiredSnapshot.corroborationKind);
@@ -337,6 +333,7 @@ export function useCameraRecognition({
         };
       },
       async runPass(captured, request) {
+        tracker.beginObservation(request.frameIdentity);
         const candidates = await preparation.run((recognizer) =>
           recognizePriceEvidence(
             runtime,
@@ -376,7 +373,7 @@ export function useCameraRecognition({
             kind: request.kind,
             candidates: completed.candidates,
             coverage: completed.coverage,
-            observedAtMs: request.capturedAtMs
+            observedAtMs: performance.now()
           },
           completed.captureGuide
         );
@@ -413,7 +410,12 @@ export function useCameraRecognition({
       onError() {
         if (active) {
           scheduler.dispose();
-          setRecognition((current) => ({ ...current, phase: "error" }));
+          clearCandidateExpiryTimer();
+          setRecognition((current) => ({
+            ...current,
+            phase: "error",
+            candidateOutlines: []
+          }));
         }
       }
     });

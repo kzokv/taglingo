@@ -22,6 +22,7 @@ export interface TesseractRecognizerConfiguration {
   readonly languages: readonly string[];
   readonly assets: {
     readonly worker: RecognitionAsset;
+    readonly workerDependencies?: readonly RecognitionAsset[];
     readonly runtime: {
       readonly basePath: `/${string}`;
       readonly files: readonly RecognitionAsset[];
@@ -98,6 +99,9 @@ export function recognizerAssets(
 ): readonly RecognitionAsset[] {
   return [
     configuration.assets.worker,
+    ...(configuration.engine === "tesseract.js"
+      ? (configuration.assets.workerDependencies ?? [])
+      : []),
     ...configuration.assets.runtime.files,
     ...configuration.assets.models
   ];

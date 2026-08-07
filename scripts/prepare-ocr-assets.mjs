@@ -1,4 +1,9 @@
-import { copyFile, mkdir, readdir } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  writeFile
+} from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = process.cwd();
@@ -10,10 +15,37 @@ await Promise.all([
   mkdir(coreTarget, { recursive: true })
 ]);
 
+const workerDiagnosticGuard = `(() => {
+  const knownNonfatalDiagnostics = new Set([
+    "Error in boxClipToRectangle: box outside rectangle",
+    "Error in pixScanForForeground: invalid box"
+  ]);
+  const reportNativeError = console.error.bind(console);
+  console.error = (...args) => {
+    if (
+      args.length === 1 &&
+      typeof args[0] === "string" &&
+      knownNonfatalDiagnostics.has(args[0])
+    ) {
+      return;
+    }
+    reportNativeError(...args);
+  };
+})();
+/* TagLingo Tesseract runtime follows. */
+importScripts(
+  self.location.origin + "/ocr/tesseract-7.0.0/worker.min.js"
+);
+`;
+
 await Promise.all([
   copyFile(
     resolve(root, "node_modules/tesseract.js/dist/worker.min.js"),
     resolve(workerTarget, "worker.min.js")
+  ),
+  writeFile(
+    resolve(workerTarget, "worker.taglingo.v1.min.js"),
+    workerDiagnosticGuard
   ),
   copyFile(
     resolve(root, "node_modules/tesseract.js/dist/worker.min.js.LICENSE.txt"),

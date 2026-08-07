@@ -199,6 +199,9 @@ describe("Camera Workspace boundary", () => {
     expect(screen.getByText("USD 27.80")).toBeInTheDocument();
 
     await user.click(
+      screen.getByRole("button", { name: /show detected price controls/i })
+    );
+    await user.click(
       screen.getByRole("button", { name: /price 2 of 2, jpy 980/i })
     );
     expect(actions.selectPrice).toHaveBeenCalledWith(otherPrice.identity);

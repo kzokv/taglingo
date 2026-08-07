@@ -17,7 +17,7 @@ describe("universal Recognition Runtime", () => {
       "kor"
     ]);
     expect(recognitionRuntimeAssets(UNIVERSAL_RECOGNITION_RUNTIME)).toHaveLength(
-      12
+      13
     );
     for (const asset of recognitionRuntimeAssets(
       UNIVERSAL_RECOGNITION_RUNTIME

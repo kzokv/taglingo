@@ -61,7 +61,7 @@ describe("Recognizer Adapter", () => {
       ["eng", "jpn", "chi_sim", "chi_tra", "kor"],
       expect.anything(),
       expect.objectContaining({
-        workerPath: "/ocr/tesseract-7.0.0/worker.min.js",
+        workerPath: "/ocr/tesseract-7.0.0/worker.taglingo.v1.min.js",
         corePath: "/ocr/tesseract-core-7.0.0",
         langPath: "/ocr/tessdata_fast-4.1.0",
         gzip: true,

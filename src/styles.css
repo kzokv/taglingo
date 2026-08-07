@@ -1499,9 +1499,14 @@ button.focus-target {
 
 .detected-prices-drag-handle {
   display: grid;
+  width: auto;
   height: 24px;
   margin: -4px -6px 2px;
+  padding: 0;
+  border: 0;
   place-items: center;
+  background: transparent;
+  color: inherit;
   cursor: grab;
   touch-action: none;
 }
@@ -2644,7 +2649,10 @@ button.focus-target {
     min-height: 44px;
     margin-top: 5px;
     padding: 4px;
+    overflow: hidden;
     font-size: 0.55rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .camera-shell .expand-detected-prices-full {

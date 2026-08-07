@@ -27,9 +27,9 @@ interface DetectedPricesRailPresentation {
 }
 
 const DETECTED_PRICES_RAIL_PRESENTATION_KEY =
-  "taglingo.detected-prices-rail-presentation.v1";
+  "taglingo.detected-prices-rail-presentation.v2";
 const DEFAULT_RAIL_PRESENTATION: DetectedPricesRailPresentation = {
-  collapsed: false,
+  collapsed: true,
   offset: { x: 0, y: 0 }
 };
 
@@ -542,7 +542,7 @@ export function AccessibleDetectedPriceList({
     if (dismissModal) closeModal();
   };
 
-  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const rail = railRef.current;
     const preview = rail?.parentElement;
     if (!rail || !preview) return;
@@ -557,7 +557,7 @@ export function AccessibleDetectedPriceList({
       previewBounds: preview.getBoundingClientRect()
     };
   };
-  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const requestedX = event.clientX - current.startX;
@@ -573,10 +573,31 @@ export function AccessibleDetectedPriceList({
         current.originY + Math.min(maxY, Math.max(minY, requestedY))
     });
   };
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return;
     drag.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  const nudgeRail = (x: number, y: number) => {
+    const rail = railRef.current;
+    const preview = rail?.parentElement;
+    if (!rail || !preview) return;
+    const railBounds = rail.getBoundingClientRect();
+    const previewBounds = preview.getBoundingClientRect();
+    const constrainedX = Math.min(
+      previewBounds.right - railBounds.right,
+      Math.max(previewBounds.left - railBounds.left, x)
+    );
+    const constrainedY = Math.min(
+      previewBounds.bottom - railBounds.bottom,
+      Math.max(previewBounds.top - railBounds.top, y)
+    );
+    setRailOffset((offset) => ({
+      x: offset.x + constrainedX,
+      y: offset.y + constrainedY
+    }));
   };
   const trapDialogFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -599,25 +620,6 @@ export function AccessibleDetectedPriceList({
       first.focus();
     }
   };
-
-  if (detectedPrices.length === 0) {
-    return (
-      <>
-        <div
-          className="visually-hidden"
-          role="status"
-          aria-label="Detected Price updates"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {announcement}
-        </div>
-        <h2 ref={headingRef} className="visually-hidden" tabIndex={-1}>
-          Detected Prices — none available
-        </h2>
-      </>
-    );
-  }
 
   const modal = isModalOpen
     ? createPortal(
@@ -704,17 +706,35 @@ export function AccessibleDetectedPriceList({
         }}
         aria-label="Detected Prices rail"
       >
-        <div
+        <button
+          type="button"
           className="detected-prices-drag-handle"
           data-detected-prices-drag-handle=""
-          aria-hidden="true"
+          aria-label="Drag Detected Prices. Arrow keys also move it; double tap resets it."
+          aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
           onPointerDown={startDrag}
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onLostPointerCapture={() => {
+            drag.current = null;
+          }}
+          onDoubleClick={() => setRailOffset({ x: 0, y: 0 })}
+          onKeyDown={(event) => {
+            const movement: Record<string, [number, number]> = {
+              ArrowUp: [0, -12],
+              ArrowDown: [0, 12],
+              ArrowLeft: [-12, 0],
+              ArrowRight: [12, 0]
+            };
+            const next = movement[event.key];
+            if (!next) return;
+            event.preventDefault();
+            nudgeRail(...next);
+          }}
         >
-          <span />
-        </div>
+          <span aria-hidden="true" />
+        </button>
         <div className="detected-prices-rail-heading">
           <div>
             <h2 id={headingId} ref={headingRef} tabIndex={-1}>

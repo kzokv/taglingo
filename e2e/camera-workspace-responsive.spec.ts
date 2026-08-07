@@ -195,6 +195,100 @@ test("mobile renders four distinct L-shaped Capture Guide corners", async ({
   expect(new Set(geometry.map(({ position }) => position)).size).toBe(4);
 });
 
+test("mobile retains a collapsed draggable Detected Prices rail before the first detection", async ({
+  page
+}) => {
+  await installDeterministicCamera(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /open camera/i }).click();
+
+  const rail = page.getByRole("region", { name: /detected prices rail/i });
+  await expect(rail).toBeVisible();
+  await expect(rail).toContainText(/0 detected prices/i);
+  await expect(rail).toContainText(/focused\s+none/i);
+  await expect(
+    rail.getByRole("button", { name: /show detected price controls/i })
+  ).toHaveAttribute("aria-expanded", "false");
+  await rail
+    .getByRole("button", { name: /show detected price controls/i })
+    .click();
+  await expect(
+    rail.getByRole("button", { name: /collapse detected prices rail/i })
+  ).toHaveAttribute("aria-expanded", "true");
+
+  const dragHandle = rail.getByRole("button", {
+    name: /drag detected prices/i
+  });
+  await expect(dragHandle).toHaveAttribute(
+    "aria-keyshortcuts",
+    "ArrowUp ArrowDown ArrowLeft ArrowRight"
+  );
+  const restingTransform = await rail.evaluate(
+    (element) => getComputedStyle(element).transform
+  );
+  const handleBox = await dragHandle.boundingBox();
+  expect(handleBox).not.toBeNull();
+  await page.mouse.move(
+    handleBox!.x + handleBox!.width / 2,
+    handleBox!.y + handleBox!.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    handleBox!.x + handleBox!.width / 2 + 18,
+    handleBox!.y + handleBox!.height / 2 + 18,
+    { steps: 3 }
+  );
+  await page.mouse.up();
+  const pointerMovedTransform = await rail.evaluate(
+    (element) => getComputedStyle(element).transform
+  );
+  expect(pointerMovedTransform).not.toBe(restingTransform);
+  await dragHandle.press("ArrowRight");
+  const movedTransform = await rail.evaluate(
+    (element) => getComputedStyle(element).transform
+  );
+  expect(movedTransform).not.toBe(restingTransform);
+
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(
+    page
+      .getByRole("region", { name: /detected prices rail/i })
+      .getByRole("button", { name: /collapse detected prices rail/i })
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() =>
+      page
+        .getByRole("region", { name: /detected prices rail/i })
+        .evaluate((element) => getComputedStyle(element).transform)
+    )
+    .toBe(movedTransform);
+
+  await page
+    .getByRole("button", { name: /drag detected prices/i })
+    .dblclick();
+  await expect
+    .poll(() =>
+      page
+        .getByRole("region", { name: /detected prices rail/i })
+        .evaluate((element) => getComputedStyle(element).transform)
+    )
+    .toBe(restingTransform);
+
+  await page
+    .getByRole("region", { name: /detected prices rail/i })
+    .getByRole("button", { name: /collapse detected prices rail/i })
+    .click();
+  await page.getByRole("button", { name: /close camera/i }).click();
+  await page.getByRole("button", { name: /open camera/i }).click();
+  await expect(
+    page
+      .getByRole("region", { name: /detected prices rail/i })
+      .getByRole("button", { name: /show detected price controls/i })
+  ).toHaveAttribute("aria-expanded", "false");
+});
+
 test("320×568 resting workspace exposes every primary edge control without document scrolling", async ({
   page
 }) => {
@@ -218,17 +312,17 @@ test("320×568 resting workspace exposes every primary edge control without docu
   await expect(rail).toContainText(/focused.*jpy.*4,142/i);
   await expectNoInternalHorizontalOverflow(rail);
   const dragHandle = rail.locator("[data-detected-prices-drag-handle]");
-  const collapseRail = rail.getByRole("button", {
-    name: /collapse detected prices rail/i
-  });
-  await expect(dragHandle).toBeVisible();
-  await expect(collapseRail).toBeVisible();
-  await collapseRail.click();
   const showRail = rail.getByRole("button", {
     name: /show detected price controls/i
   });
+  await expect(dragHandle).toBeVisible();
   await expect(showRail).toHaveAttribute("aria-expanded", "false");
   await showRail.click();
+  const collapseRail = rail.getByRole("button", {
+    name: /collapse detected prices rail/i
+  });
+  await expect(collapseRail).toBeVisible();
+  await collapseRail.click();
   await expect(
     preview.getByRole("region", { name: /focused price conversion/i })
   ).toContainText("USD 27.80");
@@ -574,9 +668,17 @@ test("modern portrait remains preview-dominant while compact portrait and landsc
   await expect(
     page.getByRole("button", { name: /source currency: jpy/i })
   ).toContainText("Japanese Yen");
+  await page
+    .getByRole("region", { name: /detected prices rail/i })
+    .getByRole("button", { name: /show detected price controls/i })
+    .click();
   await expect(
     page.getByRole("list", { name: /detected prices/i })
   ).toBeVisible();
+  await page
+    .getByRole("region", { name: /detected prices rail/i })
+    .getByRole("button", { name: /collapse detected prices rail/i })
+    .click();
   await expect(page.getByText(/about this estimate/i)).toBeHidden();
   await expect(page.getByText("USD 27.80")).toBeVisible();
 
@@ -617,7 +719,7 @@ test("modern portrait remains preview-dominant while compact portrait and landsc
     }
     const rail = page.getByRole("region", { name: /detected prices rail/i });
     await expect(
-      rail.getByRole("button", { name: /collapse detected prices rail/i })
+      rail.getByRole("button", { name: /show detected price controls/i })
     ).toBeVisible();
     await expect(
       rail.locator("[data-detected-prices-drag-handle]")
@@ -667,6 +769,9 @@ test("visual viewport, browser chrome, and rotation recenter the guide without r
   await page.goto("/e2e/harness.html?workspace=currencies");
 
   const rail = page.getByRole("region", { name: /detected prices rail/i });
+  await rail
+    .getByRole("button", { name: /show detected price controls/i })
+    .click();
   await rail
     .getByRole("button", { name: /price 2 of 2, jpy 980/i })
     .click();
@@ -876,7 +981,12 @@ test("recognition failure stays compact and keeps Manual Price Entry opt-in", as
   ).toContainText(/recognition could not start/i);
   await expect(
     page.getByRole("region", { name: /detected prices rail/i })
-  ).toHaveCount(0);
+  ).toContainText(/0 detected prices/i);
+  await expect(
+    page
+      .getByRole("region", { name: /detected prices rail/i })
+      .getByRole("button", { name: /show detected price controls/i })
+  ).toHaveAttribute("aria-expanded", "false");
   await expect(
     page.getByRole("region", { name: /focused price conversion/i })
   ).toHaveCount(0);
